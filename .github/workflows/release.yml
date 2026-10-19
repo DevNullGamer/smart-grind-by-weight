@@ -144,7 +144,7 @@ jobs:
           ## Installation
 
           ### Web Installer (Recommended)
-          Visit [Web Installer](https://jaapp.github.io/smart-grind-by-weight/) and select firmware version ${{ github.ref_name }} for your Waveshare V1 or V2 board revision.
+          Visit [Web Installer](https://devnullgamer.github.io/smart-grind-by-weight/) and select firmware version ${{ github.ref_name }} for your Waveshare V1 or V2 board revision.
 
           **Note:** Requires Chrome/Edge (desktop or Android). iOS/Safari not supported.
 

@@ -2,7 +2,7 @@
 
 This guide is for developers who want to build the Smart Grind-by-Weight firmware from source, contribute to the project, or modify the code for their own use.
 
-**End users:** If you just want to use the device, download pre-built firmware from [Releases](https://github.com/jaapp/smart-grind-by-weight/releases) instead.
+**End users:** If you just want to use the device, download pre-built firmware from [Releases](https://github.com/DevNullGamer/smart-grind-by-weight/releases) instead.
 
 ---
 
@@ -19,7 +19,7 @@ This guide is for developers who want to build the Smart Grind-by-Weight firmwar
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/jaapp/smart-grind-by-weight.git
+   git clone https://github.com/DevNullGamer/smart-grind-by-weight.git
    cd smart-grind-by-weight
    ```
 
