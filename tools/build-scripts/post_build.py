@@ -43,8 +43,9 @@ def archive_firmware(source, target, env):
         print(f"❌ Firmware binary not found: {firmware_path}")
         return
     
-    # Set up cache directory
-    cache_dir = os.path.join(project_dir, "firmware_cache")
+    # Cache per PlatformIO env so V1/V2 builds with the same build number never collide
+    # (delta OTA patches must only be made against a base from the same env)
+    cache_dir = os.path.join(project_dir, "firmware_cache", pioenv)
     
     # Get build number and firmware info
     build_number = get_build_number(env)

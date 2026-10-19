@@ -15,7 +15,7 @@ python3 tools/grinder.py analyze
 ```
 
 **Common Commands:**
-- `python3 tools/grinder.py build` - Build firmware only
+- `python3 tools/grinder.py build` - Build firmware only (`--variant v2` for the V2 hardware; also on `upload`/`build-upload`; V1 and V2 images are not interchangeable)
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
 - `python3 tools/grinder.py export` - Export grind data to database
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data

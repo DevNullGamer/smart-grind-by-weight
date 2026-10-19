@@ -63,6 +63,8 @@ Four conductors exit the power board via a keyed plug. Colors refer to the inspe
 | White | Relay control signal | Routed to Q1 base network |
 | Gray | Front button signal | Momentary switch pulls Gray to Red (low-active) |
 
+> **Warning: wire colours differ between machines.** The colours above describe one inspected unit only. Other grinder models and production revisions use different colours, and the Waveshare V2 build verified a unit where the grey wire on plug Pin 3 was the motor control and the white wire on Pin 2 was the unused button lead. Treat the plug pin position and a multimeter check as authoritative, not the colour. Identify the motor control lead on your own machine before connecting anything to the Waveshare board; see [Troubleshooting](TROUBLESHOOTING.md) for how to identify the correct Pin 3 lead.
+
 ## Component Callouts
 
 - Transformer marking: “230 V → 9 V AC” encapsulated block, mounted near mains inlet.

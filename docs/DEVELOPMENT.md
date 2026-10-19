@@ -97,7 +97,7 @@ python3 tools/grinder.py build
 
 **Build V2 production firmware:**
 ```bash
-python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-v2
+python3 tools/grinder.py build --variant v2
 ```
 
 **Build debug firmware:**
@@ -142,6 +142,10 @@ Once the device is running and connected to Bluetooth:
 # Build and upload wirelessly (production)
 python3 tools/grinder.py build-upload
 
+# V2 hardware revision (V1 and V2 images are not interchangeable: wrong image = black screen)
+python3 tools/grinder.py build-upload --variant v2
+python3 tools/grinder.py upload --variant v2     # upload the existing V2 build
+
 # Upload specific firmware file
 python3 tools/grinder.py upload path/to/smart-grind-by-weight-vX.X.X.bin
 
@@ -154,6 +158,8 @@ python3 tools/grinder.py scan
 # Get device system info
 python3 tools/grinder.py info
 ```
+
+Delta updates use `firmware_cache/<env>/build_NNN.bin` as the base, so V1 and V2 builds never mix. Old flat `firmware_cache/build_NNN.bin` files are still used for V1 only; if the variant cannot be determined, a full update is sent.
 
 ---
 
