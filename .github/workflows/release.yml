@@ -33,21 +33,29 @@ jobs:
           # Use platformio directly like local development to ensure identical build
           # Install dependencies first to ensure exact versions
           pio pkg install
+
+          # PlatformIO wipes the other env's .pio/build dir when building the next env,
+          # so copy each env's binaries into release-artifacts/ right after its build.
+          set -e
+          VERSION=${{ github.ref_name }}
+          mkdir -p release-artifacts
+
           pio run -e waveshare-esp32s3-touch-amoled-164
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}.bin
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-bootloader.bin
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-partitions.bin
+
           pio run -e waveshare-esp32s3-touch-amoled-164-v2
-        
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2.bin
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-bootloader.bin
+          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-partitions.bin
+
       - name: Prepare release artifacts
         run: |
           mkdir -p release-artifacts
           VERSION=${{ github.ref_name }}
 
-          # Copy firmware binaries with versioned names
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-bootloader.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-partitions.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-bootloader.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-partitions.bin
+          # Firmware binaries were already copied (with versioned names) in the Build firmware step
 
           # Create blank 8KB NVS partition file (0xe000 to 0x10000)
           dd if=/dev/zero of=release-artifacts/blank_8KB.bin bs=8192 count=1
