@@ -12,6 +12,16 @@ DisplayManager* g_display_manager = nullptr;
 namespace {
 constexpr spi_host_device_t kDisplaySpiHost = SPI2_HOST;
 
+// Largest single SPI transfer: one staging chunk or one internal-buffer strip.
+// Keeping this small (instead of a full frame) keeps the DMA descriptor
+// allocation in scarce internal RAM minimal.
+constexpr uint32_t kMaxTransferRows = HW_DISPLAY_STAGING_ROWS > HW_DISPLAY_DRAW_BUF_ROWS_INTERNAL
+                                          ? HW_DISPLAY_STAGING_ROWS : HW_DISPLAY_DRAW_BUF_ROWS_INTERNAL;
+constexpr size_t kMaxTransferBytes = HW_DISPLAY_WIDTH_PX * sizeof(uint16_t) * kMaxTransferRows;
+
+volatile uint32_t g_te_edge_count = 0;
+void IRAM_ATTR te_edge_isr() { g_te_edge_count = g_te_edge_count + 1; }
+
 static const uint8_t kCmdC4[] = {0x80};
 static const uint8_t kCmd35[] = {0x00};
 static const uint8_t kCmd53[] = {0x20};
@@ -33,11 +43,11 @@ static const sh8601_lcd_init_cmd_t kPanelInitCommands[] = {
 // Brings up the QSPI bus, panel IO and SH8601 panel. Both board revisions use
 // this path; only CS pin, X offset and QSPI clock differ (see board()).
 // On failure everything created so far is released.
-bool DisplayManager::init_panel() {
+bool DisplayManager::init_panel(int8_t cs_pin) {
     spi_bus_config_t bus_config = SH8601_PANEL_BUS_QSPI_CONFIG(
         HW_DISPLAY_SCK_PIN, HW_DISPLAY_D0_PIN, HW_DISPLAY_D1_PIN,
         HW_DISPLAY_D2_PIN, HW_DISPLAY_D3_PIN,
-        HW_DISPLAY_WIDTH_PX * HW_DISPLAY_HEIGHT_PX * sizeof(uint16_t));
+        kMaxTransferBytes);
     esp_err_t err = spi_bus_initialize(kDisplaySpiHost, &bus_config, SPI_DMA_CH_AUTO);
     if (err != ESP_OK) {
         LOG_BLE("[DISPLAY] ERROR: spi_bus_initialize failed: %s\n", esp_err_to_name(err));
@@ -45,7 +55,7 @@ bool DisplayManager::init_panel() {
     }
 
     esp_lcd_panel_io_spi_config_t io_config =
-        SH8601_PANEL_IO_QSPI_CONFIG(board().display_cs_pin, color_transfer_done_cb, this);
+        SH8601_PANEL_IO_QSPI_CONFIG(cs_pin, color_transfer_done_cb, this);
     io_config.pclk_hz = board().qspi_hz;
     err = esp_lcd_new_panel_io_spi(
         static_cast<esp_lcd_spi_bus_handle_t>(kDisplaySpiHost), &io_config, &panel_io);
@@ -110,10 +120,26 @@ void DisplayManager::release_panel() {
     free_staging();
 }
 
+int DisplayManager::probe_te_edges(int8_t cs_pin, uint8_t te_pin, uint32_t window_ms) {
+    DisplayManager probe;
+    if (!probe.init_panel(cs_pin)) {
+        return -1;
+    }
+    pinMode(te_pin, INPUT);
+    g_te_edge_count = 0;
+    attachInterrupt(te_pin, te_edge_isr, CHANGE);
+    delay(window_ms);
+    detachInterrupt(te_pin);
+    const int edges = static_cast<int>(g_te_edge_count);
+    probe.release_panel();
+    return edges;
+}
+
 // Allocates the transfer-done semaphore and two internal DMA staging buffers.
 // The row count starts at HW_DISPLAY_STAGING_ROWS and halves on allocation
 // failure down to HW_DISPLAY_STAGING_MIN_ROWS. Returns false (nothing held) on failure.
 bool DisplayManager::alloc_staging() {
+    transfer_pending = false;
     transfer_done_sem = xSemaphoreCreateBinary();
     if (!transfer_done_sem) {
         LOG_BLE("[DISPLAY] ERROR: Failed to create transfer semaphore\n");
@@ -146,6 +172,7 @@ void DisplayManager::free_staging() {
         }
     }
     staging_rows = 0;
+    transfer_pending = false;
     if (transfer_done_sem) {
         vSemaphoreDelete(transfer_done_sem);
         transfer_done_sem = nullptr;
@@ -156,7 +183,7 @@ void DisplayManager::init() {
     g_display_manager = this;
     initialized = false;
 
-    if (!init_panel()) {
+    if (!init_panel(board().display_cs_pin)) {
         return;
     }
 
@@ -265,13 +292,25 @@ void DisplayManager::display_flush_cb(lv_display_t* disp, const lv_area_t* area,
 // chunk N is on the wire, chunk N+1 is copied into the other buffer; only one
 // transfer is ever queued at a time. lv_display_flush_ready is called once, after
 // the last chunk completes or on the first error (remaining chunks are dropped).
+// A transfer that times out may still be reading a staging buffer, so it is kept
+// as transfer_pending and awaited before the buffers are touched again; if it
+// never completes, strips are dropped rather than overwriting DMA source memory.
 void DisplayManager::flush_staged(lv_display_t* disp, const lv_area_t* area, const uint8_t* px_map) {
     const size_t row_bytes = (area->x2 - area->x1 + 1) * sizeof(uint16_t);
     const TickType_t timeout = pdMS_TO_TICKS(HW_DISPLAY_STAGING_TIMEOUT_MS);
+
+    if (transfer_pending) {
+        if (xSemaphoreTake(transfer_done_sem, timeout) != pdTRUE) {
+            LOG_BLE("[DISPLAY] ERROR: earlier strip transfer still outstanding, dropping strip\n");
+            lv_display_flush_ready(disp);
+            return;
+        }
+        transfer_pending = false;
+    }
+    xSemaphoreTake(transfer_done_sem, 0); // drop any stale completion (e.g. from a failed draw_bitmap)
+
     bool in_flight = false;
     bool ok = true;
-
-    xSemaphoreTake(transfer_done_sem, 0); // drop any stale completion from an aborted strip
     for (int32_t y = area->y1, chunk = 0; y <= area->y2 && ok; y += staging_rows, chunk++) {
         const uint32_t rows = (area->y2 - y + 1 < static_cast<int32_t>(staging_rows))
                                   ? (area->y2 - y + 1) : staging_rows;
@@ -279,12 +318,14 @@ void DisplayManager::flush_staged(lv_display_t* disp, const lv_area_t* area, con
         memcpy(staging, px_map + static_cast<size_t>(y - area->y1) * row_bytes, rows * row_bytes);
 
         if (in_flight) {
-            in_flight = false;
             if (xSemaphoreTake(transfer_done_sem, timeout) != pdTRUE) {
                 LOG_BLE("[DISPLAY] ERROR: strip transfer timed out (y=%d)\n", static_cast<int>(y));
+                transfer_pending = true;
+                in_flight = false;
                 ok = false;
                 break;
             }
+            in_flight = false;
         }
         esp_err_t result = esp_lcd_panel_draw_bitmap(
             panel_handle,
@@ -300,6 +341,7 @@ void DisplayManager::flush_staged(lv_display_t* disp, const lv_area_t* area, con
     }
     if (in_flight && xSemaphoreTake(transfer_done_sem, timeout) != pdTRUE) {
         LOG_BLE("[DISPLAY] ERROR: final strip transfer timed out\n");
+        transfer_pending = true;
     }
     lv_display_flush_ready(disp);
 }

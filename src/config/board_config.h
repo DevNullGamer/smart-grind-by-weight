@@ -7,9 +7,8 @@
 //==============================================================================
 // Describes the pins and display parameters that differ between hardware
 // revisions of the Waveshare 1.64" AMOLED board. The active configuration is
-// read through board(); it starts as the compile-time default selected with
-// -DBOARD_DEFAULT_VARIANT (1 = V1, 2 = V2) and may be replaced at runtime via
-// board_set(). Implementation: src/hardware/board_config.cpp
+// read through board(); it starts as a motor-less default and is replaced by
+// board detection via board_set(). Implementation: src/hardware/board_config.cpp
 
 enum class BoardVariant : uint8_t { UNKNOWN, V1, V2 };
 
@@ -35,6 +34,15 @@ struct BoardConfig {
         }
     }
 };
+
+// Minimum TE edges (both polarities) in the counting window to accept a V2 panel
+// (~60 Hz TE seen on V2 = ~12 edges per 100 ms; 0 on V1).
+#define BOARD_TE_MIN_EDGES 6
+
+// Build the configuration for a variant. The motor pin is only populated when
+// the variant was established by PROBE or USER; UNKNOWN/CACHED/default sources
+// get no motor. UNKNOWN uses V1 display and load cell pins (display only).
+BoardConfig board_config_for(BoardVariant variant, BoardSource source);
 
 // Active board configuration (never null, always safe to call).
 const BoardConfig& board();

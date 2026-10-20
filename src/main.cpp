@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>
+#include "hardware/board_detect.h"
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
@@ -32,6 +34,9 @@ static uint32_t core1_last_heartbeat_time = 0;
 #endif
 
 void setup() {
+    // Before anything else: motor pins to a safe state while the board is unknown
+    board_park_pins();
+
     Serial.begin(HW_SERIAL_BAUD_RATE);
 #ifdef UI_DEBUG_SERIAL_DELAY_MS
     delay(UI_DEBUG_SERIAL_DELAY_MS);
@@ -58,6 +63,8 @@ void setup() {
     
     // Early startup heartbeat - helps capture initialization sequence
     LOG_BLE("[STARTUP] Initializing ESP32-S3 Coffee Scale - Build %d - Core1 active\n", BUILD_NUMBER);
+    // Must run before display init and before any task starts
+    detect_board();
     LOG_BLE("[STARTUP] Board: %s (CS %d, HX711 SCK %d, motor %d)\n",
             board().name(), board().display_cs_pin, board().loadcell_sck_pin, board().motor_pin);
     
@@ -69,6 +76,8 @@ void setup() {
     }
     
     hardware_manager.init();
+    LOG_BLE("[STARTUP] Free internal heap after hardware init: %u bytes\n",
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     profile_controller.init(hardware_manager.get_preferences());
     statistics_manager.init(hardware_manager.get_preferences());
     grind_controller.init(hardware_manager.get_load_cell(), hardware_manager.get_grinder(), hardware_manager.get_preferences());

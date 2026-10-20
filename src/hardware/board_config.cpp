@@ -1,8 +1,4 @@
-#include "../config/constants.h"
-
-#ifndef BOARD_DEFAULT_VARIANT
-#define BOARD_DEFAULT_VARIANT 1
-#endif
+#include "../config/board_config.h"
 
 namespace {
 
@@ -22,13 +18,30 @@ constexpr BoardConfig kBoardV2 = {
     /*display_x_offset_px*/ 20,
     /*qspi_hz*/ 40000000};
 
-#if BOARD_DEFAULT_VARIANT == 2
-BoardConfig g_board = kBoardV2;
-#else
-BoardConfig g_board = kBoardV1;
-#endif
+// Initial configuration until detect_board() calls board_set(): V1 display and
+// load cell pins but never a motor pin. Built from constants (not
+// board_config_for) so it does not depend on static initialisation order.
+BoardConfig g_board = {
+    BoardVariant::V1, BoardSource::COMPILE_DEFAULT,
+    kBoardV1.display_cs_pin,
+    kBoardV1.loadcell_sck_pin, kBoardV1.loadcell_sck_pin_alt,
+    /*motor_pin*/ -1, /*motor_pin_alt*/ -1,
+    kBoardV1.display_x_offset_px, kBoardV1.qspi_hz};
 
 }  // namespace
+
+BoardConfig board_config_for(BoardVariant variant, BoardSource source) {
+    BoardConfig config = (variant == BoardVariant::V2) ? kBoardV2 : kBoardV1;
+    config.variant = variant;
+    config.source = source;
+    const bool motor_allowed = variant != BoardVariant::UNKNOWN &&
+                               (source == BoardSource::PROBE || source == BoardSource::USER);
+    if (!motor_allowed) {
+        config.motor_pin = -1;
+        config.motor_pin_alt = -1;
+    }
+    return config;
+}
 
 const BoardConfig& board() { return g_board; }
 

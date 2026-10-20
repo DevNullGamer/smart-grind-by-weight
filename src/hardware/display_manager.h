@@ -13,20 +13,21 @@ private:
     esp_lcd_panel_io_handle_t panel_io = nullptr;
     esp_lcd_panel_handle_t panel_handle = nullptr;
     lv_display_t* pending_flush_display = nullptr;
-    lv_display_t* lvgl_display;
-    lv_indev_t* lvgl_input;
-    lv_color_t* draw_buffer;
+    lv_display_t* lvgl_display = nullptr;
+    lv_indev_t* lvgl_input = nullptr;
+    lv_color_t* draw_buffer = nullptr;
     // PSRAM draw buffer mode: strips are copied through two internal DMA staging
     // buffers and sent chunk by chunk. Otherwise draw_buffer itself is DMA-capable.
     uint8_t* staging_buffers[2] = {nullptr, nullptr};
     uint32_t staging_rows = 0;
     SemaphoreHandle_t transfer_done_sem = nullptr;
+    bool transfer_pending = false; // a queued staging transfer has not been confirmed complete
     TouchDriver touch_driver;
 
-    uint32_t screen_width;
-    uint32_t screen_height;
-    uint32_t buffer_size;
-    bool initialized;
+    uint32_t screen_width = 0;
+    uint32_t screen_height = 0;
+    uint32_t buffer_size = 0;
+    bool initialized = false;
 
 public:
     void init();
@@ -35,11 +36,15 @@ public:
 
     uint32_t get_width() const { return screen_width; }
     uint32_t get_height() const { return screen_height; }
+    // Board detection: brings the panel up on cs_pin, counts edges on te_pin for
+    // window_ms, then tears the panel down again. Returns -1 if bring-up fails.
+    static int probe_te_edges(int8_t cs_pin, uint8_t te_pin, uint32_t window_ms);
+
     bool is_initialized() const { return initialized; }
     TouchDriver* get_touch_driver() { return &touch_driver; }
 
 private:
-    bool init_panel();
+    bool init_panel(int8_t cs_pin);
     void release_panel();
     void free_staging();
     bool alloc_staging();

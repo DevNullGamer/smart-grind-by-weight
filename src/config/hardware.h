@@ -29,6 +29,13 @@
 // Load Cell ADC Pins
 #define HW_LOADCELL_DOUT_PIN 3                                                 // HX711 data output pin
 
+// Board detection (see src/hardware/board_detect.h)
+#define HW_BOARD_ID_PIN 45                                                     // V2 only: held low by the board, also the panel TE output
+#define HW_BOARD_HINT_PIN 18                                                   // V2 only: TP_INT held high; V1 motor wire (hint, never primary)
+#define HW_BOARD_PARK_PIN 16                                                   // Motor pin on V2; driven LOW at boot until the board is known
+#define HW_BOARD_SETTLE_MS 5                                                   // Settling time after enabling a pull resistor before reading
+#define HW_BOARD_TE_WINDOW_MS 100                                              // TE edge counting window after V2 panel bring-up
+
 // Motor Control (relay pin is board-specific, see board())
 #define HW_GRINDER_SETTLING_TIME_MS 500                                        // Startup transient immunity (tune based on mechanical rigidity, 0 to disable)
 
@@ -47,7 +54,6 @@
 //------------------------------------------------------------------------------
 #define HW_DISPLAY_WIDTH_PX 280                                                // LCD width in pixels
 #define HW_DISPLAY_HEIGHT_PX 456                                               // LCD height in pixels
-#define HW_DISPLAY_ROTATION_DEG 0                                              // Display rotation angle
 #define HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT 15                               // Minimum brightness percentage (to avoid too dim to see)
 #define HW_DISPLAY_DRAW_BUF_ROWS_PSRAM 40                                      // LVGL draw buffer rows when placed in PSRAM (22.4 KB, ~12 strips/full redraw)
 #define HW_DISPLAY_DRAW_BUF_ROWS_INTERNAL 8                                    // Fallback rows in internal DMA RAM (4.5 KB, 57 strips/full redraw)

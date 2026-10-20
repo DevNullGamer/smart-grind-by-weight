@@ -12,6 +12,7 @@ void Grinder::init(int pin) {
     rmt_initialized = false;
     current_encoder = nullptr;
     motor_start_time = 0;
+    initialized = false;
 
     // Initialize background indicator
     background_active = false;
@@ -21,7 +22,12 @@ void Grinder::init(int pin) {
     initialized = true;
     return;
 #endif
-    
+
+    // No motor pin (board unknown or not confirmed): stay uninitialized, motor never driven
+    if (motor_pin < 0) {
+        return;
+    }
+
     // Initialize RMT for all motor control (both continuous and pulse)
     rmt_tx_channel_config_t tx_chan_config = {
         .gpio_num = (gpio_num_t)motor_pin,
