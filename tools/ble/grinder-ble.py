@@ -121,6 +121,8 @@ BLE_DATA_CMD_REQUEST_FILE = 0x15
 
 BLE_DEBUG_CMD_ENABLE = 0x01
 BLE_DEBUG_CMD_DISABLE = 0x02
+BLE_DEBUG_CMD_SET_BOARD = 0x03
+BOARD_OVERRIDE_VALUES = {'auto': 0, 'v1': 1, 'v2': 2}
 
 BLE_OTA_IDLE = 0x00
 
@@ -156,6 +158,7 @@ class GrinderBLETool:
         self.session_count = 0
         self.receiving_data = False
         self.debug_buffer = ""
+        self.debug_capture = ""  # Full debug stream text, used to read command replies
         self.last_debug_flush = time.time()
         
         self.firmware_cache_dir = Path(__file__).parent.parent.parent / "firmware_cache"
@@ -286,6 +289,7 @@ class GrinderBLETool:
         """Handles incoming debug messages with improved buffering."""
         try:
             message = data.decode('utf-8', errors='replace')
+            self.debug_capture += message
             self.debug_buffer += message
             
             current_time = time.time()
@@ -1046,6 +1050,38 @@ class GrinderBLETool:
                 except BleakError as e:
                     self.safe_print(f"[WARNING] Could not disable debug stream cleanly: {e}")
     
+    async def set_board_override(self, mode: str):
+        """Store a hardware board override. Auto is always accepted; v1/v2 only while the board source is not probe or user."""
+        value = BOARD_OVERRIDE_VALUES[mode]
+        self.safe_print(f"[INFO] Requesting board override: {mode}")
+        try:
+            # The device answers through the debug stream, so enable it first
+            await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, bytes([BLE_DEBUG_CMD_ENABLE]))
+            await asyncio.sleep(0.5)
+            await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, bytes([BLE_DEBUG_CMD_SET_BOARD, value]))
+            await asyncio.sleep(1.5)
+        finally:
+            if self.debug_buffer:
+                sys.stdout.write(self.debug_buffer)
+                sys.stdout.flush()
+                self.debug_buffer = ""
+            if self.client and self.client.is_connected:
+                try:
+                    await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, bytes([BLE_DEBUG_CMD_DISABLE]))
+                except BleakError as e:
+                    self.safe_print(f"[WARNING] Could not disable debug stream cleanly: {e}")
+        if "Board override stored" in self.debug_capture:
+            self.safe_print("[INFO] Restart the grinder for the override to take effect.")
+        elif "could not be stored" in self.debug_capture:
+            self.safe_print("[ERROR] The device could not store the override.")
+            return False
+        elif "Board override rejected" in self.debug_capture:
+            self.safe_print("[ERROR] The device rejected the override (see message above).")
+            return False
+        else:
+            self.safe_print("[WARNING] No reply from the device. If it accepted the override, restart the grinder to apply it.")
+        return True
+
     # === System Information Functions ===
     async def get_system_info(self) -> Dict:
         """Get comprehensive system information from the device."""
@@ -1091,6 +1127,8 @@ class GrinderBLETool:
         self.safe_print(f"   Build:        #{system.get('build', 'Unknown')}")
         self.safe_print(f"   Uptime:       {system.get('uptime_h', 0):02d}:{system.get('uptime_m', 0):02d}:{system.get('uptime_s', 0):02d}")
         self.safe_print(f"   CPU Freq:     {system.get('cpu_freq', 'Unknown')} MHz")
+        if 'board' in system:
+            self.safe_print(f"   Board:        {system.get('board')} ({system.get('board_src', 'unknown')})")
         
         # Memory Information  
         self.safe_print(f"[MEMORY]:")
@@ -1233,10 +1271,12 @@ async def main():
     connect_parser = subparsers.add_parser('connect', help='Connect to device')
     debug_parser = subparsers.add_parser('debug', help='Stream live debug logs from the device')
     sysinfo_parser = subparsers.add_parser('info', help='Get comprehensive device system information')
+    board_parser = subparsers.add_parser('board', help='Set the hardware board override (auto always; v1/v2 only while the board source is not probe or user)')
+    board_parser.add_argument('mode', choices=sorted(BOARD_OVERRIDE_VALUES), help='Board to use after the next restart')
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
 
-    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, diagnostics_parser]:
+    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, board_parser, diagnostics_parser]:
         p.add_argument('--device', default=DEVICE_NAME, help='Device name to connect to')
 
     args = parser.parse_args()
@@ -1246,7 +1286,7 @@ async def main():
         if args.command == 'scan':
             await tool.scan_devices()
         
-        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'diagnostics']:
+        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'board', 'diagnostics']:
             if not await tool.connect_to_device(args.device): return 1
 
             if args.command == 'upload':
@@ -1270,6 +1310,9 @@ async def main():
             elif args.command == 'info':
                 info = await tool.get_system_info()
                 tool.print_system_info(info)
+            elif args.command == 'board':
+                if not await tool.set_board_override(args.mode):
+                    return 1
             elif args.command == 'diagnostics':
                 report = await tool.get_diagnostic_report()
                 if report:

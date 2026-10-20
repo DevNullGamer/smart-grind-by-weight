@@ -304,10 +304,15 @@ void UIManager::show_confirmation(const char* title, const char* message,
     }
 }
 
+bool UIManager::motor_available() const {
+    return motor_enabled() && hardware_manager && hardware_manager->get_grinder() &&
+           hardware_manager->get_grinder()->is_initialized();
+}
+
 void UIManager::show_motor_disabled_notice() {
     show_confirmation(
         "MOTOR DISABLED",
-        "Board type not confirmed.\n\nThe grinder output is off.",
+        "Board type not confirmed.\n\nThe grinder output is off.\n\nSet the board under Menu > Hardware board.",
         "OK",
         lv_color_hex(THEME_COLOR_WARNING),
         nullptr,
@@ -403,7 +408,7 @@ void UIManager::update_auto_actions() {
 
     // Auto-start stays off while the motor is disabled (it would pop up the notice repeatedly)
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_ &&
-        motor_enabled()) {
+        motor_available()) {
         auto* filter = sensor->get_raw_filter();
 
         // Extended window = settling period + trigger window

@@ -122,7 +122,10 @@ public:
                            const char* cancel_text = "CANCEL",
                            std::function<void()> on_cancel = nullptr);
     
-    // Tells the user why grinding / motor actions are unavailable (motor_enabled() is false)
+    // True when the grinder output can run: board allows it and the grinder initialised
+    bool motor_available() const;
+
+    // Tells the user why grinding / motor actions are unavailable (motor_available() is false)
     void show_motor_disabled_notice();
 
     // Static instance getter

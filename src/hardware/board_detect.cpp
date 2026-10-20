@@ -34,9 +34,30 @@ int8_t read_with_pull(uint8_t pin, uint8_t mode) {
 
 }  // namespace
 
+BoardOverride board_override_load() {
+    Preferences prefs;
+    if (!prefs.begin(kNvsNamespace, true)) {
+        return BoardOverride::AUTO;
+    }
+    const BoardOverride value = override_from_nvs(prefs.getUChar(kNvsKeyOverride, 0));
+    prefs.end();
+    return value;
+}
+
+bool board_override_store(BoardOverride value) {
+    Preferences prefs;
+    if (!prefs.begin(kNvsNamespace, false)) {
+        return false;
+    }
+    const size_t written = prefs.putUChar(kNvsKeyOverride, static_cast<uint8_t>(value));
+    prefs.end();
+    return written > 0;
+}
+
 void board_park_pins() {
-    // GPIO16 is the motor pin on V2: hold it low. GPIO18 is the motor pin on V1 but
-    // a touch interrupt input on V2, so it must never be driven before the board is known.
+    // GPIO16 is the motor pin on every board: hold it low until the motor is allowed.
+    // GPIO18 is the motor pin on V1 but a touch interrupt input on V2, so it must never
+    // be driven before the board is known.
     pinMode(HW_BOARD_PARK_PIN, OUTPUT);
     digitalWrite(HW_BOARD_PARK_PIN, LOW);
     pinMode(HW_BOARD_HINT_PIN, INPUT_PULLDOWN);

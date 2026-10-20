@@ -33,6 +33,15 @@ struct BoardConfig {
             default: return "UNKNOWN";
         }
     }
+    const char* source_name() const {
+        switch (source) {
+            case BoardSource::PROBE: return "probe";
+            case BoardSource::USER: return "user";
+            case BoardSource::CACHED: return "cached";
+            case BoardSource::COMPILE_DEFAULT: return "default";
+            default: return "none";
+        }
+    }
 };
 
 // Minimum TE edges (both polarities) in the counting window to accept a V2 panel

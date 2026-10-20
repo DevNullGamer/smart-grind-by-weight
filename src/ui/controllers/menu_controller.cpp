@@ -10,6 +10,7 @@
 #include "../../config/constants.h"
 #include "../../controllers/grind_controller.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../hardware/board_detect.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/diagnostics_controller.h"
 #include "../../system/statistics_manager.h"
@@ -54,6 +55,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED, [this](lv_event_t*) { handle_grinder_purge_amount_slider_released(); });
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER, [this](lv_event_t*) { handle_grind_freshness_hours_slider(); });
     EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED, [this](lv_event_t*) { handle_grind_freshness_hours_slider_released(); });
+
+    EventBridgeLVGL::register_handler(ET::BOARD_OVERRIDE_RADIO_BUTTON, [this](lv_event_t*) { handle_board_override_radio_button(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
@@ -129,7 +132,7 @@ void MenuUIController::handle_purge() {
 void MenuUIController::handle_motor_test() {
     if (!ui_manager_) return;
 
-    if (!motor_enabled()) {
+    if (!ui_manager_->motor_available()) {
         ui_manager_->show_motor_disabled_notice();
         return;
     }
@@ -186,7 +189,7 @@ void MenuUIController::handle_scale_tare() {
 void MenuUIController::handle_autotune() {
     if (!ui_manager_) return;
 
-    if (!motor_enabled()) {
+    if (!ui_manager_->motor_available()) {
         ui_manager_->show_motor_disabled_notice();
         return;
     }
@@ -495,6 +498,23 @@ void MenuUIController::handle_grind_freshness_hours_slider_released() {
     LOG_DEBUG_PRINTLN("h");
 
     ui_manager_->menu_screen.update_grind_freshness_hours_label(hours);
+}
+
+void MenuUIController::handle_board_override_radio_button() {
+    if (!ui_manager_) return;
+
+    auto* radio_group = ui_manager_->menu_screen.get_board_override_radio_group();
+    if (!radio_group) return;
+
+    // Radio index matches BoardOverride: 0 = Auto, 1 = V1, 2 = V2
+    int selected_index = radio_button_group_get_selection(radio_group);
+    if (selected_index < 0 || selected_index > static_cast<int>(BoardOverride::FORCE_V2)) return;
+
+    if (board_override_store(static_cast<BoardOverride>(selected_index))) {
+        LOG_BLE("[BOARD] Override set to %d by user (applies after restart)\n", selected_index);
+    } else {
+        LOG_BLE("[BOARD] ERROR: could not store board override\n");
+    }
 }
 
 void MenuUIController::handle_brightness_normal_slider() {

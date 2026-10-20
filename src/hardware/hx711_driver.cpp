@@ -1,4 +1,5 @@
 #include "hx711_driver.h"
+#include "hx711_clock_mask.h"
 #include "../config/constants.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
@@ -27,12 +28,7 @@ HX711Driver::HX711Driver(uint8_t sck_pin, uint8_t dout_pin, int8_t sck_pin_alt)
       estimated_sample_rate_sps(HW_LOADCELL_SAMPLE_RATE_SPS) {
     // Both clock pins in GPIO0..31 can be switched with one register write, so they
     // change level at the same instant. Anything else falls back to two digitalWrite calls.
-    if (sck_pin < 32 && (this->sck_pin_alt < 0 || this->sck_pin_alt < 32)) {
-        sck_mask = (1UL << sck_pin);
-        if (this->sck_pin_alt >= 0) {
-            sck_mask |= (1UL << this->sck_pin_alt);
-        }
-    }
+    sck_mask = hx711_clock_mask(sck_pin, this->sck_pin_alt);
 }
 
 void HX711Driver::set_sck(bool high) {
@@ -53,7 +49,7 @@ bool HX711Driver::begin() {
 
 bool HX711Driver::begin(uint8_t gain_value) {
     // Ensure GPIO pins are properly configured for ESP32-S3
-    // GPIO 2 is a strapping pin that needs explicit configuration
+    // GPIO3 (DOUT) is a strapping pin that needs explicit configuration
     gpio_reset_pin((gpio_num_t)sck_pin);
     gpio_reset_pin((gpio_num_t)dout_pin);
 

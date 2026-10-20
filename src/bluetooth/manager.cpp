@@ -15,6 +15,7 @@
 #include "../config/build_info.h"
 #include "../logging/grind_logging.h"
 #include "../hardware/hardware_manager.h"
+#include "../hardware/board_detect.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
 
@@ -783,6 +784,9 @@ void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
                 log("BLE_DEBUG: Stream disabled\n");
                 debug_stream_active = false;
                 break;
+            case BLE_DEBUG_CMD_SET_BOARD:
+                handle_set_board_command(value);
+                break;
             case 0x00: // Keepalive from python script
                 break;
             default:
@@ -790,6 +794,29 @@ void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
                 log("BLE_DEBUG: Received '%.*s'\n", (int)value.length(), value.c_str());
                 break;
         }
+    }
+}
+
+void BluetoothManager::handle_set_board_command(const String& value) {
+    if (value.length() != 2 || static_cast<uint8_t>(value[1]) > static_cast<uint8_t>(BoardOverride::FORCE_V2)) {
+        log("BLE_DEBUG: Board override rejected, expected [0x03, 0|1|2]\n");
+        return;
+    }
+    // Auto only restores probing and cannot enable the motor, so it is always accepted.
+    // Forcing V1/V2 is a recovery path for a board that was not established by probe or
+    // user; once established it can only be changed on the device (Menu -> Hardware board).
+    const bool established = board().source == BoardSource::PROBE || board().source == BoardSource::USER;
+    if (value[1] != 0 && established) {
+        log("BLE_DEBUG: Board override rejected, board is %s (%s). Use Menu -> Hardware board.\n",
+            board().name(), board().source_name());
+        return;
+    }
+
+    const BoardOverride requested = static_cast<BoardOverride>(static_cast<uint8_t>(value[1]));
+    if (board_override_store(requested)) {
+        log("BLE_DEBUG: Board override stored (%d). Restart the grinder to apply.\n", static_cast<int>(requested));
+    } else {
+        log("BLE_DEBUG: Board override could not be stored\n");
     }
 }
 
@@ -931,7 +958,9 @@ void BluetoothManager::update_system_info() {
         "\"heap_total\":%u,"
         "\"heap_used_pct\":%.1f,"
         "\"flash_size\":%u,"
-        "\"cpu_freq\":%u"
+        "\"cpu_freq\":%u,"
+        "\"board\":\"%s\","
+        "\"board_src\":\"%s\""
         "}",
         BUILD_FIRMWARE_VERSION,
         BUILD_NUMBER,
@@ -942,7 +971,9 @@ void BluetoothManager::update_system_info() {
         (unsigned int)heap_total,
         heap_usage_percent,
         (unsigned int)flash_size,
-        (unsigned int)ESP.getCpuFreqMHz()
+        (unsigned int)ESP.getCpuFreqMHz(),
+        board().name(),
+        board().source_name()
     );
     
     sysinfo_system_characteristic->setValue(buffer);
@@ -977,17 +1008,22 @@ void BluetoothManager::update_hardware_info() {
     if (!sysinfo_hardware_characteristic) return;
     
     char buffer[BLE_SYSINFO_MAX_PAYLOAD_BYTES];
-    
+
+    // Mirrors UIManager::motor_available()
+    extern HardwareManager hardware_manager;
+    const bool motor_available = motor_enabled() && hardware_manager.get_grinder()->is_initialized();
+
     snprintf(buffer, sizeof(buffer),
         "{"
         "\"load_cell_active\":true,"
-        "\"motor_available\":true,"
+        "\"motor_available\":%s,"
         "\"display_active\":true,"
         "\"touch_active\":true,"
         "\"ble_enabled\":true,"
         "\"wifi_available\":false,"
         "\"flash_available\":true"
-        "}"
+        "}",
+        motor_available ? "true" : "false"
     );
     
     sysinfo_hardware_characteristic->setValue(buffer);

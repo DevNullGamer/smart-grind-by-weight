@@ -20,6 +20,7 @@ private:
     lv_obj_t* stats_page;
     lv_obj_t* diagnostics_page;
     lv_obj_t* scale_page;
+    lv_obj_t* board_page;
 
     // Info tab elements
     lv_obj_t* info_label;
@@ -67,6 +68,10 @@ private:
     lv_obj_t* grind_freshness_hours_slider;
     lv_obj_t* grind_freshness_hours_label;
 
+    // Hardware board page elements
+    lv_obj_t* board_status_label;
+    lv_obj_t* board_override_radio_group;
+
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
     lv_obj_t* cal_button;
@@ -112,6 +117,7 @@ public:
     void update_grind_mode_toggles();
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
+    void update_board_page();
     void reset_scale_display();
     void update_scale_weight(float weight);
 
@@ -139,6 +145,7 @@ public:
     lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
+    lv_obj_t* get_board_override_radio_group() const { return board_override_radio_group; }
 
 private:
     void create_menu_ui();
@@ -147,6 +154,7 @@ private:
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);
+    void create_board_page(lv_obj_t* parent);
     void create_data_page(lv_obj_t* parent);
     void create_stats_page(lv_obj_t* parent);
     void create_diagnostics_page(lv_obj_t* parent);

@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "hardware/board_detect.h"
+#include "hardware/hx711_clock_mask.h"
 
 namespace {
 
@@ -209,6 +210,29 @@ void test_board_set_enables_motor_helper() {
 void setUp() {}
 void tearDown() {}
 
+void test_hx711_mask_dual_clock_gpio1_and_gpio2() {
+    TEST_ASSERT_EQUAL_HEX32((1UL << 1) | (1UL << 2), hx711_clock_mask(2, 1));
+    TEST_ASSERT_EQUAL_HEX32((1UL << 1) | (1UL << 2), hx711_clock_mask(1, 2));
+}
+
+void test_hx711_mask_single_clock() {
+    TEST_ASSERT_EQUAL_HEX32(1UL << 2, hx711_clock_mask(2, -1));
+}
+
+void test_hx711_mask_same_pin_twice_is_single() {
+    TEST_ASSERT_EQUAL_HEX32(1UL << 2, hx711_clock_mask(2, 2));
+}
+
+void test_hx711_mask_highest_gpio_in_register() {
+    TEST_ASSERT_EQUAL_HEX32(0x80000001UL, hx711_clock_mask(0, 31));
+}
+
+void test_hx711_mask_pin_outside_register_falls_back() {
+    TEST_ASSERT_EQUAL_HEX32(0, hx711_clock_mask(32, -1));
+    TEST_ASSERT_EQUAL_HEX32(0, hx711_clock_mask(2, 32));
+    TEST_ASSERT_EQUAL_HEX32(0, hx711_clock_mask(-1, 2));
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_v1_bare_board);
@@ -240,5 +264,10 @@ int main() {
     RUN_TEST(test_loadcell_clock_pair_is_gpio1_and_gpio2_on_all_boards);
     RUN_TEST(test_default_board_has_no_motor_but_dual_clock);
     RUN_TEST(test_board_set_enables_motor_helper);
+    RUN_TEST(test_hx711_mask_dual_clock_gpio1_and_gpio2);
+    RUN_TEST(test_hx711_mask_single_clock);
+    RUN_TEST(test_hx711_mask_same_pin_twice_is_single);
+    RUN_TEST(test_hx711_mask_highest_gpio_in_register);
+    RUN_TEST(test_hx711_mask_pin_outside_register_falls_back);
     return UNITY_END();
 }

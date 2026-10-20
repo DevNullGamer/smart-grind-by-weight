@@ -16,6 +16,9 @@ void DiagnosticsController::init(HardwareManager* hw_mgr) {
 void DiagnosticsController::update(HardwareManager* hw_mgr, GrindController* grind_ctrl, uint32_t uptime_ms) {
     if (!hw_mgr) return;
 
+    // Board checks do not depend on the load cell
+    check_board(hw_mgr);
+
     WeightSensor* sensor = hw_mgr->get_weight_sensor();
     if (!sensor) return;
 
@@ -128,14 +131,37 @@ void DiagnosticsController::check_mechanical_stability(GrindController* grind_ct
     }
 }
 
+void DiagnosticsController::check_board(HardwareManager* hw_mgr) {
+    if (board().variant == BoardVariant::UNKNOWN) {
+        set_diagnostic_active(DiagnosticCode::BOARD_UNRECOGNIZED);
+    } else {
+        clear_diagnostic(DiagnosticCode::BOARD_UNRECOGNIZED);
+    }
+
+    Grinder* grinder = hw_mgr->get_grinder();
+    if (!motor_enabled() || !grinder || !grinder->is_initialized()) {
+        set_diagnostic_active(DiagnosticCode::MOTOR_DISABLED);
+    } else {
+        clear_diagnostic(DiagnosticCode::MOTOR_DISABLED);
+    }
+}
+
 DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
     // Priority order (highest to lowest):
-    // 1. HX711_NOT_CONNECTED - load cell hardware missing
-    // 2. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
-    // 3. MECHANICAL_INSTABILITY - immediate safety concern
-    // 4. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
-    // 5. LOAD_CELL_NOT_CALIBRATED - initial setup issue
+    // 1. BOARD_UNRECOGNIZED - board type unknown, motor off until the user picks one
+    // 2. MOTOR_DISABLED - grinder output off (board not confirmed)
+    // 3. HX711_NOT_CONNECTED - load cell hardware missing
+    // 4. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
+    // 5. MECHANICAL_INSTABILITY - immediate safety concern
+    // 6. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
+    // 7. LOAD_CELL_NOT_CALIBRATED - initial setup issue
 
+    if (find_diagnostic(DiagnosticCode::BOARD_UNRECOGNIZED)) {
+        return DiagnosticCode::BOARD_UNRECOGNIZED;
+    }
+    if (find_diagnostic(DiagnosticCode::MOTOR_DISABLED)) {
+        return DiagnosticCode::MOTOR_DISABLED;
+    }
     if (find_diagnostic(DiagnosticCode::HX711_NOT_CONNECTED)) {
         return DiagnosticCode::HX711_NOT_CONNECTED;
     }
@@ -198,6 +224,10 @@ const char* DiagnosticsController::get_diagnostic_message(DiagnosticCode code) c
             return "Sustained sensor noise detected. Check connections and environment.";
         case DiagnosticCode::MECHANICAL_INSTABILITY:
             return "Mechanical instability detected. Check grinder mounting and connections.";
+        case DiagnosticCode::BOARD_UNRECOGNIZED:
+            return "Hardware board not recognised. Choose it under Menu > Hardware board.";
+        case DiagnosticCode::MOTOR_DISABLED:
+            return "Grinder output is off (board not confirmed or grinder init failed). See Menu > Hardware board.";
         case DiagnosticCode::NONE:
         default:
             return "";

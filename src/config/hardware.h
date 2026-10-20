@@ -32,7 +32,7 @@
 // Board detection (see src/hardware/board_detect.h)
 #define HW_BOARD_ID_PIN 45                                                     // V2 only: held low by the board, also the panel TE output
 #define HW_BOARD_HINT_PIN 18                                                   // V2 only: TP_INT held high; V1 motor wire (hint, never primary)
-#define HW_BOARD_PARK_PIN 16                                                   // Motor pin on V2; driven LOW at boot until the board is known
+#define HW_BOARD_PARK_PIN 16                                                   // Motor pin on all boards; driven LOW at boot until the motor is allowed
 #define HW_BOARD_SETTLE_MS 5                                                   // Settling time after enabling a pull resistor before reading
 #define HW_BOARD_TE_WINDOW_MS 100                                              // TE edge counting window after V2 panel bring-up
 

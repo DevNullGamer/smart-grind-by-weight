@@ -200,7 +200,7 @@ void GrindingUIController::handle_grind_button() {
             return;
         }
 
-        if (!motor_enabled()) {
+        if (!ui_manager_->motor_available()) {
             LOG_BLE("[GRIND_START] Refused - motor disabled (board not confirmed)\n");
             ui_manager_->show_motor_disabled_notice();
             return;

@@ -43,6 +43,10 @@ bool board_needs_te_probe(const BoardEvidence& evidence);
 // Pure decision function.
 BoardDecision decide_variant(const BoardEvidence& evidence);
 
+// Persisted user override (NVS board_override). Takes effect at the next boot.
+BoardOverride board_override_load();
+bool board_override_store(BoardOverride value);
+
 // Parks the motor-related pins in a safe state. Call first thing in setup(),
 // before the board is known: GPIO16 driven LOW, GPIO18 input with pull-down.
 void board_park_pins();

@@ -27,7 +27,8 @@ struct UIStatusMessage {
 // Debug command enums
 enum BLEDebugCommand {
     BLE_DEBUG_CMD_ENABLE = 0x01,
-    BLE_DEBUG_CMD_DISABLE = 0x02
+    BLE_DEBUG_CMD_DISABLE = 0x02,
+    BLE_DEBUG_CMD_SET_BOARD = 0x03  // [0x03, 0 = Auto | 1 = V1 | 2 = V2]; Auto always accepted; V1/V2 only while the board source is not PROBE or USER
 };
 
 // Data export enums
@@ -123,6 +124,7 @@ private:
     void handle_ota_control_command(BLECharacteristic* characteristic);
     void handle_ota_data_chunk(BLECharacteristic* characteristic);
     void handle_debug_command(BLECharacteristic* characteristic);
+    void handle_set_board_command(const String& value);
     void handle_data_control_command(BLECharacteristic* characteristic);
     void send_next_data_chunk();
     void send_measurement_count();

@@ -9,6 +9,7 @@
 #include "../event_bridge_lvgl.h"
 #include "../../config/logging.h"
 #include "../components/blocking_overlay.h"
+#include "../../hardware/board_detect.h"
 
 static void back_event_handler(lv_event_t * e)
 {
@@ -46,6 +47,8 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     grinder_purge_amount_label = nullptr;
     grind_freshness_hours_slider = nullptr;
     grind_freshness_hours_label = nullptr;
+    board_status_label = nullptr;
+    board_override_radio_group = nullptr;
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
 
     // Create menu UI immediately at boot for instant access
@@ -132,6 +135,9 @@ void MenuScreen::create_menu_ui() {
     grind_mode_page = lv_menu_page_create(menu, "Grind Settings");
     create_grind_mode_page(grind_mode_page);
     
+    board_page = lv_menu_page_create(menu, "Hardware board");
+    create_board_page(board_page);
+
     scale_page = lv_menu_page_create(menu, "Scale");
     create_scale_page(scale_page);
 
@@ -181,6 +187,9 @@ void MenuScreen::create_menu_ui() {
 
     lv_obj_t* grind_mode_item = create_menu_item(main_page, "Grind Settings");
     lv_menu_set_load_page_event(menu, grind_mode_item, grind_mode_page);
+
+    lv_obj_t* board_item = create_menu_item(main_page, "Hardware board");
+    lv_menu_set_load_page_event(menu, board_item, board_page);
 
     create_separator(main_page, "Info");
     lv_obj_t* diagnostics_item = create_menu_item(main_page, "Diagnostics");
@@ -436,6 +445,36 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     }
 }
 
+// Callback for hardware board override radio button selection
+static void board_override_callback(int selected_index, void* user_data) {
+    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::BOARD_OVERRIDE_RADIO_BUTTON, nullptr);
+}
+
+void MenuScreen::create_board_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    create_description_label(parent, "Waveshare 1.64\" board revision this grinder runs on.");
+    create_data_label(parent, "Detected:", &board_status_label);
+
+    create_separator(parent, "Override");
+    const char* board_options[] = {"Auto", "V1", "V2"};
+    board_override_radio_group = create_radio_button_group(
+        parent,
+        board_options,
+        3,
+        LV_FLEX_FLOW_ROW,
+        0,  // Auto initially selected
+        -1, 100,  // Auto width, height
+        board_override_callback,
+        this
+    );
+    create_description_label(parent, "Use Auto unless the board is not recognised. A change applies after restarting the grinder.");
+}
+
 void MenuScreen::create_scale_page(lv_obj_t* parent) {
     lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
@@ -617,6 +656,7 @@ void MenuScreen::show() {
     update_bluetooth_startup_toggle();
     update_logging_toggle();
     update_grind_mode_toggles();
+    update_board_page();
 
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
 }
@@ -1203,4 +1243,16 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     update_grind_freshness_hours_label(freshness_hours);
+}
+
+void MenuScreen::update_board_page() {
+    if (board_status_label) {
+        char text[32];
+        snprintf(text, sizeof(text), "%s (%s)", board().name(), board().source_name());
+        lv_label_set_text(board_status_label, text);
+    }
+
+    if (board_override_radio_group) {
+        radio_button_group_set_selection(board_override_radio_group, static_cast<int>(board_override_load()));
+    }
 }

@@ -404,6 +404,20 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    async def cmd_board(self, args: argparse.Namespace) -> int:
+        """Set the hardware board override on the device."""
+        self.print_header("Hardware Board Override")
+
+        if not self.check_venv():
+            return 1
+
+        cmd = [str(self.venv_python), str(self.ble_tool), "board", args.mode]
+
+        if hasattr(args, 'device') and args.device:
+            cmd.extend(["--device", args.device])
+
+        return await self.run_async_command(cmd)
+
     async def cmd_diagnostics(self, args: argparse.Namespace) -> int:
         """Get comprehensive diagnostic report."""
         self.print_header("Diagnostic Report")
@@ -491,6 +505,7 @@ def create_parser() -> argparse.ArgumentParser:
   python3 grinder.py upload --device MyGrinder # Upload to specific device
   python3 grinder.py connect                   # Connect to grinder device
   python3 grinder.py info                      # Get device system information
+  python3 grinder.py board v2                  # Set board override (auto always; v1/v2 only if board not confirmed)
         """
     )
     
@@ -541,6 +556,10 @@ def create_parser() -> argparse.ArgumentParser:
     info_parser = subparsers.add_parser('info', help='Get comprehensive device system information')
     info_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
 
+    board_parser = subparsers.add_parser('board', help='Set the hardware board override (v1, v2 or auto); auto always accepted; v1/v2 only while the board source is not probe or user')
+    board_parser.add_argument('mode', choices=['v1', 'v2', 'auto'], help='Board to use after the next restart')
+    board_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
@@ -585,6 +604,8 @@ async def main():
             return await tool.cmd_debug(args)
         elif args.command == 'info':
             return await tool.cmd_info(args)
+        elif args.command == 'board':
+            return await tool.cmd_board(args)
         elif args.command == 'diagnostics':
             return await tool.cmd_diagnostics(args)
         elif args.command == 'install':
