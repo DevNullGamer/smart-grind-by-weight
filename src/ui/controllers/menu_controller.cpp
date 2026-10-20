@@ -129,6 +129,11 @@ void MenuUIController::handle_purge() {
 void MenuUIController::handle_motor_test() {
     if (!ui_manager_) return;
 
+    if (!motor_enabled()) {
+        ui_manager_->show_motor_disabled_notice();
+        return;
+    }
+
     ui_manager_->show_confirmation(
         "MOTOR TEST",
         "Motor will be engaged for 1 second."
@@ -180,6 +185,11 @@ void MenuUIController::handle_scale_tare() {
 
 void MenuUIController::handle_autotune() {
     if (!ui_manager_) return;
+
+    if (!motor_enabled()) {
+        ui_manager_->show_motor_disabled_notice();
+        return;
+    }
 
     // Show confirmation screen with setup instructions
     auto autotune_controller = ui_manager_->autotune_controller_.get();

@@ -39,9 +39,22 @@ struct BoardConfig {
 // (~60 Hz TE seen on V2 = ~12 edges per 100 ms; 0 on V1).
 #define BOARD_TE_MIN_EDGES 6
 
-// Build the configuration for a variant. The motor pin is only populated when
-// the variant was established by PROBE or USER; UNKNOWN/CACHED/default sources
-// get no motor. UNKNOWN uses V1 display and load cell pins (display only).
+// Dual wiring: both known grinder wirings are driven at once.
+//   HX711 clock: pulsed on GPIO1 and GPIO2 together (DOUT is GPIO3 on both boards).
+//   Motor: GPIO16 always (when allowed); GPIO18 in addition ONLY on a V1 board
+//   established by PROBE or USER, because GPIO18 is the touch interrupt input on V2.
+#define BOARD_MOTOR_PIN 16
+#define BOARD_MOTOR_PIN_V1_ALT 18
+
+// True when `pin` may be driven as a grinder motor output on `variant`. Rejects
+// UNKNOWN boards, GPIO18 on V2, and display / touch / IMU / HX711 / strapping /
+// USB / UART / flash and PSRAM pins.
+bool board_motor_pin_allowed(BoardVariant variant, int pin);
+
+// Build the configuration for a variant. Motor pins are only populated when the
+// variant was established by PROBE or USER and the pins pass
+// board_motor_pin_allowed(); UNKNOWN/CACHED/default sources get no motor.
+// UNKNOWN uses V1 display and load cell pins (display only).
 BoardConfig board_config_for(BoardVariant variant, BoardSource source);
 
 // Active board configuration (never null, always safe to call).
@@ -49,3 +62,12 @@ const BoardConfig& board();
 
 // Replace the active board configuration (used by board detection).
 void board_set(const BoardConfig& config);
+
+// True when this build can drive the grinder motor (mock builds simulate it).
+inline bool motor_enabled() {
+#if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
+    return true;
+#else
+    return board().motor_enabled();
+#endif
+}

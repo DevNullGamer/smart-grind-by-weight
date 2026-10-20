@@ -54,6 +54,11 @@ bool AutoTuneController::start() {
         return false;
     }
 
+    if (!motor_enabled() || !grinder->is_initialized()) {
+        LOG_BLE("ERROR: AutoTune cannot start - motor disabled (board not confirmed)\n");
+        return false;
+    }
+
     if (is_running) {
         LOG_BLE("WARNING: AutoTune already running\n");
         return false;

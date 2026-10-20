@@ -198,7 +198,9 @@ void GrindControlTask::monitor_grind_state() {
 bool GrindControlTask::validate_hardware_ready() const {
     bool grind_controller_ready = (grind_controller != nullptr);
     bool weight_sensor_ready = (weight_sensor != nullptr && weight_sensor->is_initialized());
-    bool grinder_ready = (grinder != nullptr && grinder->is_initialized());
+    // An uninitialized grinder is valid (board not confirmed, motor disabled): Grinder
+    // and the UI refuse to run the motor, but scale and UI must keep working.
+    bool grinder_ready = (grinder != nullptr);
     bool logger_ready = (logger != nullptr);
     
     LOG_BLE("GrindControlTask hardware validation:\n");

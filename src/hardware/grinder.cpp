@@ -1,12 +1,39 @@
 #include "grinder.h"
 #include "../controllers/grind_events.h"
 #include "../config/constants.h"
+#include <driver/gpio.h>
+#include <esp_rom_gpio.h>
+#include <soc/gpio_reg.h>
+#include <soc/gpio_sig_map.h>
+#include <soc/soc.h>
 #if DEBUG_ENABLE_LOADCELL_MOCK
 #include "mock_hx711_driver.h"
 #endif
 
-void Grinder::init(int pin) {
+namespace {
+
+// Routes the RMT signal that drives `source_pin` to `alt_pin` as well through the GPIO
+// matrix, so both pins switch together (idle level included). Returns false when
+// `source_pin` is not driven by a peripheral signal.
+bool mirror_output_signal(int source_pin, int alt_pin) {
+    const uint32_t signal = REG_READ(GPIO_FUNC0_OUT_SEL_CFG_REG + 4 * source_pin) & GPIO_FUNC0_OUT_SEL_M;
+    if (signal >= SIG_GPIO_OUT_IDX) {
+        return false;
+    }
+    // Pin is still the parked input (pull-down): preload LOW, then make it an output and
+    // connect it, so it never glitches high. No gpio_reset_pin (it would enable the pull-up).
+    gpio_set_level((gpio_num_t)alt_pin, 0);
+    esp_rom_gpio_pad_select_gpio(alt_pin);
+    gpio_set_direction((gpio_num_t)alt_pin, GPIO_MODE_OUTPUT);
+    esp_rom_gpio_connect_out_signal(alt_pin, signal, false, false);
+    return true;
+}
+
+}  // namespace
+
+void Grinder::init(int pin, int alt_pin) {
     motor_pin = pin;
+    motor_pin_alt = alt_pin;
     grinding = false;
     pulse_active = false;
     rmt_initialized = false;
@@ -25,7 +52,23 @@ void Grinder::init(int pin) {
 
     // No motor pin (board unknown or not confirmed): stay uninitialized, motor never driven
     if (motor_pin < 0) {
+        motor_pin_alt = -1;
         return;
+    }
+
+    // Motor chokepoint: independent of board_config_for(), the board must have been
+    // established by probe or user and every pin must pass the allow-list.
+    const BoardConfig& active = board();
+    const bool established = active.source == BoardSource::PROBE || active.source == BoardSource::USER;
+    if (!established || !board_motor_pin_allowed(active.variant, motor_pin)) {
+        LOG_BLE("[Grinder] Motor pin %d rejected for board %s - motor disabled\n", motor_pin, active.name());
+        motor_pin = -1;
+        motor_pin_alt = -1;
+        return;
+    }
+    if (motor_pin_alt >= 0 && !board_motor_pin_allowed(active.variant, motor_pin_alt)) {
+        LOG_BLE("[Grinder] Alt motor pin %d rejected for board %s\n", motor_pin_alt, active.name());
+        motor_pin_alt = -1;
     }
 
     // Initialize RMT for all motor control (both continuous and pulse)
@@ -41,6 +84,17 @@ void Grinder::init(int pin) {
         rmt_enable(rmt_channel);
         rmt_initialized = true;
         initialized = true;
+
+        if (motor_pin_alt >= 0) {
+            if (mirror_output_signal(motor_pin, motor_pin_alt)) {
+                LOG_BLE("[Grinder] Motor on GPIO%d + GPIO%d\n", motor_pin, motor_pin_alt);
+            } else {
+                LOG_BLE("[Grinder] Alt motor pin %d not connected (no RMT signal)\n", motor_pin_alt);
+                motor_pin_alt = -1;
+            }
+        } else {
+            LOG_BLE("[Grinder] Motor on GPIO%d\n", motor_pin);
+        }
     }
 }
 
@@ -196,8 +250,8 @@ bool Grinder::is_pulse_complete() {
     }
     return false;
 #endif
-    if (!pulse_active) return true;
-    
+    if (!pulse_active || !initialized || motor_pin < 0) return true;
+
     // For simplicity, we'll use a transmission done callback approach
     // Since RMT handles the pulse timing in hardware, we can check the GPIO state
     // as a simple completion indicator

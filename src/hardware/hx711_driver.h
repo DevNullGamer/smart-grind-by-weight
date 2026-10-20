@@ -23,6 +23,8 @@ class HX711Driver : public LoadCellDriver {
 private:
     // HX711 Hardware pins and configuration
     uint8_t sck_pin;
+    int8_t sck_pin_alt;      // Second clock pin driven in lockstep (-1 = none)
+    uint32_t sck_mask;       // GPIO0..31 bit mask of the clock pins (single-write path), 0 = use digitalWrite
     uint8_t dout_pin;
     uint8_t gain;
     
@@ -41,9 +43,12 @@ private:
     void conversion_24bit();
     void power_up_sequence();
     void power_down_sequence();
-    
+    void set_sck(bool high);
+
 public:
-    HX711Driver(uint8_t sck_pin, uint8_t dout_pin);
+    // sck_pin_alt: optional second clock pin pulsed together with sck_pin so either
+    // wiring (see board_config.h) works; pass -1 for a single clock pin.
+    HX711Driver(uint8_t sck_pin, uint8_t dout_pin, int8_t sck_pin_alt = -1);
     virtual ~HX711Driver() = default;
     
     // Initialization and configuration

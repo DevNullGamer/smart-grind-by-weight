@@ -2,6 +2,8 @@
 #include "../config/constants.h"
 #include <Arduino.h>
 #include <driver/gpio.h>
+#include <soc/gpio_reg.h>
+#include <soc/soc.h>
 
 /**
  * HX711 Driver Implementation
@@ -18,10 +20,31 @@
  * adapted from the original implementation for ESP32-S3 integration.
  */
 
-HX711Driver::HX711Driver(uint8_t sck_pin, uint8_t dout_pin) 
-    : sck_pin(sck_pin), dout_pin(dout_pin), gain(1), last_raw_data(0), 
+HX711Driver::HX711Driver(uint8_t sck_pin, uint8_t dout_pin, int8_t sck_pin_alt)
+    : sck_pin(sck_pin), sck_pin_alt((sck_pin_alt == (int8_t)sck_pin) ? (int8_t)-1 : sck_pin_alt),
+      sck_mask(0), dout_pin(dout_pin), gain(1), last_raw_data(0),
       data_ready_flag(false), conversion_start_time(0), conversion_time(0),
       estimated_sample_rate_sps(HW_LOADCELL_SAMPLE_RATE_SPS) {
+    // Both clock pins in GPIO0..31 can be switched with one register write, so they
+    // change level at the same instant. Anything else falls back to two digitalWrite calls.
+    if (sck_pin < 32 && (this->sck_pin_alt < 0 || this->sck_pin_alt < 32)) {
+        sck_mask = (1UL << sck_pin);
+        if (this->sck_pin_alt >= 0) {
+            sck_mask |= (1UL << this->sck_pin_alt);
+        }
+    }
+}
+
+void HX711Driver::set_sck(bool high) {
+    if (sck_mask != 0) {
+        // Single-cycle set/clear of all clock pins (also faster than digitalWrite)
+        REG_WRITE(high ? GPIO_OUT_W1TS_REG : GPIO_OUT_W1TC_REG, sck_mask);
+        return;
+    }
+    digitalWrite(sck_pin, high ? HIGH : LOW);
+    if (sck_pin_alt >= 0) {
+        digitalWrite(sck_pin_alt, high ? HIGH : LOW);
+    }
 }
 
 bool HX711Driver::begin() {
@@ -33,8 +56,12 @@ bool HX711Driver::begin(uint8_t gain_value) {
     // GPIO 2 is a strapping pin that needs explicit configuration
     gpio_reset_pin((gpio_num_t)sck_pin);
     gpio_reset_pin((gpio_num_t)dout_pin);
-    
+
     pinMode(sck_pin, OUTPUT);
+    if (sck_pin_alt >= 0) {
+        gpio_reset_pin((gpio_num_t)sck_pin_alt);
+        pinMode(sck_pin_alt, OUTPUT);
+    }
     pinMode(dout_pin, INPUT_PULLDOWN);
     set_gain(gain_value);
     power_up();
@@ -96,15 +123,17 @@ void HX711Driver::power_down() {
 void HX711Driver::power_up_sequence() {
     // Ensure SCK is configured as GPIO output before toggling (may be called before begin())
     pinMode(sck_pin, OUTPUT);
-    digitalWrite(sck_pin, LOW);
+    if (sck_pin_alt >= 0) pinMode(sck_pin_alt, OUTPUT);
+    set_sck(false);
     delayMicroseconds(100);  // Ensure clean power up
 }
 
 void HX711Driver::power_down_sequence() {
     // Ensure SCK is configured as GPIO output before toggling (may be called before begin())
     pinMode(sck_pin, OUTPUT);
-    digitalWrite(sck_pin, LOW);
-    digitalWrite(sck_pin, HIGH);
+    if (sck_pin_alt >= 0) pinMode(sck_pin_alt, OUTPUT);
+    set_sck(false);
+    set_sck(true);
     delayMicroseconds(100);  // Hold high for >60μs to enter power down
 }
 
@@ -143,9 +172,9 @@ void HX711Driver::conversion_24bit() {
     
     // Read 24 bits of data + gain bits
     for (uint8_t i = 0; i < (24 + gain); i++) {
-        digitalWrite(sck_pin, HIGH);
+        set_sck(true);
         if (SCK_DELAY) delayMicroseconds(1);
-        digitalWrite(sck_pin, LOW);
+        set_sck(false);
         
         if (i < 24) {
             raw_data = (raw_data << 1) | digitalRead(dout_pin);

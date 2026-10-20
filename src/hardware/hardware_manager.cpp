@@ -7,7 +7,7 @@ void HardwareManager::init() {
     preferences.begin("grinder", false);
     display_manager.init();
     weight_sensor.init(&preferences);
-    grinder.init(board().motor_pin);
+    grinder.init(board().motor_pin, board().motor_pin_alt);
 
     grind_controller = nullptr; // Will be set later
 

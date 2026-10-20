@@ -113,15 +113,97 @@ void test_unknown_never_has_motor_even_with_probe_or_user() {
     TEST_ASSERT_EQUAL_INT(-1, board_config_for(BoardVariant::UNKNOWN, BoardSource::USER).motor_pin);
 }
 
-void test_v1_motor_pin_18_on_probe_or_user() {
-    TEST_ASSERT_EQUAL_INT(18, board_config_for(BoardVariant::V1, BoardSource::PROBE).motor_pin);
-    TEST_ASSERT_EQUAL_INT(18, board_config_for(BoardVariant::V1, BoardSource::USER).motor_pin);
+void test_v1_motor_pins_16_and_18_on_probe_or_user() {
+    const BoardSource sources[] = {BoardSource::PROBE, BoardSource::USER};
+    for (BoardSource src : sources) {
+        const BoardConfig c = board_config_for(BoardVariant::V1, src);
+        TEST_ASSERT_EQUAL_INT(16, c.motor_pin);
+        TEST_ASSERT_EQUAL_INT(18, c.motor_pin_alt);
+        TEST_ASSERT_TRUE(c.motor_enabled());
+    }
 }
 
-void test_v2_motor_pin_16_never_18() {
-    TEST_ASSERT_EQUAL_INT(16, board_config_for(BoardVariant::V2, BoardSource::PROBE).motor_pin);
-    TEST_ASSERT_EQUAL_INT(16, board_config_for(BoardVariant::V2, BoardSource::USER).motor_pin);
-    TEST_ASSERT_NOT_EQUAL(18, board_config_for(BoardVariant::V2, BoardSource::PROBE).motor_pin_alt);
+void test_v2_motor_pin_16_only_never_18() {
+    const BoardSource sources[] = {BoardSource::PROBE, BoardSource::USER};
+    for (BoardSource src : sources) {
+        const BoardConfig c = board_config_for(BoardVariant::V2, src);
+        TEST_ASSERT_EQUAL_INT(16, c.motor_pin);
+        TEST_ASSERT_EQUAL_INT(-1, c.motor_pin_alt);
+    }
+}
+
+void test_alt_motor_pin_never_without_probe_or_user() {
+    const BoardVariant variants[] = {BoardVariant::UNKNOWN, BoardVariant::V1, BoardVariant::V2};
+    const BoardSource sources[] = {BoardSource::NONE, BoardSource::CACHED, BoardSource::COMPILE_DEFAULT};
+    for (BoardVariant v : variants) {
+        for (BoardSource src : sources) {
+            TEST_ASSERT_EQUAL_INT(-1, board_config_for(v, src).motor_pin_alt);
+        }
+    }
+}
+
+void test_motor_pin_18_allowed_only_on_v1() {
+    TEST_ASSERT_TRUE(board_motor_pin_allowed(BoardVariant::V1, 18));
+    TEST_ASSERT_FALSE(board_motor_pin_allowed(BoardVariant::V2, 18));
+    TEST_ASSERT_FALSE(board_motor_pin_allowed(BoardVariant::UNKNOWN, 18));
+}
+
+void test_motor_pin_16_allowed_on_known_boards_only() {
+    TEST_ASSERT_TRUE(board_motor_pin_allowed(BoardVariant::V1, 16));
+    TEST_ASSERT_TRUE(board_motor_pin_allowed(BoardVariant::V2, 16));
+    TEST_ASSERT_FALSE(board_motor_pin_allowed(BoardVariant::UNKNOWN, 16));
+}
+
+void test_motor_pin_rejects_reserved_pins() {
+    // HX711 (1,2,3), display (9..14, 21, CS 46), IMU INT (9, 17, 46), touch/IMU I2C (47,48),
+    // strapping (0, 3, 45, 46), USB (19,20), UART (43,44), flash/PSRAM (26..37), out of range
+    const int reserved[] = {0, 1, 2, 3, 9, 10, 11, 12, 13, 14, 17, 19, 20, 21,
+                            26, 30, 33, 37, 43, 44, 45, 46, 47, 48, -1, 49, 255};
+    for (int pin : reserved) {
+        TEST_ASSERT_FALSE(board_motor_pin_allowed(BoardVariant::V1, pin));
+        TEST_ASSERT_FALSE(board_motor_pin_allowed(BoardVariant::V2, pin));
+    }
+}
+
+void test_board_config_pins_pass_allow_list() {
+    const BoardVariant variants[] = {BoardVariant::V1, BoardVariant::V2};
+    for (BoardVariant v : variants) {
+        const BoardConfig c = board_config_for(v, BoardSource::PROBE);
+        TEST_ASSERT_TRUE(board_motor_pin_allowed(v, c.motor_pin));
+        if (c.motor_pin_alt >= 0) {
+            TEST_ASSERT_TRUE(board_motor_pin_allowed(v, c.motor_pin_alt));
+        }
+    }
+}
+
+void test_loadcell_clock_pair_is_gpio1_and_gpio2_on_all_boards() {
+    const BoardVariant variants[] = {BoardVariant::UNKNOWN, BoardVariant::V1, BoardVariant::V2};
+    const BoardSource sources[] = {BoardSource::NONE, BoardSource::CACHED, BoardSource::PROBE, BoardSource::USER};
+    for (BoardVariant v : variants) {
+        for (BoardSource src : sources) {
+            const BoardConfig c = board_config_for(v, src);
+            TEST_ASSERT_NOT_EQUAL(c.loadcell_sck_pin, c.loadcell_sck_pin_alt);
+            TEST_ASSERT_TRUE((c.loadcell_sck_pin == 1 && c.loadcell_sck_pin_alt == 2) ||
+                             (c.loadcell_sck_pin == 2 && c.loadcell_sck_pin_alt == 1));
+        }
+    }
+}
+
+void test_default_board_has_no_motor_but_dual_clock() {
+    const BoardConfig& c = board();
+    TEST_ASSERT_FALSE(c.motor_enabled());
+    TEST_ASSERT_FALSE(motor_enabled());
+    TEST_ASSERT_EQUAL_INT(-1, c.motor_pin_alt);
+    TEST_ASSERT_TRUE(c.loadcell_sck_pin_alt >= 0);
+}
+
+void test_board_set_enables_motor_helper() {
+    const BoardConfig previous = board();
+    board_set(board_config_for(BoardVariant::V2, BoardSource::USER));
+    TEST_ASSERT_TRUE(motor_enabled());
+    board_set(board_config_for(BoardVariant::V2, BoardSource::CACHED));
+    TEST_ASSERT_FALSE(motor_enabled());
+    board_set(previous);
 }
 
 void setUp() {}
@@ -148,7 +230,15 @@ int main() {
     RUN_TEST(test_v2_te_active_beats_cached_v1);
     RUN_TEST(test_motor_disabled_without_probe_or_user);
     RUN_TEST(test_unknown_never_has_motor_even_with_probe_or_user);
-    RUN_TEST(test_v1_motor_pin_18_on_probe_or_user);
-    RUN_TEST(test_v2_motor_pin_16_never_18);
+    RUN_TEST(test_v1_motor_pins_16_and_18_on_probe_or_user);
+    RUN_TEST(test_v2_motor_pin_16_only_never_18);
+    RUN_TEST(test_alt_motor_pin_never_without_probe_or_user);
+    RUN_TEST(test_motor_pin_18_allowed_only_on_v1);
+    RUN_TEST(test_motor_pin_16_allowed_on_known_boards_only);
+    RUN_TEST(test_motor_pin_rejects_reserved_pins);
+    RUN_TEST(test_board_config_pins_pass_allow_list);
+    RUN_TEST(test_loadcell_clock_pair_is_gpio1_and_gpio2_on_all_boards);
+    RUN_TEST(test_default_board_has_no_motor_but_dual_clock);
+    RUN_TEST(test_board_set_enables_motor_helper);
     return UNITY_END();
 }

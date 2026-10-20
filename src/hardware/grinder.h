@@ -12,6 +12,7 @@ enum class UIGrindEvent;
 class Grinder {
 private:
     int motor_pin;
+    int motor_pin_alt;  // Second output driven by the same RMT signal (-1 = none)
     bool grinding;
     bool initialized;
 
@@ -31,7 +32,9 @@ private:
     void emit_background_change(bool active);
 
 public:
-    void init(int pin);
+    // pin < 0 leaves the grinder uninitialized (motor never driven). alt_pin is mirrored
+    // from the same RMT signal; see board_config.h for when it may be used.
+    void init(int pin, int alt_pin = -1);
     void start();
     void stop();
     

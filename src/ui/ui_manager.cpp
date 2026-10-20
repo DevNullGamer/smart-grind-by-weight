@@ -304,6 +304,16 @@ void UIManager::show_confirmation(const char* title, const char* message,
     }
 }
 
+void UIManager::show_motor_disabled_notice() {
+    show_confirmation(
+        "MOTOR DISABLED",
+        "Board type not confirmed.\n\nThe grinder output is off.",
+        "OK",
+        lv_color_hex(THEME_COLOR_WARNING),
+        nullptr,
+        "BACK");
+}
+
 void UIManager::init_controllers() {
     ready_controller_ = std::make_unique<ReadyUIController>(this);
     edit_controller_ = std::make_unique<EditUIController>(this);
@@ -391,7 +401,9 @@ void UIManager::update_auto_actions() {
     const bool grinder_active = (grind_controller && grind_controller->is_active());
     const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
 
-    if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
+    // Auto-start stays off while the motor is disabled (it would pop up the notice repeatedly)
+    if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_ &&
+        motor_enabled()) {
         auto* filter = sensor->get_raw_filter();
 
         // Extended window = settling period + trigger window

@@ -122,6 +122,9 @@ public:
                            const char* cancel_text = "CANCEL",
                            std::function<void()> on_cancel = nullptr);
     
+    // Tells the user why grinding / motor actions are unavailable (motor_enabled() is false)
+    void show_motor_disabled_notice();
+
     // Static instance getter
     static UIManager* get_instance() { return instance; }
     
