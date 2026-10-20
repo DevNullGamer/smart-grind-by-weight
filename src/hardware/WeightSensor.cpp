@@ -77,7 +77,7 @@ void WeightSensor::init(Preferences* preferences) {
 #if DEBUG_ENABLE_LOADCELL_MOCK
     adc_driver = std::make_unique<MockHX711Driver>();
 #else
-    adc_driver = std::make_unique<HX711Driver>(HW_LOADCELL_SCK_PIN, HW_LOADCELL_DOUT_PIN);
+    adc_driver = std::make_unique<HX711Driver>(board().loadcell_sck_pin, HW_LOADCELL_DOUT_PIN);
 #endif
     if (!adc_driver) {
         LOG_BLE("ERROR: Failed to create ADC driver\n");

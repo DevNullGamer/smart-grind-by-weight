@@ -17,15 +17,8 @@
 #define HW_TOUCH_I2C_ADDRESS 0x38                                              // I2C address of FT3168 touch controller
 
 // Display Controller (QSPI)
-#ifndef HW_DISPLAY_VARIANT_V2
-#define HW_DISPLAY_VARIANT_V2 0                                               // V1 remains the default hardware target
-#endif
-
-#if HW_DISPLAY_VARIANT_V2
-#define HW_DISPLAY_CS_PIN 46                                                   // V2 PCB chip select for SH8601 display controller
-#else
-#define HW_DISPLAY_CS_PIN 9                                                    // V1 PCB chip select for CO5300 display controller
-#endif
+// Chip select, load cell clock, motor pin and display offset/clock differ per
+// board revision: see board() in board_config.h.
 #define HW_DISPLAY_SCK_PIN 10                                                  // SPI clock for display controller
 #define HW_DISPLAY_D0_PIN 11                                                   // SPI data line 0 (QSPI mode)
 #define HW_DISPLAY_D1_PIN 12                                                   // SPI data line 1 (QSPI mode)
@@ -35,18 +28,8 @@
 
 // Load Cell ADC Pins
 #define HW_LOADCELL_DOUT_PIN 3                                                 // HX711 data output pin
-#if HW_DISPLAY_VARIANT_V2
-#define HW_LOADCELL_SCK_PIN 1                                                  // V2 wiring; GPIO2 is bypassed on this board revision
-#else
-#define HW_LOADCELL_SCK_PIN 2                                                  // V1 HX711 serial clock pin
-#endif
 
-// Motor Control
-#if HW_DISPLAY_VARIANT_V2
-#define HW_MOTOR_RELAY_PIN 16                                                  // V2: GPIO18 is shared with TP_INT and must not drive the grinder
-#else
-#define HW_MOTOR_RELAY_PIN 18                                                  // V1 grinder motor control relay
-#endif
+// Motor Control (relay pin is board-specific, see board())
 #define HW_GRINDER_SETTLING_TIME_MS 500                                        // Startup transient immunity (tune based on mechanical rigidity, 0 to disable)
 
 //------------------------------------------------------------------------------
@@ -65,16 +48,13 @@
 #define HW_DISPLAY_WIDTH_PX 280                                                // LCD width in pixels
 #define HW_DISPLAY_HEIGHT_PX 456                                               // LCD height in pixels
 #define HW_DISPLAY_ROTATION_DEG 0                                              // Display rotation angle
-#if HW_DISPLAY_VARIANT_V2
-#define HW_DISPLAY_OFFSET_X_PX 20                                              // SH8601 framebuffer column offset
-#define HW_DISPLAY_QSPI_FREQUENCY_HZ 40000000                                  // Waveshare V2 reference QSPI clock
-#else
-#define HW_DISPLAY_OFFSET_X_PX 0                                               // V1 display positioning offset
-#define HW_DISPLAY_IPS_INVERT_X 180                                            // IPS X-axis inversion setting
-#define HW_DISPLAY_IPS_INVERT_Y 24                                             // IPS Y-axis inversion setting
-#define HW_DISPLAY_COLOR_ORDER 20                                              // Color channel ordering
-#endif
 #define HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT 15                               // Minimum brightness percentage (to avoid too dim to see)
+#define HW_DISPLAY_DRAW_BUF_ROWS_PSRAM 40                                      // LVGL draw buffer rows when placed in PSRAM (22.4 KB, ~12 strips/full redraw)
+#define HW_DISPLAY_DRAW_BUF_ROWS_INTERNAL 8                                    // Fallback rows in internal DMA RAM (4.5 KB, 57 strips/full redraw)
+#define HW_DISPLAY_DRAW_BUF_ALIGN_BYTES 64                                     // PSRAM draw buffer alignment (>= S3 data cache line); size must be a multiple too
+#define HW_DISPLAY_STAGING_ROWS 8                                              // Rows per internal DMA staging buffer (2 buffers x 4.5 KB), halves on alloc failure
+#define HW_DISPLAY_STAGING_MIN_ROWS 4                                          // Smallest staging buffer accepted before falling back to the internal draw buffer
+#define HW_DISPLAY_STAGING_TIMEOUT_MS 100                                      // Max wait for one staging chunk DMA transfer to complete
 
 //------------------------------------------------------------------------------
 // SERIAL COMMUNICATION

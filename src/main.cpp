@@ -58,6 +58,8 @@ void setup() {
     
     // Early startup heartbeat - helps capture initialization sequence
     LOG_BLE("[STARTUP] Initializing ESP32-S3 Coffee Scale - Build %d - Core1 active\n", BUILD_NUMBER);
+    LOG_BLE("[STARTUP] Board: %s (CS %d, HX711 SCK %d, motor %d)\n",
+            board().name(), board().display_cs_pin, board().loadcell_sck_pin, board().motor_pin);
     
     // Initialize LittleFS once - format if necessary
     if (!LittleFS.begin(true)) {

@@ -43,7 +43,7 @@ private:
     void power_down_sequence();
     
 public:
-    HX711Driver(uint8_t sck_pin = HW_LOADCELL_SCK_PIN, uint8_t dout_pin = HW_LOADCELL_DOUT_PIN);
+    HX711Driver(uint8_t sck_pin, uint8_t dout_pin);
     virtual ~HX711Driver() = default;
     
     // Initialization and configuration
