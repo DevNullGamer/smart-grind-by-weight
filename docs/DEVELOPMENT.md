@@ -193,6 +193,15 @@ python3 tools/grinder.py debug
 
 For complete debugging (including boot sequence and system messages), use USB serial monitoring.
 
+### Memory Layout (LVGL in PSRAM)
+
+LVGL allocates widgets, styles and draw buffers from PSRAM so internal RAM stays available for BLE and FreeRTOS task stacks.
+
+- `LV_USE_STDLIB_MALLOC` is set to `LV_STDLIB_CUSTOM` in `include/lv_conf.h`.
+- The allocator lives in `src/ui/lvgl_psram_alloc.cpp`. It tries PSRAM first and falls back to internal RAM if PSRAM is full or unavailable.
+- `lv_mem_monitor` is not supported by this allocator; use the boot log instead.
+- At boot, `[HEAP]` lines report free internal RAM and the largest free block before UI init, after UI init and after BLE enable. If BLE fails to start or the device becomes unstable, check these first.
+
 ---
 
 ## 📚 Additional Documentation
