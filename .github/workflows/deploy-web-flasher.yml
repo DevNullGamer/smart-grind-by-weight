@@ -79,10 +79,24 @@ jobs:
                   prerelease = any(key in tag for key in ("-rc", "-beta", "-alpha"))
                   version = tag.lstrip('v')
                   base = f"smart-grind-by-weight-{tag}"
-                  variants = (
-                      ("Waveshare 1.64 V1", base),
-                      ("Waveshare 1.64 V2", f"{base}-waveshare-164-v2"),
-                  )
+                  legacy_v2_base = f"{base}-waveshare-164-v2"
+
+                  # Releases before the unified image have separate V1 / V2 artifacts (V2 only in later ones).
+                  # Unified releases ship one image whose manifest name is marked "auto-detect".
+                  manifest_name = ""
+                  try:
+                      with open(os.path.join(tag_path, f"{base}.manifest.json"), encoding="utf-8") as handle:
+                          manifest_name = json.load(handle).get("name", "")
+                  except (OSError, ValueError):
+                      pass
+
+                  if "auto-detect" in manifest_name:
+                      variants = (("Waveshare 1.64 V1 + V2 (auto-detect)", base),)
+                  else:
+                      variants = (
+                          ("Waveshare 1.64 V1", base),
+                          ("Waveshare 1.64 V2", legacy_v2_base),
+                      )
 
                   for board, artifact_base in variants:
                       manifest_rel = f"firmware/{tag}/{artifact_base}.manifest.json"

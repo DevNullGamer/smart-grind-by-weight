@@ -11,7 +11,6 @@ This single script handles:
 
 Usage:
     ./grinder-ble upload firmware.bin          # Upload firmware via BLE OTA
-    ./grinder-ble upload --variant v2          # Upload the V2 hardware build
     ./grinder-ble export [--db file.db]        # Export grind data to SQLite
     ./grinder-ble analyse [--db file.db]       # Export data and launch Streamlit report
     ./grinder-ble scan                         # Scan for BLE devices
@@ -37,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from firmware_variants import FIRMWARE_ENVS, DEFAULT_VARIANT
+from firmware_variants import FIRMWARE_ENV, LEGACY_V2_ENV, DEPRECATED_VARIANT_CHOICES, VARIANT_DEPRECATED_MSG
 
 def ensure_venv_requirements():
     """Ensure all required packages are installed in the project venv"""
@@ -163,11 +162,10 @@ class GrinderBLETool:
         
         self.firmware_cache_dir = Path(__file__).parent.parent.parent / "firmware_cache"
     
-    def find_firmware_file(self, variant: Optional[str] = None) -> Optional[str]:
-        """Locate the built firmware.bin for a hardware variant (default: v1). Never crosses variants."""
+    def find_firmware_file(self) -> Optional[str]:
+        """Locate the built firmware.bin (one image for all supported boards)."""
         project_root = Path(__file__).parent.parent.parent
-        env_name = FIRMWARE_ENVS[variant or DEFAULT_VARIANT]
-        firmware_path = project_root / ".pio" / "build" / env_name / "firmware.bin"
+        firmware_path = project_root / ".pio" / "build" / FIRMWARE_ENV / "firmware.bin"
         if firmware_path.exists():
             self.safe_print(f"[INFO] Auto-detected firmware: {firmware_path}")
             return str(firmware_path)
@@ -348,17 +346,24 @@ class GrinderBLETool:
             return None
 
     def find_cached_firmware(self, build_number: str, env_name: str) -> Optional[Path]:
-        """Cached firmware of the same PlatformIO env (firmware_cache/<env>/build_NNN.bin).
+        """Cached firmware of this build number (firmware_cache/<env>/build_NNN.bin) to use as delta base.
 
-        Never falls back across envs: a delta against another hardware variant would brick the update.
-        The legacy flat firmware_cache/build_NNN.bin (from before per-env caching) is of unknown env;
-        it is trusted for the V1 env only, for backward compatibility.
+        For the main env the legacy caches are also searched: the flat firmware_cache/build_NNN.bin
+        (old V1 builds) and firmware_cache/<legacy V2 env>/ (old V2 builds). Old V1 and V2 images with
+        the same build number differ, so if the candidates are not identical the base is ambiguous:
+        return None (full update) rather than risk a corrupt patch.
         """
         filename = f"build_{int(build_number):03d}.bin"
         candidates = [self.firmware_cache_dir / env_name / filename]
-        if env_name == FIRMWARE_ENVS["v1"]:
+        if env_name == FIRMWARE_ENV:
+            candidates.append(self.firmware_cache_dir / LEGACY_V2_ENV / filename)
             candidates.append(self.firmware_cache_dir / filename)
-        return next((c for c in candidates if c.exists()), None)
+        found = [c for c in candidates if c.exists()]
+        if not found:
+            return None
+        if len(found) > 1 and len({c.read_bytes() for c in found}) > 1:
+            return None
+        return found[0]
 
     def _get_firmware_build_number(self, firmware_path: str) -> Optional[str]:
         """Extract build number from git_info.h in project directory."""
@@ -422,18 +427,12 @@ class GrinderBLETool:
         except Exception:
             return None
 
-    async def upload_firmware(self, firmware_path: str, force_full: bool = False, variant: Optional[str] = None) -> bool:
+    async def upload_firmware(self, firmware_path: str, force_full: bool = False) -> bool:
         firmware_file = Path(firmware_path)
         if not firmware_file.exists(): return False
 
-        # Env that selects the delta base cache; None means the variant is unknown -> full upload only
-        path_env = self._env_from_firmware_path(firmware_path)
-        env_name = FIRMWARE_ENVS[variant] if variant else path_env
-        env_mismatch = bool(variant and path_env and path_env != env_name)
-        if env_mismatch:
-            self.safe_print(f"[ERROR] Firmware path is from env '{path_env}' but --variant {variant} "
-                            f"expects '{env_name}'. Refusing to upload: V1 and V2 images are not interchangeable.")
-            return False
+        # Env that selects the delta base cache (e.g. the debug env caches separately)
+        env_name = self._env_from_firmware_path(firmware_path) or FIRMWARE_ENV
 
         with open(firmware_file, 'rb') as f: firmware_data = f.read()
         original_size = len(firmware_data)
@@ -450,17 +449,13 @@ class GrinderBLETool:
                 self.safe_print(f"[INFO] Current device build: #{device_build}")
                 if new_build:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
-                cached_firmware = None
-                if not env_name:
-                    full_reason = "unknown hardware variant (use --variant)"
-                else:
-                    cached_firmware = self.find_cached_firmware(device_build, env_name)
+                cached_firmware = self.find_cached_firmware(device_build, env_name)
                 if cached_firmware:
                     patch_data = self.generate_delta_patch(cached_firmware, firmware_data)
                     if patch_data and len(patch_data) < original_size * 0.8:
                         use_delta = True
                     else: full_reason = "delta not beneficial"
-                elif not full_reason: full_reason = "no cached firmware"
+                else: full_reason = "no cached firmware"
             else:
                 full_reason = "no device build info"
                 if new_build:
@@ -1262,8 +1257,8 @@ async def main():
     upload_parser = subparsers.add_parser('upload', help='Upload firmware via BLE OTA')
     upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file')
     upload_parser.add_argument('--force-full', action='store_true', help='Force full update')
-    upload_parser.add_argument('--variant', choices=sorted(FIRMWARE_ENVS),
-                               help='Hardware variant (default: v1 when auto-detecting firmware; inferred from the path for delta updates)')
+    upload_parser.add_argument('--variant', choices=DEPRECATED_VARIANT_CHOICES,
+                               help='Deprecated and ignored: one firmware image supports both V1 and V2 boards')
     export_parser = subparsers.add_parser('export', help='Export grind data')
     export_parser.add_argument('--db', default=None, help='Output database file (default: tools/database/grinder_data.db)')
     analyse_parser = subparsers.add_parser('analyse', help='Export data and launch Streamlit report')
@@ -1290,13 +1285,13 @@ async def main():
             if not await tool.connect_to_device(args.device): return 1
 
             if args.command == 'upload':
-                firmware_path = args.firmware or tool.find_firmware_file(args.variant)
+                if args.variant:
+                    tool.safe_print(f"[WARNING] {VARIANT_DEPRECATED_MSG}")
+                firmware_path = args.firmware or tool.find_firmware_file()
                 if not firmware_path:
                     tool.safe_print("[ERROR] No firmware file found.")
                     return 1
-                # Auto-detected firmware is always of the (default) variant, so pass it on for delta lookup
-                variant = args.variant or (None if args.firmware else DEFAULT_VARIANT)
-                await tool.upload_firmware(firmware_path, args.force_full, variant)
+                await tool.upload_firmware(firmware_path, args.force_full)
             elif args.command == 'export':
                 await tool.export_data(args.db)
             elif args.command == 'analyse':

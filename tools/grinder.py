@@ -16,7 +16,7 @@ from typing import Optional, List, Dict, Any
 import shutil
 import stat
 
-from firmware_variants import FIRMWARE_ENVS, DEFAULT_VARIANT
+from firmware_variants import FIRMWARE_ENV, DEPRECATED_VARIANT_CHOICES, VARIANT_DEPRECATED_MSG
 
 # Color support for cross-platform output
 try:
@@ -178,25 +178,28 @@ class GrinderTool:
             self.print_error(f"Command failed: {e}")
             return 1
     
-    def firmware_path_for_variant(self, variant: str) -> Path:
-        """Path of the built firmware.bin for a hardware variant."""
-        return self.project_dir / ".pio" / "build" / FIRMWARE_ENVS[variant] / "firmware.bin"
+    def firmware_path(self) -> Path:
+        """Path of the built firmware.bin."""
+        return self.project_dir / ".pio" / "build" / FIRMWARE_ENV / "firmware.bin"
+
+    def warn_if_variant_given(self, args: argparse.Namespace):
+        """The --variant option is deprecated: one image supports both boards."""
+        if getattr(args, 'variant', None):
+            self.print_warning(VARIANT_DEPRECATED_MSG)
 
     def cmd_build(self, args: argparse.Namespace) -> int:
         """Build firmware using PlatformIO."""
         self.print_header("Building Firmware")
-        
+
         if not self.check_venv():
             return 1
-        
-        variant = getattr(args, 'variant', None) or DEFAULT_VARIANT
-        env_name = FIRMWARE_ENVS[variant]
-        self.print_info(f"Hardware variant: {variant} (env: {env_name})")
+
+        self.warn_if_variant_given(args)
 
         # Use PlatformIO from the project venv
         result = self.run_command([
             str(self.venv_python), "-m", "platformio", "run",
-            "-e", env_name
+            "-e", FIRMWARE_ENV
         ])
 
         if result.returncode == 0:
@@ -209,36 +212,14 @@ class GrinderTool:
     async def cmd_upload(self, args: argparse.Namespace) -> int:
         """Upload firmware via BLE OTA."""
         firmware_path = args.firmware
-        variant = getattr(args, 'variant', None)
+        self.warn_if_variant_given(args)
 
-        if not firmware_path and variant:
-            firmware_path = self.firmware_path_for_variant(variant)
+        if not firmware_path:
+            firmware_path = self.firmware_path()
             if not firmware_path.exists():
-                self.print_error(f"No {variant} firmware found at: {firmware_path}")
-                self.print_info(f"Run: python3 grinder.py build --variant {variant}")
-                return 1
-        elif not firmware_path:
-            self.print_info("Finding latest firmware file...")
-            build_dir = self.project_dir / ".pio" / "build"
-
-            firmware_files = []
-            if build_dir.exists():
-                for firmware_file in build_dir.rglob("*.bin"):
-                    if firmware_file.name == "firmware.bin":
-                        firmware_files.append(firmware_file)
-            
-            if not firmware_files:
-                self.print_error("No firmware file found")
+                self.print_error(f"No firmware found at: {firmware_path}")
                 self.print_info("Run: python3 grinder.py build")
                 return 1
-            
-            # Get the most recently modified firmware
-            firmware_path = max(firmware_files, key=lambda f: f.stat().st_mtime)
-            self.print_info(f"Picked newest build: {Path(firmware_path).parent.name}")
-            self.print_warning(
-                "V1 and V2 firmware images are not interchangeable (wrong image = black screen). "
-                "Use --variant v1|v2 to pick explicitly."
-            )
 
         self.print_header("BLE OTA Upload")
         self.print_info(f"Using firmware: {firmware_path}")
@@ -247,10 +228,6 @@ class GrinderTool:
             return 1
 
         cmd = [str(self.venv_python), str(self.ble_tool), "upload", str(firmware_path)]
-
-        # Delta patching needs the variant; without it the BLE tool infers it from the path
-        if variant:
-            cmd.extend(["--variant", variant])
 
         # Add additional arguments
         if hasattr(args, 'device') and args.device:
@@ -266,8 +243,8 @@ class GrinderTool:
         if build_result != 0:
             return build_result
         
-        # Upload exactly the firmware of the env that was just built
-        args.variant = getattr(args, 'variant', None) or DEFAULT_VARIANT
+        # Upload the firmware that was just built (deprecation warning already shown by the build)
+        args.variant = None
         args.firmware = None
         return await self.cmd_upload(args)
     
@@ -496,9 +473,7 @@ def create_parser() -> argparse.ArgumentParser:
 {COLORS['YELLOW']}Examples:{COLORS['RESET']}
   python3 grinder.py build-upload              # Build and upload firmware
   python3 grinder.py build-upload --force-full # Build and force full firmware update
-  python3 grinder.py build --variant v2        # Build firmware for the V2 hardware revision
-  python3 grinder.py build-upload --variant v2 # Build and upload V2 firmware
-  python3 grinder.py upload --variant v2       # Upload the existing V2 build
+  python3 grinder.py build                     # Build firmware (one image for V1 and V2 boards)
   python3 grinder.py analyze                   # Export data and show interactive report
   python3 grinder.py report                    # Just show report from existing data
   python3 grinder.py export --db session1.db  # Export to custom database
@@ -512,20 +487,19 @@ def create_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest='command', required=True, help='Available commands')
     
     # Build & Upload Commands
-    variant_help = 'Hardware variant: v1 (default) or v2 (Waveshare 1.64" V2)'
+    variant_help = 'Deprecated and ignored: one firmware image supports both V1 and V2 boards'
 
     build_parser = subparsers.add_parser('build', help='Build firmware using PlatformIO')
-    build_parser.add_argument('--variant', choices=sorted(FIRMWARE_ENVS), default=DEFAULT_VARIANT, help=variant_help)
+    build_parser.add_argument('--variant', choices=DEPRECATED_VARIANT_CHOICES, help=variant_help)
 
     upload_parser = subparsers.add_parser('upload', help='Upload firmware via BLE OTA')
-    upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (finds latest if not specified)')
-    upload_parser.add_argument('--variant', choices=sorted(FIRMWARE_ENVS),
-                               help='Upload the build of this hardware variant (default: newest build of any variant)')
+    upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (uses the latest build if not specified)')
+    upload_parser.add_argument('--variant', choices=DEPRECATED_VARIANT_CHOICES, help=variant_help)
     upload_parser.add_argument('--force-full', action='store_true', help='Force full firmware update (skip delta patching)')
     upload_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     
     build_upload_parser = subparsers.add_parser('build-upload', help='Build firmware and upload via BLE')
-    build_upload_parser.add_argument('--variant', choices=sorted(FIRMWARE_ENVS), default=DEFAULT_VARIANT, help=variant_help)
+    build_upload_parser.add_argument('--variant', choices=DEPRECATED_VARIANT_CHOICES, help=variant_help)
     build_upload_parser.add_argument('--force-full', action='store_true', help='Force full firmware update (skip delta patching)')
     build_upload_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     

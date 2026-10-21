@@ -34,8 +34,7 @@ jobs:
           # Install dependencies first to ensure exact versions
           pio pkg install
 
-          # PlatformIO wipes the other env's .pio/build dir when building the next env,
-          # so copy each env's binaries into release-artifacts/ right after its build.
+          # One image for all supported boards (Waveshare 1.64" V1 and V2): the board is detected at runtime
           set -e
           VERSION=${{ github.ref_name }}
           mkdir -p release-artifacts
@@ -44,11 +43,6 @@ jobs:
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}.bin
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-bootloader.bin
           cp .pio/build/waveshare-esp32s3-touch-amoled-164/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-partitions.bin
-
-          pio run -e waveshare-esp32s3-touch-amoled-164-v2
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/firmware.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/bootloader.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-bootloader.bin
-          cp .pio/build/waveshare-esp32s3-touch-amoled-164-v2/partitions.bin release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-partitions.bin
 
       - name: Prepare release artifacts
         run: |
@@ -66,8 +60,6 @@ jobs:
           touch empty.bin
           detools create_patch -c heatshrink empty.bin "release-artifacts/smart-grind-by-weight-${VERSION}.bin" "release-artifacts/smart-grind-by-weight-${VERSION}-web-ota.bin"
           echo "Web OTA patch created: smart-grind-by-weight-${VERSION}-web-ota.bin ($(du -h "release-artifacts/smart-grind-by-weight-${VERSION}-web-ota.bin" | cut -f1))"
-          echo "Generating V2 web OTA patch"
-          detools create_patch -c heatshrink empty.bin "release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2.bin" "release-artifacts/smart-grind-by-weight-${VERSION}-waveshare-164-v2-web-ota.bin"
 
           # Generate manifest file
           echo "Generating manifest file..."
@@ -76,7 +68,7 @@ jobs:
 
           cat > "smart-grind-by-weight-${VERSION}.manifest.json" << EOF
           {
-            "name": "Smart Grind By Weight",
+            "name": "Smart Grind By Weight - Waveshare 1.64 (V1 + V2 auto-detect)",
             "version": "${VERSION_NUMBER}",
             "home_assistant_domain": "grinder",
             "new_install_skip_erase": true,
@@ -107,39 +99,6 @@ jobs:
           EOF
           echo "Generated manifest: smart-grind-by-weight-${VERSION}.manifest.json"
 
-          cat > "smart-grind-by-weight-${VERSION}-waveshare-164-v2.manifest.json" << EOF
-          {
-            "name": "Smart Grind By Weight - Waveshare 1.64 V2",
-            "version": "${VERSION_NUMBER}",
-            "home_assistant_domain": "grinder",
-            "new_install_skip_erase": true,
-            "builds": [
-              {
-                "chipFamily": "ESP32-S3",
-                "parts": [
-                  {
-                    "path": "smart-grind-by-weight-${VERSION}-waveshare-164-v2-bootloader.bin",
-                    "offset": 0
-                  },
-                  {
-                    "path": "smart-grind-by-weight-${VERSION}-waveshare-164-v2-partitions.bin",
-                    "offset": 32768
-                  },
-                  {
-                    "path": "blank_8KB.bin",
-                    "offset": 57344
-                  },
-                  {
-                    "path": "smart-grind-by-weight-${VERSION}-waveshare-164-v2.bin",
-                    "offset": 3276800
-                  }
-                ]
-              }
-            ]
-          }
-          EOF
-          echo "Generated V2 manifest: smart-grind-by-weight-${VERSION}-waveshare-164-v2.manifest.json"
-
           # Create a firmware package
           tar -czf smart-grind-by-weight-${VERSION}.tar.gz *.bin *.manifest.json
           cd ..
@@ -152,15 +111,13 @@ jobs:
           ## Installation
 
           ### Web Installer (Recommended)
-          Visit [Web Installer](https://devnullgamer.github.io/smart-grind-by-weight/) and select firmware version ${{ github.ref_name }} for your Waveshare V1 or V2 board revision.
+          Visit [Web Installer](https://devnullgamer.github.io/smart-grind-by-weight/) and select firmware version ${{ github.ref_name }}. The same firmware supports the Waveshare 1.64" V1 and V2 boards; the board is detected automatically.
 
           **Note:** Requires Chrome/Edge (desktop or Android). iOS/Safari not supported.
 
           ### Command Line (Alternative)
-          1. Download the firmware matching your board revision:
-             - V1: \`smart-grind-by-weight-${{ github.ref_name }}.bin\`
-             - V2: \`smart-grind-by-weight-${{ github.ref_name }}-waveshare-164-v2.bin\`
-          2. Use the grinder tool to upload the selected file, for example: \`python3 tools/grinder.py upload <firmware-file>.bin\`
+          1. Download \`smart-grind-by-weight-${{ github.ref_name }}.bin\` (supports both V1 and V2 boards)
+          2. Use the grinder tool to upload it, for example: \`python3 tools/grinder.py upload smart-grind-by-weight-${{ github.ref_name }}.bin\`
 
           ## Build Information
           - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
