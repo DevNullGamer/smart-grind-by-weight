@@ -39,6 +39,14 @@ python3 tools/grinder.py analyze
 - **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
 
+**Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
+- One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
+- Board is detected at runtime (`src/hardware/board_detect.cpp`, `board_decide.cpp`; GPIO45 pull-up read, V2 confirmed by TE edges, GPIO18 hint; a conflicting level can veto to UNKNOWN/cached board). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
+- Motor is enabled only when the board is established by PROBE or USER (not UNKNOWN/CACHED). Never drive GPIO18 before the board is known or on V2 (touch INT). Pin parking happens at the top of `setup()`; `board_set()` runs before display init.
+- Override: NVS `board_override` (0 auto/1 V1/2 V2), set via Menu -> Hardware board, on-screen picker (UNKNOWN), or BLE `grinder.py board` (v1/v2 only while board not established).
+- One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
+- Dual wiring: HX711 SCK pulsed on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
+
 **Update Intervals:** 20ms grind control, 25ms load cell (active), 50ms UI/hardware
 
 **Grind Phases:**

@@ -3,7 +3,7 @@
 ## Table of Contents
 
 - [Motor Does Not Start](#motor-does-not-start)
-- [Display Stays Black After Flashing (Waveshare 1.64 V2)](#display-stays-black-after-flashing-waveshare-164-v2)
+- [Board Not Recognised / Display Stays Black (Waveshare 1.64)](#board-not-recognised--display-stays-black-waveshare-164)
 - [HX711 Not Detected / Wrong Sample Rate](#hx711-not-detected--wrong-sample-rate)
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
@@ -13,33 +13,37 @@
 
 ---
 
-## Display Stays Black After Flashing (Waveshare 1.64 V2)
+## Board Not Recognised / Display Stays Black (Waveshare 1.64)
 
-**Applies to:** ESP32-S3-Touch-AMOLED-1.64 boards that still accept firmware and produce serial/BLE diagnostics, but show no pixels after Smart Grind starts.
+**Applies to:** ESP32-S3-Touch-AMOLED-1.64 boards (V1 or V2). One firmware image supports both revisions and detects the board at boot, so there is no V1/V2 image to choose.
 
 ### Symptoms
-- The display worked with the factory firmware, then became completely black after flashing Smart Grind.
-- The device still boots, connects, or produces a diagnostic report.
-- Reflashing the official V2 demo restores the display.
+- A "SELECT BOARD" dialog appears at boot (tap V1 or V2), or the diagnostics page shows "Hardware board not recognised" / "Grinder output is off".
+- The grinder motor does not run even though everything else works (the motor is disabled until the board is confirmed).
+- The display stays black after flashing, but the device still boots, connects over BLE or produces a diagnostic report.
 
-### Root Cause
-Waveshare's V2 revision is not display-compatible with the original board. It uses an SH8601 panel controller, GPIO 46 for display chip select, a 40 MHz QSPI bus, and a 20-pixel X offset. The original V1 target uses a different display path and can boot successfully without lighting a V2 panel.
+### How detection works
+At boot the firmware reads GPIO45 (held low on V2, floating on V1), confirms a V2 by watching the panel's TE signal, and checks GPIO18 as a hint (a conflicting level can veto to UNKNOWN/cached board). If the signals disagree it does not guess: the motor stays disabled and the on-screen picker is shown. While the board is unknown the display is driven on both V1 and V2 chip-select pins, so the picker is visible on either board. The last known board is remembered, but a remembered board alone never enables the motor.
 
-### Confirm the Revision
-Flash Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2). If that works but the V1 demo or normal Smart Grind image remains black, treat the board as V2. Do this test before connecting the grinder wiring so display compatibility is isolated from the rest of the installation.
+A V1 board with GPIO18 pulled high by external wiring can look like a V2 hint and end up unrecognised; pick V1 in the picker.
 
 ### Resolution
-Build and flash the V2 target:
+1. If the picker is shown, tap the board you own (V1 or V2). The choice is saved and the grinder restarts.
+2. Otherwise open **Menu → Hardware board** to see the detected board and how it was determined, or to set Auto / V1 / V2 manually. A change applies after a restart.
+3. If the screen is black, connect over BLE and set the board from the command line:
+   ```bash
+   python3 tools/grinder.py board v1      # or v2, or auto
+   ```
+   `auto` is always accepted. `v1`/`v2` are accepted only while the board has not been confirmed by detection or by you (recovery path); once the board is confirmed, change it on the device under Menu → Hardware board. Restart the grinder afterwards.
+4. If it stays black, test the board with Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2) and report the result together with the boot log.
 
-```bash
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-v2
-```
+> **Warning:** Forcing V1 on a real V2 board makes the firmware drive GPIO18 as the motor output. On V2, GPIO18 is the touch interrupt input (`TP_INT`) with a 4.7k pull-up, so the motor wire connected there fights the touch controller and can feed voltage into the grinder control input. Only force a board to correct a wrong detection.
 
-For a complete V2 installation, wire HX711 SCK to GPIO 1 and the grinder motor-control lead to GPIO 16. GPIO 18 is connected to the V2 touchscreen interrupt (`TP_INT`) and must not be used for motor control. The V1 connections remain HX711 SCK on GPIO 2 and motor control on GPIO 18.
+### Wiring
+The firmware drives both known wirings, so either works on either board. HX711 SCK is clocked on GPIO 1 and GPIO 2 together (DOUT on GPIO 3). The motor lead is driven on GPIO 16 once the board is confirmed, and additionally on GPIO 18 only on a confirmed V1. On V2 connect the motor lead to GPIO 16 and never to GPIO 18.
 
-Do not change only the chip-select pin in a V1 build. Hardware validation showed that an Arduino_GFX SH8601 attempt remained black; the working V2 target uses Waveshare's native Espressif `esp_lcd` SH8601 driver and initialization sequence.
-
-If using the Web Flasher, select an image explicitly labelled for the 1.64-inch V2 board. If no V2 image is listed, do not flash the V1 image; build the V2 target from source or wait for a V2 release artifact.
+### Technical background
+V2 uses the same SH8601 controller and `esp_lcd` driver as V1 but with display chip select on GPIO 46 (V1: GPIO 9). Earlier releases needed a separate image per revision. Design details are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ---
 
@@ -83,10 +87,10 @@ The motor control wire (Pin 3) is the wire that **starts the motor when briefly 
 ### Resolution
 
 **Swap the wire connections:**
-- The motor control wire (Pin 3) should connect to Waveshare **GPIO 18 on V1** or **GPIO 16 on V2**
+- The motor control wire (Pin 3) should connect to Waveshare **GPIO 16** (works on both boards; **GPIO 18** also works on V1 only)
 - The button signal wire (Pin 2) can remain disconnected (unused in this project)
 
-If wires were reversed, swap them so Pin 3 connects to the correct GPIO for the board revision. On V2, never use GPIO 18 for motor control because it is shared with `TP_INT`. The Waveshare board has reverse polarity protection for power connections, but the motor/button wires should be correctly identified for proper operation.
+If wires were reversed, swap them so Pin 3 connects to the correct GPIO. On V2, never use GPIO 18 for motor control because it is shared with `TP_INT`. If the motor never runs and the diagnostics page says the grinder output is off, the board is not confirmed: see [Board Not Recognised](#board-not-recognised--display-stays-black-waveshare-164). The Waveshare board has reverse polarity protection for power connections, but the motor/button wires should be correctly identified for proper operation.
 
 **Important:** Wire colors vary significantly between Eureka units - always refer to pin positions rather than wire colors when troubleshooting. On the physically verified V2 Specialita, Pin 3 was the grey lead and Pin 2 was white, contrary to the earlier assumed assignment; the white Pin 2 lead was left disconnected and insulated.
 

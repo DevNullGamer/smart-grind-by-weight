@@ -49,7 +49,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
 
 > **Note:** All links are **for reference only** — sellers and items are **not personally verified** unless explicitly stated.
 
-- **[Waveshare ESP32-S3 1.64" AMOLED Touch Display](https://www.waveshare.com/esp32-s3-touch-amoled-1.64.htm)** — Main controller. Waveshare has shipped incompatible V1 and V2 display revisions; confirm the revision before flashing.
+- **[Waveshare ESP32-S3 1.64" AMOLED Touch Display](https://www.waveshare.com/esp32-s3-touch-amoled-1.64.htm)** — Main controller. Both the V1 and V2 revisions are supported by the same firmware (the board is detected automatically).
 - **[HX711 ADC module](https://nl.aliexpress.com/item/1005006851380544.html)** — Load cell amplifier
 - **MAVIN or T70 load cell** (0.3 – 1 kg range) — Weight sensor
   ⚠️ Avoid cheap unshielded small load cells — accuracy will suffer
@@ -121,7 +121,7 @@ Watch the complete Eureka Mignon Specialita assembly process: **[YouTube Assembl
 
 **HX711 Load Cell Amplifier Connections:**
 ```
-ESP32-S3 GPIO 2 (V1) / GPIO 1 (V2) → HX711 SCK
+ESP32-S3 GPIO 2 (V1 convention) or GPIO 1 (V2 convention) → HX711 SCK
 ESP32-S3 GPIO 3    →    HX711 DOUT
 ESP32-S3 3.3V      →    HX711 VCC
 ESP32-S3 GND       →    HX711 GND
@@ -163,7 +163,7 @@ Using the 4-pin Eureka plug pinout (see `../media/4-pin_Eureka_plug_pinout.png`)
 ```
 ESP32-S3 5V        →    Pin 1 (5V power)
                         Pin 2 (Button signal - not used in this project)
-ESP32-S3 GPIO 18 (V1) / GPIO 16 (V2) → Pin 3 (Motor control signal)
+ESP32-S3 GPIO 16 (any board) or GPIO 18 (V1 only) → Pin 3 (Motor control signal)
 ESP32-S3 GND       →    Pin 4 (Ground)
 ```
 
@@ -174,7 +174,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 - **Pin 4**: Ground
 
 > [!WARNING]
-> On V2, do not connect motor control to GPIO 18. It is shared with the touchscreen interrupt (`TP_INT`) and its pull-up circuitry can leak voltage into the grinder control input. The physically verified V2 wiring uses GPIO 16 for motor control and GPIO 1 for HX711 SCK.
+> On V2, do not connect motor control to GPIO 18. It is shared with the touchscreen interrupt (`TP_INT`) and its pull-up circuitry can leak voltage into the grinder control input. The physically verified V2 wiring uses GPIO 16 for motor control and GPIO 1 for HX711 SCK. The firmware clocks the HX711 on both GPIO 1 and GPIO 2 and drives the motor on GPIO 16 (plus GPIO 18 only on a confirmed V1), so either wiring convention works; GPIO 16 is the safe choice on both boards.
 
 ⚠️ **VERIFY 5V:** Use a multimeter to confirm the 5V pin and identify the motor lead by plug position, not colour. In the verified V2 Specialita installation, Pin 3 (motor control) was the **grey** wire and Pin 2 (unused button signal) was **white**; an earlier assumption had these reversed. Wire colours can differ between grinder revisions, so treat this only as a checked example and leave Pin 2 disconnected and insulated.
 
@@ -205,18 +205,21 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 
 ## 🚀 Firmware Installation
 
-### Check the display revision first
+### Board revisions (V1 and V2)
 
-The 1.64-inch Waveshare board now exists in two firmware-incompatible revisions. V1 uses the original CO5300 display path; V2 uses an SH8601 controller, GPIO 46 chip select, and a 20-pixel framebuffer offset. Firmware built for the wrong revision can boot normally while the AMOLED remains completely black.
+The 1.64-inch Waveshare board exists in two revisions (V1 and V2, Waveshare's "V1.1"). **One firmware image supports both**: the board is detected automatically at boot, so you do not choose an image per revision.
 
-The external wiring also differs: V1 uses GPIO 2 for HX711 SCK and GPIO 18 for motor control; V2 uses GPIO 1 for HX711 SCK and GPIO 16 for motor control. Select the correct firmware target and follow the matching wiring before powering the grinder.
+- **Automatic detection:** at boot the firmware checks GPIO45 and the panel's TE signal. The grinder motor is only enabled once the board is positively identified.
+- **If the board is not recognised:** a "SELECT BOARD" dialog appears and the motor stays disabled until you pick one. Tap V1 or V2 for the board you own; the grinder restarts.
+- **Manual override:** **Menu → Hardware board** (Auto / V1 / V2, applied after restart), or over BLE with `python3 tools/grinder.py board auto|v1|v2` (`v1`/`v2` are accepted over BLE only while the board is not confirmed).
+- **Warning:** do not force V1 on a V2 board. V1 mode drives GPIO 18 as the motor output, and on V2 that pin is the touch interrupt input (`TP_INT`). Use Auto unless detection is wrong.
 
-If the board was supplied with V2 factory firmware, or Waveshare's [official V2 demo](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.64-v2) works while V1 firmware stays black, use the V2 build target. See the [black-display troubleshooting entry](TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2) before wiring the grinder.
+External wiring: V1 installations use GPIO 2 for HX711 SCK and GPIO 18 for motor control; V2 installations use GPIO 1 and GPIO 16. The firmware supports both. See the [troubleshooting entry](TROUBLESHOOTING.md#board-not-recognised--display-stays-black-waveshare-164) if the board is not recognised or the screen stays black.
 
 ### 🌐 Web Flasher (Recommended)
 **[🔗 Open Web Flasher Tool](https://devnullgamer.github.io/smart-grind-by-weight)**
 
-Before flashing, verify that the selected image matches your V1 or V2 hardware revision. If the flasher does not yet list a V2 image, build the `waveshare-esp32s3-touch-amoled-164-v2` source target instead; flashing the V1 image to V2 produces a black screen.
+Select the firmware version from the dropdown. Releases from the unified image onward are listed as "V1 + V2 (auto-detect)" and work on both board revisions. Older releases list separate V1 and V2 images; for those, pick the one that matches your board (the wrong one gives a black screen).
 
 **Browser Compatibility:**
 - ✅ **Chrome** (Desktop & Android) - Full support
@@ -255,6 +258,8 @@ python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 # Updates (BLE) - Enable device Bluetooth first  
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
+
+The same firmware file works on V1 and V2 boards.
 
 **Manual firmware download:** [Releases page](https://github.com/DevNullGamer/smart-grind-by-weight/releases)  
 **Build from source:** See [DEVELOPMENT.md](DEVELOPMENT.md)
@@ -398,13 +403,15 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |   |-- Normal brightness slider
     |   |   \-- Screensaver brightness slider
     |   |
-    |   \-- Grind Settings
-    |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
-    |       |-- Time Mode toggle (direct weight/time mode selection)
-    |       |-- Start on Cup toggle (start when ≈50 g arrives within ~2 s)
-    |       |-- Return on Removal toggle (drop back to Ready when that weight leaves)
-    |       |-- Purging (Prime/Purge radio buttons)
-    |       \-- Amount slider (0.1g-5.0g for purge/prime operation)
+    |   +-- Grind Settings
+    |   |   |-- Swipe Gestures toggle (enable/disable vertical swipes)
+    |   |   |-- Time Mode toggle (direct weight/time mode selection)
+    |   |   |-- Start on Cup toggle (start when ≈50 g arrives within ~2 s)
+    |   |   |-- Return on Removal toggle (drop back to Ready when that weight leaves)
+    |   |   |-- Purging (Prime/Purge radio buttons)
+    |   |   \-- Amount slider (0.1g-5.0g for purge/prime operation)
+    |   |
+    |   \-- Hardware board (detected board + source; Auto / V1 / V2 override, applies after restart)
     |
     \-- Info
         +-- Diagnostics

@@ -34,19 +34,14 @@ This automatically creates a virtual environment and installs all required depen
 
 ## 🔧 Build Targets
 
-The project has four build targets:
+The project has three build targets. All of them run on both the Waveshare 1.64" V1 and V2 boards: the board revision is detected at runtime (see [Board Detection](#board-detection)), so there is no per-revision target.
 
 ### Production Target: `waveshare-esp32s3-touch-amoled-164`
-- **Use case:** Real V1 hardware with load cell and grinder connected
+- **Use case:** Real hardware (V1 or V2 board) with load cell and grinder connected
 - **Hardware:** Full ESP32-S3 + HX711 + load cell + grinder motor relay
 - **Features:** All functionality enabled
 - **Optimizations:** `-Ofast` optimization level for performance
-
-### V2 Production Target: `waveshare-esp32s3-touch-amoled-164-v2`
-- **Use case:** Waveshare 1.64-inch V2 hardware with load cell and grinder connected
-- **Display:** SH8601 using Waveshare's native `esp_lcd` QSPI driver
-- **External GPIO:** HX711 SCK on GPIO 1; grinder motor control on GPIO 16 (GPIO 18 is reserved by `TP_INT`)
-- **Important:** V1 and V2 display firmware is not interchangeable; the wrong target normally boots to a black screen
+- **Display:** SH8601 through Waveshare's native `esp_lcd` QSPI driver; board-specific pins come from the runtime board config
 
 ### Debug Target: `waveshare-esp32s3-touch-amoled-164-debug`
 - **Use case:** Development and debugging with real hardware
@@ -95,11 +90,6 @@ The platform dependency is automatically handled by PlatformIO via the `platform
 python3 tools/grinder.py build
 ```
 
-**Build V2 production firmware:**
-```bash
-python3 tools/grinder.py build --variant v2
-```
-
 **Build debug firmware:**
 ```bash
 python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-debug
@@ -124,9 +114,6 @@ For the first-time setup or when BLE isn't working:
 python3 tools/grinder.py build
 python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164
 
-# Or for the V2 hardware revision
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-v2
-
 # Or for debug target
 python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-debug
 
@@ -142,9 +129,8 @@ Once the device is running and connected to Bluetooth:
 # Build and upload wirelessly (production)
 python3 tools/grinder.py build-upload
 
-# V2 hardware revision (V1 and V2 images are not interchangeable: wrong image = black screen)
-python3 tools/grinder.py build-upload --variant v2
-python3 tools/grinder.py upload --variant v2     # upload the existing V2 build
+# Upload the existing production build (.pio/build/waveshare-esp32s3-touch-amoled-164/firmware.bin)
+python3 tools/grinder.py upload
 
 # Upload specific firmware file
 python3 tools/grinder.py upload path/to/smart-grind-by-weight-vX.X.X.bin
@@ -159,7 +145,28 @@ python3 tools/grinder.py scan
 python3 tools/grinder.py info
 ```
 
-Delta updates use `firmware_cache/<env>/build_NNN.bin` as the base, so V1 and V2 builds never mix. Old flat `firmware_cache/build_NNN.bin` files are still used for V1 only; if the variant cannot be determined, a full update is sent.
+One image serves both board revisions. `--variant v1|v2` is deprecated: it is still accepted but ignored (a warning is printed).
+
+A bare `upload` (no firmware path) always uploads the **production** env's build output, so run `build` (or `build-upload`) first; a debug or mock build is not picked up automatically, pass its `firmware.bin` path explicitly.
+
+Delta updates use `firmware_cache/<env>/build_NNN.bin` as the base. For the production env, legacy caches (flat `firmware_cache/build_NNN.bin` and `firmware_cache/waveshare-esp32s3-touch-amoled-164-v2/`) are also searched; if they hold different files for the same build number, the base is ambiguous and a full update is sent instead.
+
+---
+
+## Board Detection
+
+The firmware identifies the Waveshare 1.64" revision (V1 or V2) at boot; see [DESIGN-NOTES.md](DESIGN-NOTES.md) for the reasoning.
+
+- **Detection** (`src/hardware/board_detect.cpp`, pure decision logic in `board_decide.cpp`): GPIO45 read with pull-up (low = V2, high = V1), V2 confirmed by counting panel TE edges on GPIO45 with the panel on CS=GPIO46, GPIO18 pull-down read as a hint (a conflicting level can veto to UNKNOWN/cached board). Conflicting signals give UNKNOWN (or the last known board for display only).
+- **Motor safety:** the grinder output is enabled only when the board was established by probe or by the user. UNKNOWN and cached boards run with the motor disabled. GPIO18 is never driven before the board is known and never on V2.
+- **Runtime config:** use `board()` from `src/config/board_config.h` instead of compile-time pin macros.
+- **Override**, stored in NVS (`board_override`, applied after restart):
+  - On the device: **Menu → Hardware board** (Auto / V1 / V2). When the board is UNKNOWN an on-screen picker appears at boot.
+  - Over BLE: `python3 tools/grinder.py board auto|v1|v2`. `auto` is always accepted; `v1`/`v2` only while the board is not established by probe or user.
+  - Restart the grinder to apply.
+- **Warning:** forcing V1 on a real V2 board makes the firmware drive GPIO18 as the motor output, which is the V2 touch interrupt input (4.7k pull-up). Use the override only to correct a wrongly detected board.
+- `python3 tools/grinder.py info` shows the board and how it was determined (`probe`, `user`, `cached`).
+- Host unit tests for the decision logic live in `test_native`; run `pio test -c platformio-native.ini -e native-test`.
 
 ---
 

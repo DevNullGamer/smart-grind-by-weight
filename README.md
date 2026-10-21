@@ -69,7 +69,7 @@ flowchart LR
 
 1. **Get the parts** - ESP32-S3 AMOLED display + HX711 + load cell (~€35 total) → See [Parts List](docs/DOC.md#-parts-list)
 2. **3D print the mounting parts** - All STL files included, no supports needed → See [3D Printed Parts](docs/DOC.md#3d-printed-parts) | [Community Designs](docs/3D_PRINTS.md)
-3. **Check your board revision, wiring, then flash & calibrate** - The 1.64-inch board has incompatible V1 and V2 display firmware and different external GPIO assignments. V2 uses GPIO 1 for HX711 SCK and GPIO 16 for motor control. See [Display stays black after flashing](docs/TROUBLESHOOTING.md#display-stays-black-after-flashing-waveshare-164-v2), then choose the matching V1/V2 image in the [Web Flasher](https://devnullgamer.github.io/smart-grind-by-weight) (Chrome/Edge desktop + Android only) or build the matching command-line target
+3. **Wire it up, then flash & calibrate** - One firmware image supports both the V1 and V2 revisions of the 1.64-inch board and detects the board at boot (the motor stays off until the board is confirmed; you pick V1/V2 on screen if detection fails). Use GPIO 16 for the motor lead and GPIO 1 or 2 for HX711 SCK; never GPIO 18 for the motor on V2. See [Board revisions](docs/DOC.md#board-revisions-v1-and-v2) and [Board not recognised](docs/TROUBLESHOOTING.md#board-not-recognised--display-stays-black-waveshare-164), then flash with the [Web Flasher](https://devnullgamer.github.io/smart-grind-by-weight) (Chrome/Edge desktop + Android only) or build from source
 4. **Follow the assembly video** - [Complete Eureka build process](https://youtu.be/-kfKjiwJsGM)
 
 **Ready to build?** → See **[DOC.md](docs/DOC.md)** for complete build instructions, parts list, and usage guide.
