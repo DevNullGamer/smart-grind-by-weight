@@ -33,6 +33,12 @@ static uint32_t core1_cycle_time_max_ms = 0;
 static uint32_t core1_last_heartbeat_time = 0;
 #endif
 
+static void log_internal_heap(const char* stage) {
+    LOG_BLE("[HEAP] %s: free %u, largest block %u\n", stage,
+            static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+            static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
+}
+
 void setup() {
     // Before anything else: motor pins to a safe state while the board is unknown
     board_park_pins();
@@ -104,6 +110,7 @@ void setup() {
         state_machine.init(UIState::READY);
     }
     
+    log_internal_heap("before UI init");
     ui_manager.init(&hardware_manager, &state_machine, &profile_controller, &grind_controller, &bluetooth_manager);
     
     // Store OTA failure info in ui_manager if needed
@@ -122,7 +129,9 @@ void setup() {
     
     // Enable BLE by default during bootup with 2-minute timeout
     // (Previously disabled by default for security, now enabled for user convenience)
+    log_internal_heap("after UI init");
     bluetooth_manager.enable_during_bootup();
+    log_internal_heap("after BLE enable");
     
     // Initialize individual task modules BEFORE TaskManager creates FreeRTOS tasks
     // This ensures all task dependencies are ready before tasks start running
