@@ -35,6 +35,8 @@
 #define HW_BOARD_PARK_PIN 16                                                   // Motor pin on all boards; driven LOW at boot until the motor is allowed
 #define HW_BOARD_SETTLE_MS 5                                                   // Settling time after enabling a pull resistor before reading
 #define HW_BOARD_TE_WINDOW_MS 100                                              // TE edge counting window after V2 panel bring-up
+#define HW_BOARD_PICKER_RESTART_DELAY_MS 1500                                  // Time the "board saved" message stays up before the picker restarts the device
+#define HW_BOARD_PICKER_ERROR_DELAY_MS 2000                                    // Time the "could not save" message stays up before the picker reappears
 
 // Motor Control (relay pin is board-specific, see board())
 #define HW_GRINDER_SETTLING_TIME_MS 500                                        // Startup transient immunity (tune based on mechanical rigidity, 0 to disable)

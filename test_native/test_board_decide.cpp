@@ -233,6 +233,20 @@ void test_hx711_mask_pin_outside_register_falls_back() {
     TEST_ASSERT_EQUAL_HEX32(0, hx711_clock_mask(-1, 2));
 }
 
+void test_display_mirror_cs_only_for_unknown_board() {
+    // Unknown board: display is driven on the V1 CS plus the V2 CS, in either order
+    const BoardConfig unknown = board_config_for(BoardVariant::UNKNOWN, BoardSource::NONE);
+    const BoardConfig v1 = board_config_for(BoardVariant::V1, BoardSource::PROBE);
+    const BoardConfig v2 = board_config_for(BoardVariant::V2, BoardSource::PROBE);
+    TEST_ASSERT_EQUAL_INT(v2.display_cs_pin, board_display_mirror_cs_pin(unknown));
+    TEST_ASSERT_NOT_EQUAL(unknown.display_cs_pin, board_display_mirror_cs_pin(unknown));
+    TEST_ASSERT_EQUAL_INT(-1, board_display_mirror_cs_pin(v1));
+    TEST_ASSERT_EQUAL_INT(-1, board_display_mirror_cs_pin(v2));
+    TEST_ASSERT_EQUAL_INT(-1, board_display_mirror_cs_pin(board_config_for(BoardVariant::V1, BoardSource::CACHED)));
+    // Mirroring never gives the unknown board a motor
+    TEST_ASSERT_FALSE(unknown.motor_enabled());
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_v1_bare_board);
@@ -269,5 +283,6 @@ int main() {
     RUN_TEST(test_hx711_mask_same_pin_twice_is_single);
     RUN_TEST(test_hx711_mask_highest_gpio_in_register);
     RUN_TEST(test_hx711_mask_pin_outside_register_falls_back);
+    RUN_TEST(test_display_mirror_cs_only_for_unknown_board);
     return UNITY_END();
 }

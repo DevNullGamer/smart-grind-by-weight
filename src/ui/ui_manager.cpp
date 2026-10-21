@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <cmath>
+#include <esp_system.h>
 #include "../config/constants.h"
 #include "screens/calibration_screen.h"
 #include "../logging/grind_logging.h"
@@ -60,6 +61,11 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     
     
     initialized = true;
+
+    // Unrecognised board: the user has to tell us before anything else makes sense
+    if (board().variant == BoardVariant::UNKNOWN) {
+        show_board_picker();
+    }
 }
 
 void UIManager::create_ui() {
@@ -317,6 +323,41 @@ void UIManager::show_motor_disabled_notice() {
         lv_color_hex(THEME_COLOR_WARNING),
         nullptr,
         "BACK");
+}
+
+void UIManager::show_board_picker() {
+    show_confirmation(
+        "SELECT BOARD",
+        "The board revision was not recognised.\n\nV1: standard board\nV2: board marked v1.1\n\nThe grinder output stays off until you choose.",
+        "V1",
+        lv_color_hex(THEME_COLOR_WARNING),
+        [this]() { apply_board_choice(BoardOverride::FORCE_V1); },
+        "V2",
+        [this]() { apply_board_choice(BoardOverride::FORCE_V2); });
+}
+
+// Runs inside the confirm dialog callback. The blocking overlay stays on top of
+// the screen the dialog returns to, so the user sees the outcome.
+void UIManager::apply_board_choice(BoardOverride choice) {
+    auto& overlay = BlockingOperationOverlay::getInstance();
+    if (board_override_store(choice)) {
+        LOG_BLE("[BOARD] Picker: override %d stored, restarting\n", static_cast<int>(choice));
+        overlay.show_and_execute(
+            BlockingOperation::CUSTOM,
+            []() {
+                delay(HW_BOARD_PICKER_RESTART_DELAY_MS);
+                esp_restart();
+            },
+            nullptr,
+            "Board saved.\nRestarting...");
+    } else {
+        LOG_BLE("[BOARD] ERROR: picker could not store override %d\n", static_cast<int>(choice));
+        overlay.show_and_execute(
+            BlockingOperation::CUSTOM,
+            []() { delay(HW_BOARD_PICKER_ERROR_DELAY_MS); },
+            [this]() { show_board_picker(); },
+            "Could not save.\nTry again.");
+    }
 }
 
 void UIManager::init_controllers() {

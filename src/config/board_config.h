@@ -66,6 +66,11 @@ bool board_motor_pin_allowed(BoardVariant variant, int pin);
 // UNKNOWN uses V1 display and load cell pins (display only).
 BoardConfig board_config_for(BoardVariant variant, BoardSource source);
 
+// Degraded display mode: while the board is UNKNOWN the panel is driven on both
+// known chip-select pins so the on-screen board picker is visible on either board.
+// Returns the second chip select to mirror to, or -1 when the board is known.
+int8_t board_display_mirror_cs_pin(const BoardConfig& config);
+
 // Active board configuration (never null, always safe to call).
 const BoardConfig& board();
 

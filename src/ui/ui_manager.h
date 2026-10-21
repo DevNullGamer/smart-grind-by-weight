@@ -34,6 +34,7 @@
 #include "../controllers/grind_events.h"
 #include "../controllers/grind_mode.h"
 #include "../hardware/hardware_manager.h"
+#include "../hardware/board_detect.h"
 #include "../bluetooth/manager.h"
 
 /*
@@ -128,6 +129,11 @@ public:
     // Tells the user why grinding / motor actions are unavailable (motor_available() is false)
     void show_motor_disabled_notice();
 
+    // Degraded mode (board UNKNOWN): asks which board this is, stores the answer as
+    // the board override and restarts so detection picks it up. Reuses the confirm
+    // dialog, so nothing extra is allocated.
+    void show_board_picker();
+
     // Static instance getter
     static UIManager* get_instance() { return instance; }
     
@@ -145,7 +151,8 @@ public:
 private:
     void create_ui();
     void update_auto_actions();
-    
+    void apply_board_choice(BoardOverride choice);
+
     // State-specific update methods
 
     // Controller wiring helpers

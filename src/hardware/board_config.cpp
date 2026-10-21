@@ -79,6 +79,14 @@ BoardConfig board_config_for(BoardVariant variant, BoardSource source) {
     return config;
 }
 
+int8_t board_display_mirror_cs_pin(const BoardConfig& config) {
+    if (config.variant != BoardVariant::UNKNOWN) {
+        return -1;
+    }
+    return config.display_cs_pin == kBoardV1.display_cs_pin ? kBoardV2.display_cs_pin
+                                                            : kBoardV1.display_cs_pin;
+}
+
 const BoardConfig& board() { return g_board; }
 
 void board_set(const BoardConfig& config) { g_board = config; }

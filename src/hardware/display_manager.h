@@ -12,6 +12,10 @@ class DisplayManager {
 private:
     esp_lcd_panel_io_handle_t panel_io = nullptr;
     esp_lcd_panel_handle_t panel_handle = nullptr;
+    // Degraded display mode (board UNKNOWN): second panel on the other chip select,
+    // every strip is sent to both. Only the panel that is really wired answers.
+    esp_lcd_panel_io_handle_t panel_io_mirror = nullptr;
+    esp_lcd_panel_handle_t panel_handle_mirror = nullptr;
     lv_display_t* pending_flush_display = nullptr;
     lv_display_t* lvgl_display = nullptr;
     lv_indev_t* lvgl_input = nullptr;
@@ -44,7 +48,9 @@ public:
     TouchDriver* get_touch_driver() { return &touch_driver; }
 
 private:
-    bool init_panel(int8_t cs_pin);
+    bool init_panel(int8_t cs_pin, int8_t mirror_cs_pin = -1);
+    bool init_mirror_panel(int8_t cs_pin);
+    void release_mirror_panel();
     void release_panel();
     void free_staging();
     bool alloc_staging();
