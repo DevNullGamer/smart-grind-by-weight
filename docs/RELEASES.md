@@ -17,7 +17,7 @@ python3 tools/grinder.py release
 ```
 
 The release tool will:
-1. Show you recent commits since the last release
+1. Show you recent commits since the last release (for your reference only; they are not copied into the release)
 2. Let you choose version increment type (patch/minor/major/RC/custom)
 3. Update firmware version in `src/config/build_info.h` and commit the change
 4. Create annotated git tag
@@ -39,7 +39,7 @@ Once you push a tag (like `v1.0.0`):
    - The hosted web flasher queries GitHub releases directly, so no binary files are committed back to `main`
 
 3. **Creates GitHub Release (as draft)**
-   - Includes automatic changelog from commits since last tag
+   - Uses fixed release notes (installation instructions and build info); no changelog is generated, so add highlights by hand when publishing if wanted
    - Uploads firmware binaries for download
    - Marks as pre-release if tag contains `beta`, `alpha`, or `rc`
    - **You must manually publish the draft release**

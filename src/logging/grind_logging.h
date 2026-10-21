@@ -12,7 +12,7 @@ class Grinder;
 #define MAX_EVENTS_PER_GRIND 50                             // Max discrete events per session (phases, pulses, etc.)
 
 // Core 0 synchronized logging frequency matches the control loop interval
-// Example: 30s * 50Hz = 1500 measurements when control interval is 20ms
+// Example: 60s * 50Hz = 3000 samples (before the SYS_LOG_EVERY_N_GRIND_LOOPS divisor) when control interval is 20ms
 // Memory impact scales with frequency; keep aligned with SYS_TASK_GRIND_CONTROL_INTERVAL_MS
 #define CORE0_CONTROL_FREQUENCY_HZ (1000 / SYS_TASK_GRIND_CONTROL_INTERVAL_MS)
 #define CALCULATE_MAX_MEASUREMENTS_PER_GRIND() \

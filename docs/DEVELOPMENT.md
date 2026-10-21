@@ -10,7 +10,7 @@ This guide is for developers who want to build the Smart Grind-by-Weight firmwar
 
 ### Prerequisites
 
-- **Python 3.8+** with pip
+- **Python 3.9+** with pip
 - **Git** for version control
 - **USB cable** for initial firmware flashing
 - **Hardware** (ESP32-S3 board, HX711, load cell) for testing
@@ -28,7 +28,9 @@ This guide is for developers who want to build the Smart Grind-by-Weight firmwar
    python3 tools/grinder.py install
    ```
 
-This automatically creates a virtual environment and installs all required dependencies including PlatformIO.
+This automatically creates a virtual environment (`tools/venv`) and installs all required dependencies including PlatformIO.
+
+In the commands below, `<venv-python>` stands for the virtual environment's Python: `tools/venv/bin/python` on macOS/Linux, `tools\venv\Scripts\python.exe` on Windows. If you see `No module named platformio`, re-run `python3 tools/grinder.py install`.
 
 ---
 
@@ -92,12 +94,12 @@ python3 tools/grinder.py build
 
 **Build debug firmware:**
 ```bash
-python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-debug
+<venv-python> -m platformio run -e waveshare-esp32s3-touch-amoled-164-debug
 ```
 
 **Build mock/development firmware:**
 ```bash
-python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amoled-164-mock
+<venv-python> -m platformio run -e waveshare-esp32s3-touch-amoled-164-mock
 ```
 
 **Clean build artifacts:**
@@ -112,13 +114,13 @@ For the first-time setup or when BLE isn't working:
 ```bash
 # Build and upload via USB (production)
 python3 tools/grinder.py build
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164
+<venv-python> -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164
 
 # Or for debug target
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-debug
+<venv-python> -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-debug
 
 # Or for mock target
-python3 tools/venv/bin/python -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-mock
+<venv-python> -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164-mock
 ```
 
 ### BLE OTA Updates (After Initial Setup)
@@ -182,8 +184,10 @@ For maintainers creating releases, see **[RELEASES.md](RELEASES.md)** for detail
 
 ```bash
 # Monitor serial output via PlatformIO
-python3 tools/venv/bin/python -m platformio device monitor
+<venv-python> -m platformio device monitor
 ```
+
+Note: the `LOG_BLE(...)` macro in `src/config/logging.h` is currently just `Serial.printf`, so those messages appear only on the USB serial monitor, not in the BLE debug stream below. Messages in the BLE stream come from the BLE manager's own log path; `LOG_BLE_DEBUG` is serial output enabled by `ENABLE_BLE_DEBUG_VERBOSE`.
 
 ### BLE Debug Monitoring
 

@@ -252,12 +252,16 @@ Select the firmware version from the dropdown. Releases from the unified image o
 
 ### Command Line (Fallback)
 ```bash
-# First time (USB) - if web flasher unavailable
-python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
+# First time (USB) - if web flasher unavailable: build from source and flash over USB
+# (<venv-python> = tools/venv/bin/python on macOS/Linux, tools\venv\Scripts\python.exe on Windows)
+python3 tools/grinder.py build
+<venv-python> -m platformio run --target upload -e waveshare-esp32s3-touch-amoled-164
 
-# Updates (BLE) - Enable device Bluetooth first  
+# Updates (BLE only) - Enable device Bluetooth first
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
+
+`grinder.py upload` works over Bluetooth only; it cannot do the first USB flash.
 
 The same firmware file works on V1 and V2 boards.
 
@@ -331,12 +335,12 @@ All profiles are fully customizable. Default grind-by-weight targets (fallback t
 Access **Menu → Grind Settings** to configure:
 - **Swipe Gestures**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
 - **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
-- **Start on Cup**: Start the active profile automatically when the scale gains ≈50 g within ~2 s (after a short post-boot warmup)
+- **Start on Cup**: Start the active profile automatically when the scale gains ≈50 g within ~6 s (after a short post-boot warmup)
 - **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
 - **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
   - **Purge mode** (default): Prompts you to discard stale grinds before continuing
-  - **Amount slider**: Configure purge/prime amount (0.1g-5.0g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
+  - **Amount slider**: Configure purge/prime amount (0.1g-2.5g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
   - **"Keep purge grinds from now on" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
 
   *Explanation:* The time between motor start and grinds hitting the cup (grind latency) is used to predict the coast time (how long grinds will keep coming after the motor is disengaged). Purging clears stale coffee and saturates the grinder with fresh grounds, ensuring accurate latency detection. If you prefer to keep all coffee without manual intervention, select Prime mode.
@@ -406,10 +410,10 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   +-- Grind Settings
     |   |   |-- Swipe Gestures toggle (enable/disable vertical swipes)
     |   |   |-- Time Mode toggle (direct weight/time mode selection)
-    |   |   |-- Start on Cup toggle (start when ≈50 g arrives within ~2 s)
+    |   |   |-- Start on Cup toggle (start when ≈50 g arrives within ~6 s)
     |   |   |-- Return on Removal toggle (drop back to Ready when that weight leaves)
     |   |   |-- Purging (Prime/Purge radio buttons)
-    |   |   \-- Amount slider (0.1g-5.0g for purge/prime operation)
+    |   |   \-- Amount slider (0.1g-2.5g for purge/prime operation)
     |   |
     |   \-- Hardware board (detected board + source; Auto / V1 / V2 override, applies after restart)
     |
@@ -464,7 +468,7 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
+Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Logs & Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
 
 ---
 
@@ -513,7 +517,7 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 
 ⚠️ **Important**: Grind session logging is **disabled by default** to prevent unnecessary flash wear. To analyze grind data:
 
-1. **Enable logging** in **Menu → Data → Logging** before grinding
+1. **Enable logging** in **Menu → Logs & Data → Logging** before grinding
 2. Perform your grind sessions (data will be saved to flash storage)
 3. **Export and analyze** the data using the tools below
 4. **Disable logging** again when analysis is complete (recommended for daily use)
@@ -555,12 +559,12 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
 
 1. **Initialization & Taring Phase**
    - Automatic tare on grind button press
-   - 30-second timeout from grind start to completion
+   - 60-second timeout from grind start to completion
    - Noise-adaptive settling detection
 
 2. **Grinder Saturation Phase** (Weight mode only)
    - Saturates the grinder before main grind for accurate latency detection
-   - Configurable amount: 0.1g-5.0g (default 1.0g)
+   - Configurable amount: 0.1g-2.5g (default 1.0g)
    - **Prime mode**: Keeps coffee, continues immediately after settling
    - **Purge mode**: Shows confirmation popup, waits for user to discard stale grinds
    - Logging and chart updates disabled during purge confirmation
@@ -569,12 +573,12 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Learns flow rate and motor-to-cup latency (relay + motor inertia + burr spin-up)
    - Predicts when to stop motor based on measured flow and coast characteristics
    - Target: barely undershoot target weight (overshoot is unrecoverable)
-   - Uses runtime-configurable motor response latency (30-200ms, default 50ms)
+   - Uses runtime-configurable motor response latency (30-300ms, default 50ms)
 
 4. **Pulse Correction Phase**
    - Conservative pulse duration calculation using 95th percentile flow rate
    - Bounded pulses respect hardware-specific motor response latency
-   - Pulses range from motor latency minimum to latency + 225ms maximum
+   - Pulses range from motor latency minimum to latency + 250ms maximum
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
    - Repeats until target ± tolerance reached
 
@@ -597,7 +601,7 @@ The latency value is automatically calibrated via **Auto-Tune Motor Response** (
 - Hardware-adaptive pulse control via runtime motor latency
 - Conservative approach: undershoots target, then corrects with bounded pulses
 - Mechanical instability detection with hysteresis and persistence
-- 30-second grind timeout protection with user acknowledgment requirement
+- 60-second grind timeout protection with user acknowledgment requirement
 
 ---
 

@@ -108,7 +108,7 @@ class GrinderTool:
                         break
                 
                 if not python_cmd:
-                    self.print_error("Python not found. Please install Python 3.8+")
+                    self.print_error("Python not found. Please install Python 3.9+")
                     return False
                 
                 # Create virtual environment

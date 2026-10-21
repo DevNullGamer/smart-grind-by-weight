@@ -65,7 +65,7 @@ private:
 public:
     CircularBufferMath();
     
-    // Core data input - called from LoadCell::sample_and_feed_filter()
+    // Core data input - called from WeightSensor::sample_and_feed_filter()
     void add_sample(int32_t raw_adc_value, uint32_t timestamp_ms);
     
     // Unified smoothing method on raw data
@@ -73,9 +73,9 @@ public:
     
     // Specialized raw readings with different time windows
     int32_t get_instant_raw() const;           // Latest single sample
-    int32_t get_raw_low_latency() const;       // 50ms window - for real-time control  
-    int32_t get_display_raw();                 // 250ms window + asymmetric filter - for UI
-    int32_t get_raw_high_latency() const;      // 250ms window - for final measurements
+    int32_t get_raw_low_latency() const;       // 100ms window - for real-time control
+    int32_t get_display_raw();                 // 300ms window + asymmetric filter - for UI
+    int32_t get_raw_high_latency() const;      // 300ms window - for final measurements
     bool get_window_delta(uint32_t window_ms, int32_t* delta_out,
                           uint32_t* span_ms_out = nullptr, int* samples_out = nullptr) const;
     

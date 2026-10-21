@@ -33,8 +33,8 @@ python3 tools/grinder.py analyze
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
-- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
-- **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
+- **GrindController**: 17-phase state machine (`GrindPhase` enum) with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
+- **WeightSensor (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
 - **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
@@ -47,22 +47,22 @@ python3 tools/grinder.py analyze
 - One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
 - Dual wiring: HX711 SCK pulsed on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
 
-**Update Intervals:** 20ms grind control, 25ms load cell (active), 50ms UI/hardware
+**Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
 **Grind Phases:**
 - Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
 - `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
 - `PURGE_CONFIRM` - Pauses after chute operation (in Purge mode) to allow user to discard grinds before continuing to main grind
-- **Timeout**: 30-second maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+- **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
 
 **Grinder Purge/Prime:**
 - **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
 - **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
 - **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
-- **Configurable amount**: 0.1g-5.0g (default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`
+- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`
 - **Purge popup**: "Keep purge grinds from now on" checkbox switches mode from Purge → Prime in preferences
 - **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
-- **Preferences**: `chute_mode` (int: 0=Prime, 1=Purge, default=1), `chute_amount_g` (float: 0.1-5.0, default=1.0)
+- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amount_g` (float: 0.1-2.5, default=1.0)
 
 **Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
 
@@ -70,17 +70,18 @@ python3 tools/grinder.py analyze
 - **Mode Selection**: Radio buttons for Weight/Time mode selection
 - **Swipe Gestures Toggle**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
 - **Automation**: Start on Cup and Return on Removal toggles
-- **Purging**: Radio buttons (Prime/Purge) and Amount slider (0.1g-5.0g)
-- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time), `chute_mode` (0=Prime, 1=Purge), `chute_amount_g` (float)
+- **Purging**: Radio buttons (Prime/Purge) and Amount slider (0.1g-2.5g)
+- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time), `grinder_mode` (0=Prime, 1=Purge), `grinder_amount_g` (float)
 - **Behavior**: Swipe gestures only work when enabled; direct mode selection always works
 
-**Color Scheme (RGB565):**
-- `COLOR_PRIMARY`: 0xFF0000 (Red) - Primary theme color
-- `COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
-- `COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
-- `COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
-- `COLOR_BACKGROUND`: 0x000000 (Black) - Background
-- `COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
+**Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
+- `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color
+- `THEME_COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
+- `THEME_COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
+- `THEME_COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
+- `THEME_COLOR_ERROR`: 0xFF0000 (Red) - Error states
+- `THEME_COLOR_BACKGROUND`: 0x000000 (Black) - Background
+- `THEME_COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
 
 **Font Usage Hierarchy:**
 - `lv_font_montserrat_24`: Standard text and button labels
@@ -109,6 +110,7 @@ python3 tools/grinder.py analyze
 * When doing UI & UX work, make sure your designs are both aesthetically pleasing, easy to use, and follow UI / UX best practices. You pay attention to interaction patterns, micro-interactions, and are proactive about creating smooth, engaging user interfaces that delight users.   
 * When you receive a task that is very large in scope or too vague, you will first try to break it down into smaller subtasks. If that feels difficult or still leaves you with too many open questions, push back to the user and ask them to consider breaking down the task for you, or guide them through that process. This is important because the larger the task, the more likely it is that things go wrong, wasting time and energy for everyone involved.
 - Touch polling now uses the IDF I2C master driver with ACK checking disabled so idle NACKs don't spam logs. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 if you need the raw driver output for troubleshooting.
+- `LOG_BLE(...)` (`src/config/logging.h`) is just `Serial.printf`, not a BLE log; BLE-specific verbose output is `LOG_BLE_DEBUG` behind `ENABLE_BLE_DEBUG_VERBOSE`.
 - Use the src/config/constants.h aggregation file to include constants / settings - dont refer to config files directly.
 - When new features have been added and tested always update the docs as well
 - when making a commit, only focus on the end result not the process we went through to get to the end result

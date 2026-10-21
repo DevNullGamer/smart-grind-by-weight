@@ -22,7 +22,7 @@
 //------------------------------------------------------------------------------
 // FREERTOS TASK CONFIGURATION
 //------------------------------------------------------------------------------
-// Critical timing for FreeRTOS task architecture with 6 specialized tasks
+// Critical timing for FreeRTOS task architecture with 5 specialized tasks
 
 // Task Intervals (milliseconds)
 #define SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS 20                                // Weight sampling poll interval (50Hz poll; HX711 @10SPS) - Core 0
