@@ -1,195 +1,62 @@
 # C++ to Python Struct Alignment Guide
 
-This document provides essential guidance for maintaining data structure alignment between the ESP32 C++ firmware and Python BLE data processing tools. **Following this guide prevents parsing failures and data corruption during binary data exchange.**
+Keep the ESP32 binary log structs in `src/logging/grind_logging.h` aligned with the Python parser `tools/ble/grinder-ble.py`. Mismatches cause parse failures and silently wrong data.
 
-## Critical Warning: Data Structure Changes Require Purge
+## Rules
 
-⚠️ **MANDATORY**: Every time you modify any struct in `grind_logging.h`, you MUST purge all flash data using the "PURGE HISTORY" button on the ESP32 device before testing. Old corrupted data will cause alignment issues and false debugging results.
+- **Every struct change = bump/check `GRIND_LOG_SCHEMA_VERSION` + update the parser + purge old logs.** Old sessions in flash have the old layout and give false results.
+- Purge on the device: Menu -> Logs & Data -> **Purge Logs**. Do this after flashing firmware with changed structs and before testing.
+- Structs use `#pragma pack(push, 1)` (no padding) and are protected by `static_assert(sizeof(...))` in `grind_logging.h`. When you change a struct, update those asserts and the Python constants together.
 
-**Session ID Reset**: The purge function automatically resets all cached session tracking variables, ensuring session IDs restart from 1 after a purge.
+## Sizes (must match `static_assert`s and the parser constants)
 
-## Struct Alignment Process
+| Struct | Bytes | Python constant (`grinder-ble.py`) |
+|---|---|---|
+| `TimeSeriesSessionHeader` | 24 | parsed with `'<IIIIHHHH'` |
+| `GrindSession` | 80 | `SESSION_STRUCT_SIZE` |
+| `GrindEvent` | 44 | `EVENT_STRUCT_SIZE` |
+| `GrindMeasurement` | 24 | `MEASUREMENT_STRUCT_SIZE` |
 
-### Step 1: ESP32 Struct Layout Debugging
+`LOG_SCHEMA_VERSION = 2` in the parser mirrors `GRIND_LOG_SCHEMA_VERSION`; a mismatch only logs a warning and parsing continues.
 
-The ESP32 firmware includes debug functions to output actual memory layout:
+## Layout reference (packed offsets)
 
-```cpp
-// In grind_logging.h
-void print_struct_layout_debug();      // Shows sizes and field offsets for alignment debugging
-```
+### TimeSeriesSessionHeader (24)
+`session_id` u32 @0, `session_timestamp` u32 @4, `session_size` u32 @8, `checksum` u32 @12, `event_count` u16 @16, `measurement_count` u16 @18, `schema_version` u16 @20, `reserved` u16 @22.
 
-**When debugging alignment issues:**
-1. Flash updated firmware to ESP32
-2. **PURGE HISTORY** to clear all old data
-3. Trigger BLE export - this automatically prints struct layout debug info
-4. Use the output to verify/update Python parsing
+### GrindSession (80)
+u32 @0 `session_id`, @4 `session_timestamp`, @8 `target_time_ms`, @12 `total_time_ms`, @16 `total_motor_on_time_ms`; i32 @20 `time_error_ms`;
+f32 @24 `target_weight`, @28 `tolerance`, @32 `final_weight`, @36 `error_grams`, @40 `start_weight`, @44 `initial_motor_stop_offset`, @48 `latency_to_coast_ratio`, @52 `flow_rate_threshold`;
+u8 @56 `profile_id`, @57 `grind_mode`, @58 `max_pulse_attempts`, @59 `pulse_count`, @60 `termination_reason`, @61-63 `reserved[3]`; char[16] @64-79 `result_status`.
 
-### Step 2: Python Parsing Update
+### GrindEvent (44)
+u32 @0 `timestamp_ms`, @4 `duration_ms`, @8 `grind_latency_ms`, @12 `settling_duration_ms`; f32 @16 `start_weight`, @20 `end_weight`, @24 `motor_stop_target_weight`, @28 `pulse_duration_ms`, @32 `pulse_flow_rate`; u16 @36 `event_sequence_id`, @38 `loop_count`; u8 @40 `phase_id`, @41 `pulse_attempt_number`, @42 `event_flags`, @43 `reserved`.
 
-Update `tools/grinder-ble` parsing based on ESP32 debug output:
+### GrindMeasurement (24)
+u32 @0 `timestamp_ms`; f32 @4 `weight_grams`, @8 `weight_delta`, @12 `flow_rate_g_per_s`, @16 `motor_stop_target_weight`; u16 @20 `sequence_id`; u8 @22 `motor_is_on`, @23 `phase_id`.
 
-```python
-# Key structs to maintain alignment for:
-LOG_SCHEMA_VERSION = 2    # Update when schema changes
-GRIND_SESSION_SIZE = 84  # Update based on sizeof(GrindSession)
-GRIND_EVENT_SIZE = 44     # Update based on sizeof(GrindEvent) 
-GRIND_MEASUREMENT_SIZE = 24  # Update based on sizeof(GrindMeasurement)
+The parser reads fields with explicit `struct.unpack_from` offsets (session ~line 688, events ~756, measurements ~812), so a new field needs an offset added there, not just a size change.
 
-# Binary parsing format strings
-GRIND_SESSION_FORMAT = '<IIffffff...'  # Update field by field
-```
+## Workflow
 
-### Step 3: Verification
+1. Modify structs in `src/logging/grind_logging.h`; update `static_assert`s and schema version.
+2. Update `grinder-ble.py` size constants and `unpack_from` offsets.
+3. Build and flash (`python3 tools/grinder.py build-upload`).
+4. Purge Logs (see above), then run a fresh test grind.
+5. Export: `python3 tools/grinder.py export` and check the parsed values.
 
-Essential debug output from ESP32 shows:
-```
-=== STRUCT LAYOUT DEBUG ===
-TimeSeriesSessionHeader: 24 bytes
-GrindSession: 108 bytes (current size)
-GrindEvent: 44 bytes  
-GrindMeasurement: 24 bytes
-```
+## Struct layout debug output
 
-## Current Struct Definitions (Reference)
+`print_struct_layout_debug()` (prints sizes and field offsets) exists only when firmware is built with `-DENABLE_GRIND_DEBUG=1`; otherwise it is an empty inline. It runs at the start of a BLE export. View it with `python3 -m platformio device monitor` (use the project venv's Python).
 
-### TimeSeriesSessionHeader (24 bytes)
-```cpp
-struct TimeSeriesSessionHeader {
-    uint32_t session_id;        // offset 0
-    uint32_t session_timestamp; // offset 4
-    uint32_t session_size;      // offset 8 (bytes of GrindSession + events + measurements)
-    uint32_t checksum;          // offset 12
-    uint16_t event_count;       // offset 16
-    uint16_t measurement_count; // offset 18
-    uint16_t schema_version;    // offset 20 (current LOG_SCHEMA_VERSION)
-    uint16_t reserved;          // offset 22 (future flags)
-};
-```
+## Troubleshooting
 
-### GrindSession (84 bytes)
-```cpp
-struct GrindSession {
-    uint32_t session_id;              // 0
-    uint32_t session_timestamp;       // 4
-    uint32_t target_time_ms;          // 8 (time-mode target)
-    uint32_t total_time_ms;           // 12 (session runtime)
-    uint32_t total_motor_on_time_ms;  // 16
-    int32_t  time_error_ms;           // 20 (motor_on_time - target_time)
+- `struct.error: unpack_from requires a buffer of X bytes`: a `*_STRUCT_SIZE` constant or the firmware struct size changed; compare with the `static_assert`s.
+- Garbage field values or binary in `result_status`: an `unpack_from` offset is wrong; check against the offsets above.
+- Works sometimes, fails other times: old-layout sessions remain in flash; purge logs.
 
-    float target_weight;              // 24
-    float tolerance;                  // 28
-    float final_weight;               // 32
-    float error_grams;                // 36 (zeroed for time mode)
-    float start_weight;               // 40 (pre-tare snapshot)
+## Key files
 
-    float initial_motor_stop_offset;  // 44
-    float latency_to_coast_ratio;     // 48
-    float flow_rate_threshold;        // 52
-
-    uint8_t profile_id;               // 60
-    uint8_t grind_mode;               // 61 (enum GrindMode)
-    uint8_t max_pulse_attempts;       // 62
-    uint8_t pulse_count;              // 63
-    uint8_t termination_reason;       // 64 (enum GrindTerminationReason)
-    uint8_t reserved[3];              // 65-67
-
-    char    result_status[16];        // 68-83 (null-terminated)
-};
-```
-
-### GrindEvent (44 bytes)
-```cpp
-struct GrindEvent {
-    uint32_t timestamp_ms;            // 0
-    uint32_t duration_ms;             // 4
-    uint32_t grind_latency_ms;        // 8
-    uint32_t settling_duration_ms;    // 12
-    float    start_weight;            // 16
-    float    end_weight;              // 20
-    float    motor_stop_target_weight;// 24
-    float    pulse_duration_ms;       // 28
-    float    pulse_flow_rate;         // 32
-    uint16_t event_sequence_id;       // 36
-    uint16_t loop_count;              // 38
-    uint8_t  phase_id;                // 40
-    uint8_t  pulse_attempt_number;    // 41
-    uint8_t  event_flags;             // 42 (bitmask metadata)
-    uint8_t  reserved;                // 43
-};
-```
-
-### GrindMeasurement (24 bytes)
-```cpp
-struct GrindMeasurement {
-    uint32_t timestamp_ms;            // 0
-    float    weight_grams;            // 4
-    float    weight_delta;            // 8
-    float    flow_rate_g_per_s;       // 12
-    float    motor_stop_target_weight;// 16
-    uint16_t sequence_id;             // 20 (monotonic counter)
-    uint8_t  motor_is_on;             // 22
-    uint8_t  phase_id;                // 23
-};
-```
-
-## Common Alignment Issues
-
-### Issue: Python Parsing Failures
-**Symptoms**: 
-- `struct.error: unpack_from requires a buffer of X bytes`
-- Incorrect field values in parsed data
-
-**Solution**:
-1. Check ESP32 debug output for actual struct sizes
-2. Update Python `*_SIZE` constants
-3. Verify format strings match field order and types
-
-### Issue: Field Offset Misalignment  
-**Symptoms**:
-- Fields contain garbage data
-- String fields show binary data
-
-**Solution**:
-1. Use ESP32 `print_struct_layout_debug()` to see struct sizes and field offsets
-2. Manually verify each field offset in Python parsing
-3. Account for compiler padding between fields
-
-### Issue: Old Corrupted Data
-**Symptoms**: 
-- Parsing works sometimes but fails other times
-- Debug output shows mixed clean/corrupted data
-
-**Solution**:
-1. **Always purge flash data after struct changes**
-2. Test only with fresh grind sessions
-3. Verify purge worked by checking session count
-
-## Development Workflow
-
-1. **Modify structs** in `grind_logging.h`
-2. **Build and flash** firmware: `pio run --target upload`
-3. **PURGE HISTORY** via ESP32 developer screen  
-4. **Perform test grind** to generate fresh data
-5. **Trigger BLE export** - review struct debug output
-6. **Update Python parsing** in `tools/grinder-ble`
-7. **Test full export pipeline** to verify alignment
-
-## Key Files
-
-- **ESP32 Structs**: `src/logging/grind_logging.h`
-- **ESP32 Debug Functions**: `src/logging/grind_logging.cpp`
-- **Python Parser**: `tools/grinder-ble` 
-- **SQL Schema**: Updated automatically by Python parser
-
-## Debug Commands
-
-```bash
-# ESP32 serial monitor (shows struct debug during export)
-pio device monitor --baud 115200
-
-# Test BLE export and parsing  
-cd tools && python3 grinder-ble --connect --auto
-```
-
-Remember: **Every struct change = Mandatory flash purge + Python parsing update**
+- `src/logging/grind_logging.h` / `.cpp` - structs, asserts, layout debug
+- `tools/ble/grinder-ble.py` - BLE client and parser
+- `tools/grinder.py` - unified CLI that calls the BLE tool

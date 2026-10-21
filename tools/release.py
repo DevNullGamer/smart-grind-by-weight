@@ -353,13 +353,13 @@ def create_release():
     
     print(f"\nPreparing release: {new_version}")
     
-    # No manual release notes - GitHub will handle this
+    # No manual release notes - the workflow writes fixed installation notes
     final_release_notes = f"Release {new_version}"
     
     # Show preview
     print(f"\n--- Release Preview ---")
     print(f"Version: {new_version}")
-    print("Release Notes: GitHub will generate automatically")
+    print("Release Notes: fixed installation notes added by GitHub Actions (no changelog)")
     print("--- End Preview ---")
     
     # Confirm
@@ -414,9 +414,9 @@ def create_release():
     print(f"\n✅ Release {new_version} created successfully!")
     print("GitHub Actions will now:")
     print("  1. Build firmware with the updated version")
-    print("  2. Create GitHub release with your custom release notes")
-    print("  3. Include automatic changelog from commits")
-    print("  4. Upload firmware binaries for users")
+    print("  2. Create a draft GitHub release with fixed installation notes")
+    print("  3. Upload firmware binaries for users")
+    print("  4. Publish the draft release manually once it looks right")
     print(f"\nCheck the progress at: https://github.com/DevNullGamer/smart-grind-by-weight/actions")
     
     return True

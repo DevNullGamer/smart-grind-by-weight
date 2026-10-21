@@ -6,10 +6,9 @@ This directory stores compiled firmware binaries during development.
 
 ## Usage
 
-The `./tools/grinder` script automatically manages this directory:
-- Built firmware is cached here for BLE OTA uploads
-- Old builds are automatically cleaned up by build scripts
-- Maximum cache size is limited to prevent disk space issues
+The post-build script (`tools/build-scripts/post_build.py`) writes to this directory:
+- Each successful build is copied here as the base for delta BLE OTA uploads
+- Nothing is pruned automatically and there is no size limit, so old builds accumulate until you delete them (see Manual Cleanup)
 
 Builds are cached per PlatformIO env as `firmware_cache/<env>/build_NNN.bin` (delta OTA
 patches are made against a cached build of the same env). One firmware image serves both

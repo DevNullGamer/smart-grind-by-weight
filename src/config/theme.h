@@ -8,7 +8,7 @@
 // appearance, colors, dimensions, and styling of all UI elements.
 
 //------------------------------------------------------------------------------
-// COLOR SCHEME (RGB565 Format)
+// COLOR SCHEME (24-bit RGB hex, converted by lv_color_hex)
 //------------------------------------------------------------------------------
 // Primary brand colors
 #define THEME_COLOR_PRIMARY 0xFF3D00                                           // Primary theme color (red)

@@ -118,27 +118,19 @@ If wires were reversed, swap them so Pin 3 connects to the correct GPIO. On V2, 
 - `pio boards espressif32 | findstr "esp32-s3"` shows the board, suggesting it exists in the registry.
 
 ### Root Cause
-The local PlatformIO `espressif32` platform package was pinned to an older release (e.g. 3.1.0 from 2021) that predates ESP32-S3 board definitions. The registry lookup reports current boards, but the outdated local package lacks the corresponding JSON definition.
+Most likely an old or partially installed platform package in the local PlatformIO cache that predates ESP32-S3 board definitions (this error was originally seen with an old `espressif32` 3.x package). The registry lookup reports current boards, but the outdated local package lacks the corresponding JSON definition. This project does not use the stock `espressif32` platform: `platformio.ini` pins the pioarduino fork by URL.
 
 ### Resolution
-1. Update the global `espressif32` platform package so it includes ESP32-S3 board definitions:
-   ```powershell
-   C:\Users\<user>\.platformio\penv\Scripts\platformio.exe pkg install -g -p platformio/espressif32@^6.8.0
-   ```
-   *(Alternatively, run `pio platform update espressif32`.)*
-2. Re-run the build:
-   ```powershell
-   C:\Users\<user>\.platformio\penv\Scripts\platformio.exe run
-   ```
-3. Optional: Pin the desired platform version in `platformio.ini` to ensure consistency across machines:
-   ```ini
-   [env:waveshare-esp32s3-touch-amoled-164]
-   platform = platformio/espressif32@^6.8.0
+1. Make sure you build with the project's own `platformio.ini` (do not override `platform` with the stock `platformio/espressif32` package), and use a current PlatformIO Core (the project venv created by `python3 tools/grinder.py install` has one).
+2. Remove the cached platform packages so PlatformIO re-downloads the pinned pioarduino platform on the next build: delete `~/.platformio/platforms/` (or `%USERPROFILE%\.platformio\platforms\` on Windows). See [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues).
+3. Re-run the build:
+   ```bash
+   python3 tools/grinder.py build
    ```
 
 ### Notes
-- The warning `Ignore unknown configuration option 'monitor_options'` also disappears once PlatformIO core and platform packages are current.
-- If multiple PlatformIO installations are present, ensure you are updating the instance used for the project.
+- The warning `Ignore unknown configuration option 'monitor_options'` also disappears once PlatformIO Core is current.
+- If multiple PlatformIO installations are present, ensure you are using the instance (the project venv) that builds the project.
 
 ---
 
@@ -181,7 +173,7 @@ If you want to try a less aggressive approach first:
 
 ## Grind Timeout Screen
 
-**Applies to:** Grinder timing out during operation, showing timeout screen after 30 seconds.
+**Applies to:** Grinder timing out during operation, showing timeout screen after 60 seconds (`GRIND_TIMEOUT_SEC`).
 
 ### Symptoms
 - Grinder reaches timeout screen during grinding cycle
@@ -189,7 +181,7 @@ If you want to try a less aggressive approach first:
 - Unstable weight readings
 
 ### Root Cause
-Extended taring due to load cell noise prevents grinding from completing within 30-second limit.
+Extended taring due to load cell noise prevents grinding from completing within the 60-second limit.
 
 ### Diagnosis
 Check **Menu → Diagnostics → "Noise Floor"** section (see [Diagnostics System](DOC.md#diagnostics-system) for details). If "Noise level: Too High" (red text) appears persistently, your load cell has sustained noise issues that will cause slow taring (>2 seconds). A warning icon (⚠) will appear in the top-right corner when sustained noise is detected.
@@ -235,11 +227,11 @@ Motor response latency mismatch between firmware settings and actual hardware ch
    - Place dosing cup on scale
    - System will automatically tare
 3. **Run calibration**: Process takes 1-2 minutes
-   - Priming phase: 500ms pulse to position beans
+   - Priming phase: 1000ms pulse to position beans
    - Binary search: Finds minimum reliable pulse duration
    - Verification: Confirms 80%+ success rate across 5 test pulses
 4. **Check result**: New motor latency value displayed on completion
-   - Typical range: 30-200ms depending on hardware
+   - Search range: 30-300ms depending on hardware
    - Value saved automatically to device preferences
    - Displayed in **Menu → Diagnostics**
 
@@ -308,7 +300,7 @@ python3 tools/grinder.py diagnostics --save diagnostics.txt
 
 **For grind-related issues, follow these steps before generating the diagnostic report:**
 
-1. **Enable logging:** Menu → Data → Enable Logging
+1. **Enable logging:** Menu → Logs & Data → turn on the **Logging** toggle
 2. **Reproduce the issue:** Perform at least one grind where the issue occurs
 3. **Generate diagnostics:** Use one of the methods above (Web Flasher or Command Line)
 
