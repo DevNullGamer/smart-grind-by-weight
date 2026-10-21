@@ -31,7 +31,22 @@ private:
 
     void emit_background_change(bool active);
 
+#if DEBUG_RMT_PULSE_SELFTEST
+    // Timestamp (esp_timer_get_time) and count of RMT transmission-done events, set from ISR
+    static volatile int64_t selftest_done_us;   // Last callback
+    static volatile int64_t selftest_first_us;  // First callback since reset to 0
+    static volatile uint32_t selftest_done_count;
+    static bool IRAM_ATTR selftest_on_trans_done(rmt_channel_handle_t channel,
+                                                 const rmt_tx_done_event_data_t* edata, void* user_ctx);
+#endif
+
 public:
+#if DEBUG_RMT_PULSE_SELFTEST
+    // Pulses the motor output at several durations via start_pulse_rmt() and logs the measured
+    // durations. Blocking; grinder must be disconnected from mains. See grinder_selftest.cpp.
+    void run_pulse_selftest();
+#endif
+
     // pin < 0 leaves the grinder uninitialized (motor never driven). alt_pin is mirrored
     // from the same RMT signal; see board_config.h for when it may be used.
     void init(int pin, int alt_pin = -1);

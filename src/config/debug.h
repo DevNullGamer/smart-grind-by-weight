@@ -19,6 +19,13 @@
     #define DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR 0                             // Default: disabled, override with build flag
 #endif
 
+// RMT pulse accuracy self-test (measurement only). When 1, setup() pulses the motor output
+// at a range of durations and reports the measured vs requested time. DISCONNECT THE GRINDER
+// FROM MAINS before enabling. Override with build flag.
+#ifndef DEBUG_RMT_PULSE_SELFTEST
+    #define DEBUG_RMT_PULSE_SELFTEST 0
+#endif
+
 // Core debug logging settings
 #define DEBUG_SERIAL_OUTPUT 1                                             // Enable serial debug output
 #define DEBUG_GRIND_CONTROLLER 0                                          // Enable detailed grind debugging

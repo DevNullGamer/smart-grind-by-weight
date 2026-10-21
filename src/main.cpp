@@ -82,6 +82,9 @@ void setup() {
     }
     
     hardware_manager.init();
+#if DEBUG_RMT_PULSE_SELFTEST
+    hardware_manager.get_grinder()->run_pulse_selftest();
+#endif
     LOG_BLE("[STARTUP] Free internal heap after hardware init: %u bytes\n",
             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
     profile_controller.init(hardware_manager.get_preferences());

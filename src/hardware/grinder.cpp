@@ -81,6 +81,15 @@ void Grinder::init(int pin, int alt_pin) {
     };
     
     if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) == ESP_OK) {
+#if DEBUG_RMT_PULSE_SELFTEST
+        // Must be registered before rmt_enable
+        rmt_tx_event_callbacks_t selftest_callbacks = {};
+        selftest_callbacks.on_trans_done = selftest_on_trans_done;
+        const esp_err_t cb_err = rmt_tx_register_event_callbacks(rmt_channel, &selftest_callbacks, nullptr);
+        if (cb_err != ESP_OK) {
+            LOG_BLE("[Grinder] Self-test callback registration failed: %d (%s)\n", (int)cb_err, esp_err_to_name(cb_err));
+        }
+#endif
         rmt_enable(rmt_channel);
         rmt_initialized = true;
         initialized = true;
