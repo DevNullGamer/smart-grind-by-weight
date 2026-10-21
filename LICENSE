@@ -29,7 +29,6 @@ The hardware designs are provided "as-is" without any warranty. Users are respon
 This project incorporates several third-party libraries and components:
 
 - LVGL: MIT License (https://github.com/lvgl/lvgl)
-- Arduino_GFX: BSD License (https://github.com/moononournation/Arduino_GFX)  
 - esp32-flashz: MIT License (https://github.com/vortigont/esp32-flashz)
 - ESP-IDF: Apache 2.0 License (https://github.com/espressif/esp-idf)
 
