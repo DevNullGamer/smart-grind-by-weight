@@ -25,3 +25,6 @@ failed_session_*.bin
 
 # Git worktrees
 .worktrees/
+
+# WiFi heap spike credentials (never commit)
+include/spike_secrets.h

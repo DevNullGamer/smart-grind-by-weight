@@ -15,6 +15,9 @@
 #include "tasks/weight_sampling_task.h"
 #include "tasks/grind_control_task.h"
 #include "tasks/file_io_task.h"
+#if DEBUG_WIFI_HEAP_SPIKE
+#include "system/wifi_heap_spike.h"
+#endif
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -163,6 +166,10 @@ void setup() {
     file_io_task.init(task_manager.get_file_io_queue());
     
     LOG_BLE("✅ All task modules initialized\n");
+
+#if DEBUG_WIFI_HEAP_SPIKE
+    wifi_heap_spike_start();
+#endif
 }
 
 void loop() {

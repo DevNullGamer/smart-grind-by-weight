@@ -26,6 +26,13 @@
     #define DEBUG_RMT_PULSE_SELFTEST 0
 #endif
 
+// WiFi heap spike (measurement only). When 1, setup() starts a one-shot task ~30 s after boot that
+// measures internal heap with WiFi, httpd, mDNS and an HTTPS pull alongside BLE. Needs
+// include/spike_secrets.h. Override with build flag.
+#ifndef DEBUG_WIFI_HEAP_SPIKE
+    #define DEBUG_WIFI_HEAP_SPIKE 0
+#endif
+
 // Motor deadman test. When 1, the continuous-run deadman fires 3 s after motor start instead of
 // GRIND_TIMEOUT_SEC + margin, so any continuous run longer than 3 s exercises the trip path.
 // Override with build flag.
