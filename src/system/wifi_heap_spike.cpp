@@ -16,6 +16,7 @@
 #include <esp_wifi.h>
 #include "../bluetooth/manager.h"
 #include "../hardware/board_detect.h"
+#include "mbedtls_psram_override.h"
 
 #if __has_include("spike_secrets.h")
 #include "spike_secrets.h"
@@ -372,6 +373,9 @@ TlsResult https_pull(const char* tag, bool with_download = true) {
     HeapSnap before = phase(name);
     r.largest_before = before.largest;
 
+#if DEBUG_SPIKE_TLS_PSRAM
+    mbedtls_psram_stats_reset();
+#endif
     g_sampler.start();
     r.sampler_ok = g_sampler.create_ok;
 
@@ -446,6 +450,9 @@ TlsResult https_pull(const char* tag, bool with_download = true) {
     free(body);
     snprintf(name, sizeof(name), "%s after TLS", tag);
     phase(name);
+#if DEBUG_SPIKE_TLS_PSRAM
+    mbedtls_psram_stats_report(tag);
+#endif
     return r;
 }
 
@@ -473,10 +480,15 @@ void run_e1_second_cycle(BluetoothManager& ble, const HeapSnap& c1_p0, const Hea
         Serial.printf("[SPIKE] E1 httpd %s, mDNS %s\n", httpd_ok ? "ok" : "FAILED", mdns_ok ? "ok" : "FAILED");
         phase("E1 httpd+mDNS");
         task_count("E1 after httpd+mDNS");
+#if DEBUG_SPIKE_TLS_PSRAM
+        // F4: E1's TLS runs with BLE ON (the harder case)
+        TlsResult t = https_pull("E1 (BLE on, F4)", false);
+#else
         ble.disable();
         vTaskDelay(pdMS_TO_TICKS(500));
         phase("E1 BLE disabled");
         TlsResult t = https_pull("E1 (BLE off)", false);
+#endif
         Serial.printf("[SPIKE] E1 TLS: status %d, sampled min free %d min largest %d%s\n", t.status,
                       t.min_free_handshake, t.min_largest_handshake, t.sampler_ok ? "" : " (sampler FAILED)");
         task_count("E1 after TLS");
@@ -624,9 +636,21 @@ void spike_task(void*) {
 
         // P5a: HTTPS pull with BLE on
         task_count("before P5a");
+#if DEBUG_SPIKE_TLS_PSRAM
+        // F4: mbedTLS runs from PSRAM. Grep the log for DMA/AES/SHA/mbedtls errors (HW accel with PSRAM buffers).
+        Serial.println("[SPIKE][TLSPSRAM] F4 active: mbedTLS allocations from PSRAM; P5a = 3x index-only, then full "
+                       "download, all with BLE on");
+        tls_a = https_pull("P5a-1 index (BLE on)", false);
+        tls_a2 = https_pull("P5a-2 index (BLE on)", false);
+        https_pull("P5a-3 index (BLE on)", false);
+        TlsResult tls_a_full = https_pull("P5a-4 full (BLE on)");
+        Serial.printf("[SPIKE][TLSPSRAM] P5a index statuses %d/%d, full download status %d valid %s\n", tls_a.status,
+                      tls_a2.status, tls_a_full.status, tls_a_full.download_valid ? "yes" : "no");
+#else
         tls_a = https_pull("P5a (BLE on)");
         // Repeat once (index-only) to separate first-TLS one-time init cost from the BLE-on cost
         tls_a2 = https_pull("P5a-repeat (BLE on)", false);
+#endif
         Serial.printf("[SPIKE] P5a first vs repeat (BLE on): status %d/%d, sampled min free %d/%d, "
                       "min largest %d/%d\n",
                       tls_a.status, tls_a2.status, tls_a.min_free_handshake, tls_a2.min_free_handshake,
