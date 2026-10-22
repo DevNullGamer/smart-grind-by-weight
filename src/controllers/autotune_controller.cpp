@@ -59,6 +59,11 @@ bool AutoTuneController::start() {
         return false;
     }
 
+    if (grinder->is_locked_out()) {
+        LOG_BLE("ERROR: AutoTune cannot start - grinder locked out (OTA update in progress)\n");
+        return false;
+    }
+
     if (is_running) {
         LOG_BLE("WARNING: AutoTune already running\n");
         return false;

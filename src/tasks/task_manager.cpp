@@ -258,7 +258,12 @@ void TaskManager::suspend_hardware_tasks() {
     if (ota_suspended) return;
     
     LOG_BLE("TaskManager: Suspending hardware tasks for OTA operations\n");
-    
+
+    // Cut the motor before the control task stops servicing it, and keep it off until resume
+    if (hardware_manager && hardware_manager->get_grinder()) {
+        hardware_manager->get_grinder()->lock_out();
+    }
+
     if (task_handles.weight_sampling_task) {
         vTaskSuspend(task_handles.weight_sampling_task);
     }
@@ -291,6 +296,10 @@ void TaskManager::resume_hardware_tasks() {
         vTaskResume(task_handles.file_io_task);
     }
     
+    if (hardware_manager && hardware_manager->get_grinder()) {
+        hardware_manager->get_grinder()->unlock();
+    }
+
     ota_suspended = false;
 }
 

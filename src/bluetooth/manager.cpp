@@ -353,6 +353,14 @@ void BluetoothManager::handle() {
         timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
     }
     
+    // A stalled OTA would keep the hardware tasks suspended: abort it
+    if (ota_handler.check_inactivity_timeout()) {
+        if (ota_handler.get_failure_reason()) {
+            update_ui_status(ota_handler.get_failure_reason());
+        }
+        set_ota_status(BLE_OTA_ERROR);
+    }
+
     // Handle data export updates
     update_data_export();
     process_sessions_info_updates();
@@ -686,8 +694,7 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                 
                 log("Bluetooth OTA: Starting %s update (%lu KB)\n", 
                     is_full_update ? "full" : "delta", (unsigned long)patch_size / 1024);
-                update_ui_status("Receiving update...");
-                
+
                 // Parse build number if present
                 String expected_build = "";
                 String expected_firmware_version = "";
@@ -713,8 +720,12 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                 }
                 
                 if (ota_handler.start_ota(patch_size, expected_build, is_full_update, expected_firmware_version)) {
+                    update_ui_status("Receiving update...");
                     set_ota_status(BLE_OTA_RECEIVING);
                 } else {
+                    if (ota_handler.get_failure_reason()) {
+                        update_ui_status(ota_handler.get_failure_reason());
+                    }
                     set_ota_status(BLE_OTA_ERROR);
                 }
             } else {
@@ -736,6 +747,9 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                     update_ui_status("Restarting...");
                 } else {
                     LOG_OTA_DEBUG("complete_ota() returned FAILED\n");
+                    if (ota_handler.get_failure_reason()) {
+                        update_ui_status(ota_handler.get_failure_reason());
+                    }
                     set_ota_status(BLE_OTA_ERROR);
                 }
             } else {
@@ -758,6 +772,9 @@ void BluetoothManager::handle_ota_data_chunk(BLECharacteristic* characteristic) 
     if (chunk_size == 0) return;
     
     if (!ota_handler.process_data_chunk((const uint8_t*)data.c_str(), chunk_size)) {
+        if (ota_handler.get_failure_reason()) {
+            update_ui_status(ota_handler.get_failure_reason());
+        }
         set_ota_status(BLE_OTA_ERROR);
     }
 }

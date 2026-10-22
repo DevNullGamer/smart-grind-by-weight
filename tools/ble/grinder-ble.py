@@ -328,6 +328,8 @@ class GrinderBLETool:
         while time.time() - start_time < timeout:
             if self.current_ota_status == expected_status:
                 return True
+            if self.current_ota_status == BLE_OTA_ERROR:
+                return False
         
             self.status_updated.clear()
             try:
@@ -503,6 +505,9 @@ class GrinderBLETool:
             start_data += struct.pack('<B', 0)
             
         self.safe_print(f"[INFO] Sending {'full' if is_full_update else 'delta'} update flag")
+        # Drop a stale status (e.g. ERROR from an earlier attempt) before waiting on a new one
+        self.current_ota_status = BLE_OTA_IDLE
+        self.status_updated.clear()
         await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_START]) + start_data)
         
         if not await self.wait_for_ota_status(BLE_OTA_RECEIVING, timeout=15): return False
@@ -523,6 +528,9 @@ class GrinderBLETool:
         self.safe_print(f"\n[OK] Upload complete in {time.time() - start_time:.1f}s")
         self.safe_print("[INFO] Applying update...")
         try:
+            # Drop a stale status (e.g. ERROR from an earlier attempt) before waiting on a new one
+            self.current_ota_status = BLE_OTA_IDLE
+            self.status_updated.clear()
             await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_END]))
             return await self.wait_for_ota_status(BLE_OTA_SUCCESS, timeout=30)
         except BleakError:

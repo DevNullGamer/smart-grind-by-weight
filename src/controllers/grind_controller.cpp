@@ -116,6 +116,10 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
         LOG_BLE("ERROR: Cannot start grind - motor disabled (board not confirmed)\n");
         return;
     }
+    if (grinder->is_locked_out()) {
+        LOG_BLE("ERROR: Cannot start grind - grinder locked out (OTA update in progress)\n");
+        return;
+    }
     if (weight_sensor->has_hardware_fault()) {
         LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
                 static_cast<int>(weight_sensor->get_hardware_fault()));
@@ -834,6 +838,10 @@ bool GrindController::check_timeout() const {
 
 bool GrindController::is_active() const {
     return phase != GrindPhase::IDLE;
+}
+
+bool GrindController::is_grind_running() const {
+    return phase != GrindPhase::IDLE && phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT;
 }
 
 int GrindController::get_progress_percent() const {

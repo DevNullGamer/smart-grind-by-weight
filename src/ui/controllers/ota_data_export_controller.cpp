@@ -42,8 +42,23 @@ bool OtaDataExportController::update() {
             int progress = static_cast<int>(bluetooth->get_ota_progress());
             ui_manager_->ota_screen.update_progress(progress);
         }
+        ota_idle_since_ms_ = 0;
         return true;
     }
+
+    // An aborted/failed OTA leaves the OTA screen up: show its status briefly, then return to READY
+    if (!data_export_active_ && !bluetooth->is_data_export_active() &&
+        ui_manager_->state_machine->is_state(UIState::OTA_UPDATE)) {
+        if (ota_idle_since_ms_ == 0) {
+            ota_idle_since_ms_ = millis();
+        } else if (millis() - ota_idle_since_ms_ >= 3000) {
+            ota_idle_since_ms_ = 0;
+            ui_manager_->ota_screen.hide();
+            ui_manager_->switch_to_state(UIState::READY);
+        }
+        return false;
+    }
+    ota_idle_since_ms_ = 0;
 
     if (bluetooth->is_data_export_active()) {
         if (!data_export_active_) {

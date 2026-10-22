@@ -15,6 +15,7 @@
 #define BLE_OTA_CONTROL_CHAR_UUID "11111111-2222-3333-4444-555555555555"      // Characteristic for OTA commands (start/end/abort)
 #define BLE_OTA_STATUS_CHAR_UUID "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"       // Characteristic for OTA status notifications
 #define BLE_OTA_BUILD_NUMBER_CHAR_UUID "66666666-7777-8888-9999-000000000000" // Characteristic for current firmware build number
+#define BLE_OTA_INACTIVITY_TIMEOUT_MS 15000                                    // Abort a started OTA when no data chunk arrives for this long
 
 // Device Settings
 #define BLE_DEVICE_NAME "GrindByWeight"                                       // Bluetooth device name (GATT + advertising)

@@ -239,7 +239,7 @@ const char* DiagnosticsController::get_diagnostic_message(DiagnosticCode code) c
         case DiagnosticCode::MOTOR_DISABLED:
             return "Grinder output is off (board not confirmed or grinder init failed). See Menu > Hardware board.";
         case DiagnosticCode::MOTOR_FAULT:
-            return "Motor ran too long and was cut off. Check the grinder and restart the device.";
+            return "Motor output was cut off. Check the grinder and restart the device.";
         case DiagnosticCode::NONE:
         default:
             return "";

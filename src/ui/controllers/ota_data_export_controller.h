@@ -31,4 +31,5 @@ private:
     UIManager* ui_manager_;
     bool data_export_active_;
     char expected_build_[16];
+    uint32_t ota_idle_since_ms_ = 0;  // OTA screen shown but no transfer running (aborted/failed)
 };

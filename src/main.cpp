@@ -196,20 +196,8 @@ void loop() {
         }
     }
     
-    // Check OTA state and suspend hardware tasks if needed
-    static bool hardware_suspended = false;
-    bool ota_active = bluetooth_manager.is_updating();
-    
-    if (ota_active && !hardware_suspended) {
-        task_manager.suspend_hardware_tasks();
-        hardware_suspended = true;
-        LOG_BLE("[MAIN] Hardware tasks suspended for OTA\n");
-    } else if (!ota_active && hardware_suspended) {
-        task_manager.resume_hardware_tasks();
-        hardware_suspended = false;
-        LOG_BLE("[MAIN] Hardware tasks resumed after OTA\n");
-    }
-    
+    // Hardware task suspend/resume for OTA is owned by OTAHandler (start_ota / cleanup_failed_ota)
+
     // UI events are now processed inside the UI render FreeRTOS task
     // to serialize all LVGL updates on a single thread.
     

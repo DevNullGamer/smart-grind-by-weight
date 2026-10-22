@@ -8,6 +8,8 @@
 #include <esp_app_format.h>
 #include <soc/rtc.h>
 #include <esp_pm.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Include detools/delta libraries
 extern "C" {
@@ -66,11 +68,20 @@ private:
     // Delta OTA components
     delta_partition_writer_t patch_writer;
     
+    // Serialises start/chunk/complete/abort (NimBLE callbacks vs. BLE task inactivity check)
+    SemaphoreHandle_t op_mutex;
+    uint32_t last_activity_ms;
+    const char* failure_reason;
+
     void reduce_power_for_ble();
     void restore_normal_power();
     bool start_update();
     bool finalize_update();
-    
+    bool start_ota_locked(uint32_t size, const String& expected_build_number, bool is_full_update, const String& expected_firmware_version);
+    bool complete_ota_locked();
+    void abort_ota_locked();
+    void cleanup_failed_ota();
+
 public:
     OTAHandler();
     ~OTAHandler();
@@ -108,7 +119,19 @@ public:
      * Abort OTA update
      */
     void abort_ota();
-    
+
+    /**
+     * Abort a started OTA when no data chunk arrived for BLE_OTA_INACTIVITY_TIMEOUT_MS.
+     * Called from the BLE task; does nothing while another OTA operation is running.
+     * @return true if the update was aborted
+     */
+    bool check_inactivity_timeout();
+
+    /**
+     * Short reason for the last failed start/abort, suitable for the UI status line
+     */
+    const char* get_failure_reason() const { return failure_reason; }
+
     /**
      * Get current OTA status
      */
