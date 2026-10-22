@@ -26,6 +26,13 @@
     #define DEBUG_RMT_PULSE_SELFTEST 0
 #endif
 
+// Motor deadman test. When 1, the continuous-run deadman fires 3 s after motor start instead of
+// GRIND_TIMEOUT_SEC + margin, so any continuous run longer than 3 s exercises the trip path.
+// Override with build flag.
+#ifndef DEBUG_GRINDER_DEADMAN_TEST
+    #define DEBUG_GRINDER_DEADMAN_TEST 0
+#endif
+
 // Core debug logging settings
 #define DEBUG_SERIAL_OUTPUT 1                                             // Enable serial debug output
 #define DEBUG_GRIND_CONTROLLER 0                                          // Enable detailed grind debugging

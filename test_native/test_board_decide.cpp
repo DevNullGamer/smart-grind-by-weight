@@ -207,9 +207,6 @@ void test_board_set_enables_motor_helper() {
     board_set(previous);
 }
 
-void setUp() {}
-void tearDown() {}
-
 void test_hx711_mask_dual_clock_gpio1_and_gpio2() {
     TEST_ASSERT_EQUAL_HEX32((1UL << 1) | (1UL << 2), hx711_clock_mask(2, 1));
     TEST_ASSERT_EQUAL_HEX32((1UL << 1) | (1UL << 2), hx711_clock_mask(1, 2));
@@ -247,8 +244,7 @@ void test_display_mirror_cs_only_for_unknown_board() {
     TEST_ASSERT_FALSE(unknown.motor_enabled());
 }
 
-int main() {
-    UNITY_BEGIN();
+void run_board_decide_tests() {
     RUN_TEST(test_v1_bare_board);
     RUN_TEST(test_v1_hint_not_read);
     RUN_TEST(test_v2_with_te_edges);
@@ -284,5 +280,4 @@ int main() {
     RUN_TEST(test_hx711_mask_highest_gpio_in_register);
     RUN_TEST(test_hx711_mask_pin_outside_register_falls_back);
     RUN_TEST(test_display_mirror_cs_only_for_unknown_board);
-    return UNITY_END();
 }

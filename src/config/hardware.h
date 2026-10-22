@@ -40,6 +40,10 @@
 
 // Motor Control (relay pin is board-specific, see board())
 #define HW_GRINDER_SETTLING_TIME_MS 500                                        // Startup transient immunity (tune based on mechanical rigidity, 0 to disable)
+#define HW_GRINDER_DEADMAN_MARGIN_MS 2000                                      // Continuous-run deadman fires GRIND_TIMEOUT_SEC + this margin after motor start
+#define HW_GRINDER_MUTEX_WAIT_MS 100                                           // Longest wait for the grinder mutex before a command is refused
+#define HW_GRINDER_DEADMAN_MUTEX_WAIT_MS 20                                    // Deadman callback proceeds without the mutex after this
+#define HW_GRINDER_MAX_PULSE_MS 4000                                           // Longest finite pulse start_pulse_rmt() accepts
 
 //------------------------------------------------------------------------------
 // LOAD CELL ADC SPECIFICATIONS

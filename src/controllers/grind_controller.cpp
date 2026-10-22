@@ -143,6 +143,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     timeout_pause_start = 0;
     timeout_offset_ms = 0;
     last_session_result_ = GrindSessionResult::UNKNOWN;
+    grinder->consume_deadman_trip();  // Drop a stale trip from before this grind
     // Load cell now runs at constant high speed - no mode switching needed
     
     
@@ -287,8 +288,14 @@ void GrindController::continue_from_purge() {
 }
 
 void GrindController::update() {
-    if (!is_active()) return;
-    
+    // Consume before the idle check so a trip outside a grind (e.g. Motor Test) is not carried into the next one
+    const bool motor_deadman_tripped = grinder && grinder->consume_deadman_trip();
+
+    if (!is_active()) {
+        if (motor_deadman_tripped) grinder->stop();  // Normalise state and clear the background indicator
+        return;
+    }
+
     unsigned long now = millis();
     
     // Calculate all measurement values once at the start - pass to methods to avoid redundant calculations
@@ -301,6 +308,14 @@ void GrindController::update() {
     loop_data.phase_id = get_current_phase_id();
     loop_data.flow_rate = weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
     loop_data.weight_delta = loop_data.current_weight - last_logged_weight;
+
+    if (motor_deadman_tripped && phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT) {
+        abort_grind(GrindSessionResult::ERROR, "Err: motor", "MOTOR DEADMAN TRIPPED", loop_data);
+        return;
+    }
+    if (motor_deadman_tripped) {
+        grinder->stop();  // Finished phase, no abort: still normalise state and clear the background indicator
+    }
 
     if (control_loop_paused_) {
         emit_progress_update(loop_data);
@@ -592,6 +607,17 @@ void GrindController::update() {
 }
 
 // OLD predictive_grind method removed - logic now inline in update()
+
+void GrindController::abort_grind(GrindSessionResult result, const char* ui_text, const char* log_text,
+                                  const GrindLoopData& loop_data) {
+    timeout_phase = phase;
+    grinder->stop();
+    last_session_result_ = result;
+
+    queue_log_message("--- %s in phase %s ---\n", log_text, get_phase_name(timeout_phase));
+    set_error_message(ui_text);
+    switch_phase(GrindPhase::TIMEOUT, loop_data);
+}
 
 void GrindController::reset_mechanical_anomaly_count() {
     mechanical_anomaly_count_ = 0;

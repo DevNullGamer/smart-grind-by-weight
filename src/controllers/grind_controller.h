@@ -270,6 +270,8 @@ private:
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
     void monitor_mechanical_instability(const GrindLoopData& loop_data);
+    void abort_grind(GrindSessionResult result, const char* ui_text, const char* log_text,
+                     const GrindLoopData& loop_data);
 
     bool check_timeout() const;
     uint8_t get_current_phase_id() const;

@@ -144,20 +144,30 @@ void DiagnosticsController::check_board(HardwareManager* hw_mgr) {
     } else {
         clear_diagnostic(DiagnosticCode::MOTOR_DISABLED);
     }
+
+    // Latched until reboot: set here on the UI task from the grinder's flag, never cleared
+    if (grinder && grinder->deadman_tripped_since_boot()) {
+        set_diagnostic_active(DiagnosticCode::MOTOR_FAULT);
+    }
 }
 
 DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
     // Priority order (highest to lowest):
     // 1. BOARD_UNRECOGNIZED - board type unknown, motor off until the user picks one
-    // 2. MOTOR_DISABLED - grinder output off (board not confirmed)
-    // 3. HX711_NOT_CONNECTED - load cell hardware missing
-    // 4. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
-    // 5. MECHANICAL_INSTABILITY - immediate safety concern
-    // 6. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
-    // 7. LOAD_CELL_NOT_CALIBRATED - initial setup issue
+    // 2. MOTOR_FAULT - motor deadman tripped, latched until reboot (above MOTOR_DISABLED, which
+    //    a fatal fault raises as well)
+    // 3. MOTOR_DISABLED - grinder output off (board not confirmed)
+    // 4. HX711_NOT_CONNECTED - load cell hardware missing
+    // 5. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
+    // 6. MECHANICAL_INSTABILITY - immediate safety concern
+    // 7. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
+    // 8. LOAD_CELL_NOT_CALIBRATED - initial setup issue
 
     if (find_diagnostic(DiagnosticCode::BOARD_UNRECOGNIZED)) {
         return DiagnosticCode::BOARD_UNRECOGNIZED;
+    }
+    if (find_diagnostic(DiagnosticCode::MOTOR_FAULT)) {
+        return DiagnosticCode::MOTOR_FAULT;
     }
     if (find_diagnostic(DiagnosticCode::MOTOR_DISABLED)) {
         return DiagnosticCode::MOTOR_DISABLED;
@@ -228,6 +238,8 @@ const char* DiagnosticsController::get_diagnostic_message(DiagnosticCode code) c
             return "Hardware board not recognised. Choose it under Menu > Hardware board.";
         case DiagnosticCode::MOTOR_DISABLED:
             return "Grinder output is off (board not confirmed or grinder init failed). See Menu > Hardware board.";
+        case DiagnosticCode::MOTOR_FAULT:
+            return "Motor ran too long and was cut off. Check the grinder and restart the device.";
         case DiagnosticCode::NONE:
         default:
             return "";
