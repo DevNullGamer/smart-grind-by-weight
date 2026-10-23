@@ -5,6 +5,9 @@
 
 // Measurement-only spike for chg008 step 0. Never touches the grinder or motor.
 // WiFi credentials come from include/spike_secrets.h (gitignored).
+//
+// NOTE: BluetoothManager::disable() is a soft disable (the BLE stack stays resident, ~79 KB internal RAM).
+// The spike's "BLE off" phases therefore only free RAM when built with -DDEBUG_BLE_HARD_DEINIT=1.
 
 #include <Arduino.h>
 #include <WiFi.h>

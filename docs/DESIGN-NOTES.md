@@ -89,6 +89,15 @@ A V1 user with GPIO18 pulled high by external wiring reads as a conflict (GPIO45
 
 LVGL allocates from PSRAM (`src/ui/lvgl_psram_alloc.cpp`, falling back to internal RAM) so internal RAM is left for BLE and task stacks. Internal heap is tight: about 6-7 KB free after boot with the display staging buffers on builds #44-#70. Boot logs `[HEAP]` lines before UI init, after UI init and after BLE enable, plus `[STARTUP] Free internal heap after hardware init`. Re-measure before adding features that need internal RAM, including the UNKNOWN (mirror) path, which holds an extra panel handle.
 
+### BLE soft disable
+
+- **Why:** repeated `BLEDevice::deinit()`/`init()` leaked ~11 KB of internal heap per cycle and crashed the V2 board after 8-12 cycles (stack canary panic in the 1 KB `ipc0` task, which the BT controller uses for interrupt allocation; heap exhaustion at the same cadence). Moving the caller to another core does not help because the work always runs on ipc0.
+- **What:** `BluetoothManager::disable()` no longer deinitialises BLE. It aborts OTA/data export, stops advertising, disconnects the client and marks BLE disabled; the stack stays resident (~79 KB internal RAM) and `handle()` keeps advertising stopped. The first `enable()` after boot does the full init; later calls only restart advertising on the existing server and services (characteristic pointers stay valid). Connections and writes arriving while disabled are refused.
+- **Flags and envs:** `DEBUG_BLE_HARD_DEINIT=1` restores the old teardown for comparison. `DEBUG_BLE_ENABLE_STRESS=1` runs 150 disable/enable cycles from a Core 1 task and 150 from a Core 0 task (`[BLESTRESS]` log lines, panic-surviving state in RTC memory). Envs: `waveshare-esp32s3-touch-amoled-164-ble-stress` (soft) and `...-ble-stress-harddeinit` (baseline).
+- **Measured (V2):** 300 cycles, 0 crashes, free internal heap flat at 126.5-128.9 KB.
+- **WiFi spike:** its "BLE off" phases only free RAM when built with `-DDEBUG_BLE_HARD_DEINIT=1`.
+- **Residual:** the first init at boot still goes through ipc0 (has worked in practice); the soft re-enable path is not yet tested with a real client.
+
 ### Known loose ends
 
 - Hardware validation matrix on both boards (cold-boot visuals, forced UNKNOWN, OTA migration from old V1/V2 images) is tracked outside the repo.

@@ -18,6 +18,9 @@
 #if DEBUG_WIFI_HEAP_SPIKE
 #include "system/wifi_heap_spike.h"
 #endif
+#if DEBUG_BLE_ENABLE_STRESS
+#include "system/ble_enable_stress.h"
+#endif
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -133,7 +136,7 @@ void setup() {
         }
     });
     
-    // Enable BLE by default during bootup with 2-minute timeout
+    // Enable BLE by default during bootup with the BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS timeout (5 minutes)
     // (Previously disabled by default for security, now enabled for user convenience)
     log_internal_heap("after UI init");
     bluetooth_manager.enable_during_bootup();
@@ -169,6 +172,10 @@ void setup() {
 
 #if DEBUG_WIFI_HEAP_SPIKE
     wifi_heap_spike_start();
+#endif
+
+#if DEBUG_BLE_ENABLE_STRESS
+    ble_enable_stress_start();
 #endif
 }
 

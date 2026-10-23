@@ -40,7 +40,10 @@ BluetoothManager::BluetoothManager()
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
     , device_connected(false)
-    , ble_enabled(false), debug_stream_active(false)
+    , ble_enabled(false)
+    , stack_initialized(false)
+    , connection_id(0)
+    , debug_stream_active(false)
     , enable_time(0)
     , timeout_ms(BLE_AUTO_DISABLE_TIMEOUT_MS)
     , last_disconnect_time(0)
@@ -118,7 +121,20 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     enable_time = millis();
     last_disconnect_time = enable_time; // Start disconnected timeout from enable time
     
-    // Initialize BLE with delays for power stability
+    if (stack_initialized) {
+        // Soft re-enable: the BLE stack, server, services and advertising data from the first enable() are
+        // still in place (disable() never deinitialises, see disable()), so only advertising restarts.
+        ble_enabled = true;
+        set_ota_status(BLE_OTA_READY);
+        set_data_status(BLE_DATA_IDLE);
+        refresh_system_info();
+        sessions_info_dirty = true;
+        start_advertising();
+        log("Bluetooth: Ready - device is advertising again (%lum timeout)\n", timeout_minutes);
+        return;
+    }
+
+    // First enable since boot: initialize BLE with delays for power stability
     BLEDevice::init(BLE_DEVICE_NAME);
     
     // Request a larger MTU to improve throughput when the client supports it.
@@ -270,6 +286,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     delay(BLE_INIT_ADVERTISING_DELAY_MS);
     
     ble_enabled = true;
+    stack_initialized = true;
     set_ota_status(BLE_OTA_READY);
     
     // Initialize system information
@@ -289,6 +306,9 @@ void BluetoothManager::enable_during_bootup() {
     prefs.end();
 }
 
+// Soft disable: BLEDevice::deinit()/init() leaks ~11 KB of internal heap per cycle, so the stack stays
+// initialised (~79 KB resident) and disable() only stops all BLE activity. enable() reuses the server,
+// services and characteristics. DEBUG_BLE_HARD_DEINIT=1 restores the old full teardown for measurements.
 void BluetoothManager::disable() {
     if (!ble_enabled) return;
     
@@ -302,15 +322,33 @@ void BluetoothManager::disable() {
         stop_data_export();
     }
     
-    stop_advertising();
+    // Cleared first so onDisconnect() does not restart advertising and handle() goes idle
+    ble_enabled = false;
+    diagnostic_report_pending = false;
+
+    // Stop advertising now so no new client connects while the existing one is being dropped
+    if (stack_initialized) {
+        BLEDevice::stopAdvertising();
+    }
+
+    // Drop the connected client and wait briefly for the disconnect event
+    if (ble_server) {
+        if (device_connected) {
+            ble_server->disconnect(connection_id);
+        }
+        for (int i = 0; i < 20 && ble_server->getConnectedCount() > 0; i++) {
+            delay(50);
+        }
+    }
+
+    BLEDevice::stopAdvertising();
     delay(BLE_SHUTDOWN_ADVERTISING_DELAY_MS);
     
+#if DEBUG_BLE_HARD_DEINIT
     log("Bluetooth: Deinitializing BLE stack...\n");
     BLEDevice::deinit(false);
     delay(BLE_SHUTDOWN_DEINIT_DELAY_MS);
-    
-    ble_enabled = false;
-    device_connected = false;
+    stack_initialized = false;
     ble_server = nullptr;
     ota_service = nullptr;
     data_service = nullptr;
@@ -329,6 +367,11 @@ void BluetoothManager::disable() {
     sysinfo_performance_characteristic = nullptr;
     sysinfo_hardware_characteristic = nullptr;
     sysinfo_sessions_characteristic = nullptr;
+    sysinfo_diagnostics_characteristic = nullptr;
+#endif
+
+    // Stays true if the client did not disconnect in time; onDisconnect() clears it later
+    device_connected = ble_server && ble_server->getConnectedCount() > 0;
     debug_stream_active = false;
     
     // Restore normal power settings
@@ -337,7 +380,14 @@ void BluetoothManager::disable() {
 }
 
 void BluetoothManager::handle() {
-    if (!ble_enabled) return;
+    if (!ble_enabled) {
+        // Soft-disabled: the stack is still up, so make sure nothing (host reset resync, failed connect)
+        // has restarted advertising
+        if (stack_initialized && BLEDevice::getAdvertising()->isAdvertising()) {
+            BLEDevice::stopAdvertising();
+        }
+        return;
+    }
     
     // Only check timeout when no client is connected
     if (!device_connected) {
@@ -886,6 +936,12 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
 
 // BLE Callbacks
 void BluetoothManager::onConnect(BLEServer* server) {
+    if (!ble_enabled) {
+        // Connected while soft-disabled (advertising was still running): refuse
+        server->disconnect(server->getConnId());
+        return;
+    }
+    connection_id = server->getConnId();
     device_connected = true;
     log("BLE: Client connected - timeout paused while connected\n");
     mark_sessions_info_dirty();
@@ -913,6 +969,7 @@ void BluetoothManager::onDisconnect(BLEServer* server) {
 }
 
 void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
+    if (!ble_enabled) return;
     if (characteristic == ota_control_characteristic) {
         handle_ota_control_command(characteristic);
     } else if (characteristic == ota_data_characteristic) {

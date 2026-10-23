@@ -87,6 +87,8 @@ private:
     // Connection state
     bool device_connected;
     bool ble_enabled;
+    bool stack_initialized;  // BLEDevice/server/services created by the first enable(); kept across disable()
+    uint16_t connection_id;  // handle of the connected client, valid while device_connected
     bool debug_stream_active;
     unsigned long enable_time;
     unsigned long timeout_ms;

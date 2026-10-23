@@ -33,6 +33,20 @@
     #define DEBUG_WIFI_HEAP_SPIKE 0
 #endif
 
+// BLE enable/disable stress experiment (measurement only). When 1, setup() starts a task that cycles
+// BluetoothManager::disable()+enable() 150 times from a Core 1 task and then from a Core 0 task, logging
+// "[BLESTRESS]" lines and surviving panics via RTC memory. Override with build flag.
+#ifndef DEBUG_BLE_ENABLE_STRESS
+    #define DEBUG_BLE_ENABLE_STRESS 0
+#endif
+
+// Restore the old hard BLE teardown (BLEDevice::deinit in disable(), full re-init in enable()) for
+// comparison measurements. Normal builds soft-disable: the stack stays initialised because deinit/init
+// leaks ~11 KB of internal heap per cycle. Override with build flag.
+#ifndef DEBUG_BLE_HARD_DEINIT
+    #define DEBUG_BLE_HARD_DEINIT 0
+#endif
+
 // Motor deadman test. When 1, the continuous-run deadman fires 3 s after motor start instead of
 // GRIND_TIMEOUT_SEC + margin, so any continuous run longer than 3 s exercises the trip path.
 // Override with build flag.
