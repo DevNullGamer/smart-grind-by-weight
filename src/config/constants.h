@@ -12,6 +12,7 @@
 //==============================================================================
 #include "bluetooth.h"
 #include "wifi.h"
+#include "update.h"
 #include "board_config.h"
 #include "hardware.h"
 #include "theme.h"

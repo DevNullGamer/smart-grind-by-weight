@@ -53,9 +53,8 @@ public:
     bool push_enabled();
     void set_push_enabled(bool enabled);
 
-    // BLE credential commands are accepted only while no credentials are stored or this window is open
-    // (the WiFi menu page opens it). Closed by default.
     // BLE credential commands: allowed with no credentials stored, or while the window is open
+    // (the WiFi menu page opens it). Closed by default.
     bool provisioning_allowed() const { return wifi_provisioning_allowed(credentials_present, provisioning_window); }
     static bool provisioning_window_open() { return provisioning_window; }
     static void set_provisioning_window(bool open) { provisioning_window = open; }

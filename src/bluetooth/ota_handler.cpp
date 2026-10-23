@@ -5,6 +5,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../controllers/grind_controller.h"
 #include "../tasks/task_manager.h"
+#include "../system/update_guard.h"
 #include <Arduino.h>
 #include <BLEDevice.h>
 #include <climits>
@@ -147,6 +148,13 @@ bool OTAHandler::start_ota_locked(uint32_t size, const String& expected_build_nu
     if (ota_in_progress) {
         LOG_BLE("OTA: Update already in progress\n");
         LOG_OTA_DEBUG("start_ota() FAILED - already in progress\n");
+        return false;
+    }
+
+    // A WiFi update owns the grinder/tasks right now: never run two updates at once
+    if (UpdateGuard::is_held()) {
+        failure_reason = "Update refused: another update running";
+        current_status = BLE_OTA_ERROR;
         return false;
     }
 

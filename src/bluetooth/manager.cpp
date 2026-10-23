@@ -927,7 +927,7 @@ void BluetoothManager::handle_wifi_command(const String& value) {
             log("BLE_DEBUG: WiFi credentials stored, connecting\n");
             break;
         case WiFiManager::SetResult::INVALID:
-            log("BLE_DEBUG: WiFi set rejected, invalid SSID or password\n");
+            log("BLE_DEBUG: WiFi set rejected, invalid credentials\n");
             break;
         case WiFiManager::SetResult::STORE_FAILED:
             log("BLE_DEBUG: WiFi credentials could not be stored\n");

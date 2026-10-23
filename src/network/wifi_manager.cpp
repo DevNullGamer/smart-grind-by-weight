@@ -95,6 +95,12 @@ void WiFiManager::begin() {
     }
 #if DEBUG_WIFI_DEV_CREDS
     seed_dev_credentials();
+#ifndef SPIKE_API_TOKEN
+    // The fallback token is public: say so loudly on every boot (never print the token itself)
+    if (token_matches(WIFI_DEV_API_TOKEN)) {
+        LOG_BLE("[WIFI] WARNING: DEV BUILD uses the public fallback API token, push endpoint is NOT protected\n");
+    }
+#endif
 #endif
 
     if (!credentials_present) {
