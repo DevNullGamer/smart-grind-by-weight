@@ -21,6 +21,7 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
 - `python3 tools/grinder.py scan` - Scan for BLE devices
 - `python3 tools/grinder.py info` - Get device system information
+- `python3 tools/grinder.py wifi-set "<ssid>"` / `wifi-clear` - Provision / remove WiFi credentials over BLE (changing them later needs Menu -> WiFi open on the device)
 - `python3 tools/grinder.py clean` - Clean build artifacts
 
 ## Architecture

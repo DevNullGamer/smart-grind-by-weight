@@ -427,6 +427,43 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    async def cmd_wifi_set(self, args: argparse.Namespace) -> int:
+        """Store WiFi credentials and a freshly generated update token on the device over BLE."""
+        self.print_header("WiFi Setup (Bluetooth)")
+
+        if not self.check_venv():
+            return 1
+
+        return await self.run_async_command(self.wifi_set_command(args))
+
+    def wifi_set_command(self, args: argparse.Namespace) -> List[str]:
+        """BLE tool command line; options first, SSID after '--' so a name starting with '-' is not an option."""
+        cmd = [str(self.venv_python), str(self.ble_tool), "wifi-set"]
+
+        if getattr(args, 'password_env', None):
+            cmd.extend(["--password-env", args.password_env])
+        if getattr(args, 'open', False):
+            cmd.append("--open")
+        if hasattr(args, 'device') and args.device:
+            cmd.extend(["--device", args.device])
+
+        cmd.extend(["--", args.ssid])
+        return cmd
+
+    async def cmd_wifi_clear(self, args: argparse.Namespace) -> int:
+        """Remove the stored WiFi credentials from the device over BLE."""
+        self.print_header("WiFi Clear (Bluetooth)")
+
+        if not self.check_venv():
+            return 1
+
+        cmd = [str(self.venv_python), str(self.ble_tool), "wifi-clear"]
+
+        if hasattr(args, 'device') and args.device:
+            cmd.extend(["--device", args.device])
+
+        return await self.run_async_command(cmd)
+
     async def cmd_diagnostics(self, args: argparse.Namespace) -> int:
         """Get comprehensive diagnostic report."""
         self.print_header("Diagnostic Report")
@@ -513,6 +550,8 @@ def create_parser() -> argparse.ArgumentParser:
   python3 grinder.py connect                   # Connect to grinder device
   python3 grinder.py info                      # Get device system information
   python3 grinder.py board v2                  # Set board override (auto always; v1/v2 only if board not confirmed)
+  python3 grinder.py wifi-set "My Network"     # Provision WiFi over BLE (prompts for the password), then wifi-upload works
+  python3 grinder.py wifi-clear                # Remove the grinder's WiFi credentials
         """
     )
     
@@ -577,6 +616,16 @@ def create_parser() -> argparse.ArgumentParser:
     board_parser.add_argument('mode', choices=['v1', 'v2', 'auto'], help='Board to use after the next restart')
     board_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
 
+    wifi_set_parser = subparsers.add_parser('wifi-set', help='Store WiFi credentials + a new update token on the grinder over BLE (first setup, or while Menu -> WiFi is open)')
+    wifi_set_parser.add_argument('ssid', help='Network name (1-32 bytes)')
+    wifi_password_group = wifi_set_parser.add_mutually_exclusive_group()
+    wifi_password_group.add_argument('--password-env', metavar='NAME', help='Read the password from this environment variable instead of prompting')
+    wifi_password_group.add_argument('--open', action='store_true', help='Open network (no password)')
+    wifi_set_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+
+    wifi_clear_parser = subparsers.add_parser('wifi-clear', help='Remove the stored WiFi credentials over BLE (first setup state, or while Menu -> WiFi is open)')
+    wifi_clear_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
@@ -627,6 +676,10 @@ async def main():
             return tool.cmd_wifi_upload(args)
         elif args.command == 'board':
             return await tool.cmd_board(args)
+        elif args.command == 'wifi-set':
+            return await tool.cmd_wifi_set(args)
+        elif args.command == 'wifi-clear':
+            return await tool.cmd_wifi_clear(args)
         elif args.command == 'diagnostics':
             return await tool.cmd_diagnostics(args)
         elif args.command == 'install':

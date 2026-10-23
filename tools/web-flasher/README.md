@@ -16,6 +16,10 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 - Full firmware updates (no delta compression)
 - Progress tracking and status updates
 
+### 📡 WiFi Setup (Bluetooth)
+- Stores your WiFi name and password on the grinder and generates the update token used by `python3 tools/grinder.py wifi-upload`
+- Logic in `wifi-setup.js` (pure frame builder, unit-tested with `node --test tools/tests/wifi-setup.test.js`)
+
 ## Browser Support
 
 - ✅ **Chrome** (Desktop & Android) - Full support
@@ -38,6 +42,22 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 3. Enter firmware URL from GitHub release
 4. Click "Connect to Device"
 5. Click "Flash Firmware" when connected
+
+### For WiFi Setup
+1. Turn Bluetooth on at the grinder (Menu → Bluetooth). If the grinder already has WiFi details, open **Menu → WiFi** on it first; otherwise it refuses changes
+2. Go to the "WiFi Setup" tab, enter the network name and password (empty password = open network; 2.4 GHz networks only)
+3. Press "Send to grinder (Bluetooth)" and choose the grinder in the browser dialog
+4. The page shows "Connected to WiFi, IP ..." or "Saved, not connected yet" (check password and signal)
+5. **Save the token now** with "Copy" or "Download config" (a file for `~/.grinder-wifi.json`; the browser may rename the download, for example drop the leading dot, so save it as `~/.grinder-wifi.json`). It is shown only on this page and the grinder never shows it again. Then turn on **Receive** in Menu → WiFi when you want to push an update
+6. "Remove WiFi from grinder" deletes the stored details (also needs Menu → WiFi open once the grinder is set up)
+
+What the page does with your data:
+- The password and token only travel over Bluetooth to the grinder (and the token to your clipboard/download if you press those buttons). Nothing is sent to any server, nothing is stored in the browser, and nothing is written to the console
+- The token is generated in the browser with `crypto.getRandomValues` (16 lowercase hex characters)
+- The Bluetooth link is not encrypted, so do this at home; anyone within radio range could read the details while they are being sent
+- The page cannot check the grinder over WiFi (this page is HTTPS, the grinder speaks plain HTTP); it verifies through Bluetooth instead (hardware info reports the WiFi state and IP)
+
+Troubleshooting: "No grinder selected" means the dialog was closed or Bluetooth is off on the grinder. "Already has WiFi credentials" means Menu → WiFi was not open. "No reply" means the grinder did not answer within 5 s; the details may or may not be stored, open Menu → WiFi and try again.
 
 ## Firmware Sources
 
@@ -92,4 +112,4 @@ python3 -m http.server 8000 --directory tools/web-flasher
 
 - All communications use Web Bluetooth's built-in security
 - Firmware is downloaded directly from GitHub releases
-- No credentials or keys stored locally
+- No credentials or keys stored locally (the WiFi Setup tab keeps nothing in the browser)

@@ -1,4 +1,5 @@
 #include <unity.h>
+#include <stdlib.h>
 #include <string.h>
 #include <vector>
 #include "network/wifi_credentials.h"
@@ -308,6 +309,44 @@ void test_parse_failure_leaves_fields_zeroed() {
     TEST_ASSERT_EQUAL_UINT8(0, f.token[0]);
 }
 
+// Frames produced by tools/wifi_provision.py build_set_frame() (same list as tools/tests/wifi_provision_vectors.json,
+// which the Python and JavaScript tests check). The first byte is the BLE command 0x04, the parser gets the rest.
+static std::vector<uint8_t> hex_to_bytes(const char* hex) {
+    std::vector<uint8_t> out;
+    for (size_t i = 0; hex[i] && hex[i + 1]; i += 2) {
+        char pair[3] = {hex[i], hex[i + 1], '\0'};
+        out.push_back(static_cast<uint8_t>(strtoul(pair, nullptr, 16)));
+    }
+    return out;
+}
+
+static void expect_python_frame(const char* frame_hex, const char* ssid, const char* password, const char* token) {
+    const std::vector<uint8_t> frame = hex_to_bytes(frame_hex);
+    TEST_ASSERT_TRUE(frame.size() > 1);
+    TEST_ASSERT_EQUAL_UINT8(0x04, frame[0]);
+    WifiProvisionFields f;
+    TEST_ASSERT_EQUAL(static_cast<int>(WifiProvisionResult::OK),
+                      static_cast<int>(wifi_parse_provisioning(frame.data() + 1, frame.size() - 1, &f)));
+    TEST_ASSERT_EQUAL_STRING(ssid, f.ssid);
+    TEST_ASSERT_EQUAL_STRING(password, f.password);
+    TEST_ASSERT_EQUAL_STRING(token, f.token);
+}
+
+void test_parse_python_builder_frames() {
+    expect_python_frame("0404686f6d650973656372657431323330313233343536373839616263646566",
+                        "home", "secret123", "0123456789abcdef");
+    expect_python_frame("04064361666535470030306666303066663030666630306666",
+                        "Cafe5G", "", "00ff00ff00ff00ff");
+    expect_python_frame("0408436166c3a92035470a70c3a47373776f72643161316232633364346535663630373138",
+                        "Caf\xC3\xA9 5G", "p\xC3\xA4ssword1", "a1b2c3d4e5f60718");
+    expect_python_frame("042053535353535353535353535353535353535353535353535353535353535353533f"
+                        "50505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505066666666666666666666666666666666",
+                        "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+                        "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP", "ffffffffffffffff");
+    expect_python_frame("04114d792057694669202d20322e3447487a210b704073732077307264212364656164626565663030313132323333",
+                        "My WiFi - 2.4GHz!", "p@ss w0rd!#", "deadbeef00112233");
+}
+
 void run_wifi_credentials_tests() {
     RUN_TEST(test_ssid_length_boundaries);
     RUN_TEST(test_ssid_rejects_nul_anywhere);
@@ -341,4 +380,5 @@ void run_wifi_credentials_tests() {
     RUN_TEST(test_parse_max_frame_is_114_bytes);
     RUN_TEST(test_parse_trailing_bytes);
     RUN_TEST(test_parse_failure_leaves_fields_zeroed);
+    RUN_TEST(test_parse_python_builder_frames);
 }

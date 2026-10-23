@@ -92,7 +92,7 @@
             color: #4a5568;
         }
         
-        input[type="text"], input[type="file"], select {
+        input[type="text"], input[type="password"], input[type="file"], select {
             width: 100%;
             padding: 12px;
             border: 2px solid #e2e8f0;
@@ -233,6 +233,7 @@
             <button class="tab active" onclick="showTab('ota')">OTA Update (BLE)</button>
             <button class="tab" onclick="showTab('initial')">Initial Setup (USB)</button>
             <button class="tab" onclick="showTab('diagnostics')">Diagnostics</button>
+            <button class="tab" onclick="showTab('wifi')">WiFi Setup</button>
         </div>
         
         <!-- Initial Setup Tab -->
@@ -336,9 +337,61 @@
                 <div id="diagnosticsStatus"></div>
             </div>
         </div>
+
+        <!-- WiFi Setup Tab -->
+        <div id="wifiTab" class="tab-content">
+            <div class="section">
+                <h3>📡 WiFi Setup - Bluetooth Connection</h3>
+                <p>Lets your grinder join your home WiFi so you can update it from your computer without Bluetooth.
+                   Your WiFi name and password are sent to the grinder over Bluetooth only. Nothing is sent to any
+                   server, and nothing is stored in this browser.</p>
+                <p><strong>Before you start:</strong> Bluetooth must be on (Menu → Bluetooth). If the grinder already
+                   has WiFi details, open <strong>Menu → WiFi</strong> on the grinder first. Only 2.4 GHz networks work.</p>
+                <p><strong>Note:</strong> the Bluetooth link is not encrypted. Do this at home, not in a public place.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="wifiSsid">WiFi name (SSID)</label>
+                <input type="text" id="wifiSsid" maxlength="64" autocomplete="off" autocapitalize="off" spellcheck="false">
+            </div>
+
+            <div class="form-group">
+                <label for="wifiPassword">WiFi password (leave empty for an open network)</label>
+                <input type="password" id="wifiPassword" autocomplete="off" autocapitalize="off" spellcheck="false">
+                <label style="font-weight: normal; display: flex; align-items: center; margin-top: 8px;">
+                    <input type="checkbox" id="wifiShowPassword" style="margin-right: 8px;">
+                    Show password
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label for="wifiToken">Update token (new, generated in your browser)</label>
+                <input type="text" id="wifiToken" readonly autocomplete="off">
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="btn" id="wifiCopyBtn" type="button">Copy</button>
+                    <button class="btn" id="wifiDownloadBtn" type="button">Download config</button>
+                    <button class="btn" id="wifiNewTokenBtn" type="button">New token</button>
+                </div>
+            </div>
+
+            <div id="wifiTokenNote" class="status warning" style="display: none;">
+                The token is shown only here. Save it now (Copy, or Download config for
+                <code>~/.grinder-wifi.json</code>; your browser may rename the download, for example drop the leading
+                dot, so save it as <code>~/.grinder-wifi.json</code>); the grinder never shows it again. You need it for
+                <code>python3 tools/grinder.py wifi-upload</code>.
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <button class="btn" id="wifiSendBtn" type="button">Send to grinder (Bluetooth)</button>
+                <button class="btn" id="wifiClearBtn" type="button">Remove WiFi from grinder</button>
+            </div>
+
+            <div id="wifiStatus" class="status info" style="display: none; margin-top: 20px;"></div>
+        </div>
     </div>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
     <script src="flasher.js"></script>
+    <script src="wifi-setup.js"></script>
 </body>
 </html>

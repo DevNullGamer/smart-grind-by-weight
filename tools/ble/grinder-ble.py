@@ -17,10 +17,13 @@ Usage:
     ./grinder-ble connect [--interactive]      # Connect and run commands
     ./grinder-ble debug                        # Stream live debug logs
     ./grinder-ble info                         # Get comprehensive device information
+    ./grinder-ble wifi-set SSID                # Store WiFi credentials + a new update token on the grinder
+    ./grinder-ble wifi-clear                   # Remove the stored WiFi credentials
 """
 
 import argparse
 import asyncio
+import getpass
 import sys
 import os
 import struct
@@ -37,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from firmware_variants import FIRMWARE_ENV, LEGACY_V2_ENV, DEPRECATED_VARIANT_CHOICES, VARIANT_DEPRECATED_MSG
+import wifi_provision
 
 def ensure_venv_requirements():
     """Ensure all required packages are installed in the project venv"""
@@ -122,6 +126,8 @@ BLE_DEBUG_CMD_ENABLE = 0x01
 BLE_DEBUG_CMD_DISABLE = 0x02
 BLE_DEBUG_CMD_SET_BOARD = 0x03
 BOARD_OVERRIDE_VALUES = {'auto': 0, 'v1': 1, 'v2': 2}
+WIFI_REPLY_TIMEOUT_S = 5       # how long to wait for the "stored" / "rejected" debug line
+WIFI_CONNECT_WAIT_S = 40       # hardware info refreshes every 10 s, joining the network takes a few seconds
 
 BLE_OTA_IDLE = 0x00
 
@@ -1085,6 +1091,102 @@ class GrinderBLETool:
             self.safe_print("[WARNING] No reply from the device. If it accepted the override, restart the grinder to apply it.")
         return True
 
+    # === WiFi Provisioning ===
+    async def _send_wifi_frame(self, frame: bytes) -> str:
+        """Writes a provisioning frame to the debug RX characteristic; returns the classified device reply.
+
+        The device answers through the debug stream (enabled here). Its messages never contain the password or token.
+        """
+        reply = wifi_provision.REPLY_UNKNOWN
+        try:
+            await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, bytes([BLE_DEBUG_CMD_ENABLE]), response=True)
+            await asyncio.sleep(0.5)
+            self.debug_capture = ""
+            await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, frame, response=True)
+            deadline = time.time() + WIFI_REPLY_TIMEOUT_S
+            while time.time() < deadline:
+                reply = wifi_provision.classify_reply(self.debug_capture)
+                if reply != wifi_provision.REPLY_UNKNOWN:
+                    break
+                await asyncio.sleep(0.1)
+        finally:
+            if self.debug_buffer:
+                sys.stdout.write(self.debug_buffer)
+                sys.stdout.flush()
+                self.debug_buffer = ""
+            if self.client and self.client.is_connected:
+                try:
+                    await self.client.write_gatt_char(BLE_DEBUG_RX_CHAR_UUID, bytes([BLE_DEBUG_CMD_DISABLE]), response=True)
+                except BleakError as e:
+                    self.safe_print(f"[WARNING] Could not disable debug stream cleanly: {e}")
+        return reply
+
+    async def _wait_for_wifi_connection(self, timeout_s: float = WIFI_CONNECT_WAIT_S) -> bool:
+        """Polls the hardware-info characteristic until the grinder reports a WiFi connection."""
+        self.safe_print(f"[INFO] Waiting up to {int(timeout_s)} s for the grinder to join the network...")
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            try:
+                raw = await self.client.read_gatt_char(BLE_SYSINFO_HARDWARE_CHAR_UUID)
+                info = wifi_provision.parse_hardware_info(bytes(raw).decode('utf-8', errors='replace'))
+            except Exception:
+                info = None
+            if info and info["connected"]:
+                self.safe_print(f"[OK] Grinder is connected to WiFi, IP {info['ip']} ({info['host']})")
+                return True
+            await asyncio.sleep(3)
+        return False
+
+    async def set_wifi_credentials(self, ssid: str, password: str) -> bool:
+        """Sends new WiFi credentials plus a freshly generated update token, then stores the token for wifi-upload."""
+        token = wifi_provision.generate_token()
+        frame = wifi_provision.build_set_frame(ssid, password, token)  # raises ProvisionError on bad input
+        self.safe_print(f"[INFO] Sending WiFi credentials for '{ssid}' over Bluetooth...")
+        reply = await self._send_wifi_frame(frame)
+
+        if reply == wifi_provision.REPLY_LOCKED:
+            self.safe_print("\n[ERROR] The grinder already has WiFi credentials. On the grinder open Menu -> WiFi, then run this again.")
+            return False
+        if reply == wifi_provision.REPLY_REJECTED:
+            self.safe_print("\n[ERROR] The grinder rejected the credentials (see message above).")
+            return False
+        if reply == wifi_provision.REPLY_STORE_FAILED:
+            self.safe_print("\n[ERROR] The grinder could not store the credentials.")
+            return False
+        if reply != wifi_provision.REPLY_STORED:
+            self.safe_print("\n[ERROR] No reply from the grinder. The credentials may or may not have been stored; "
+                            "the config file was NOT changed. Run the command again (open Menu -> WiFi first if the grinder was already set up).")
+            return False
+
+        try:
+            config_path = wifi_provision.save_device_config(token)
+        except OSError as e:
+            # The grinder has the token but the PC could not keep it: show it once so it is not lost
+            self.safe_print("")
+            for line in wifi_provision.token_save_failure_lines(token, e):
+                self.safe_print(line)
+            return False
+        self.safe_print(f"\n[OK] Credentials stored on the grinder. Update token {wifi_provision.mask_token(token)} saved to {config_path}")
+        self.safe_print("[INFO] Turn on 'Receive' in Menu -> WiFi on the grinder before using: python3 tools/grinder.py wifi-upload")
+        if not await self._wait_for_wifi_connection():
+            self.safe_print("[WARNING] The grinder has not joined the network yet. Check the password and signal; "
+                            "Menu -> WiFi shows the status.")
+        return True
+
+    async def clear_wifi_credentials(self) -> bool:
+        """Removes the stored WiFi credentials (first-time or while Menu -> WiFi is open on the grinder)."""
+        reply = await self._send_wifi_frame(wifi_provision.build_clear_frame())
+        if reply == wifi_provision.REPLY_CLEARED:
+            self.safe_print("\n[OK] WiFi credentials removed from the grinder.")
+            return True
+        if reply == wifi_provision.REPLY_LOCKED:
+            self.safe_print("\n[ERROR] On the grinder open Menu -> WiFi, then run this again.")
+        elif reply == wifi_provision.REPLY_UNKNOWN:
+            self.safe_print("\n[ERROR] No reply from the grinder. Run the command again.")
+        else:
+            self.safe_print("\n[ERROR] The grinder did not clear the credentials (see message above).")
+        return False
+
     # === System Information Functions ===
     async def get_system_info(self) -> Dict:
         """Get comprehensive system information from the device."""
@@ -1278,8 +1380,14 @@ async def main():
     board_parser.add_argument('mode', choices=sorted(BOARD_OVERRIDE_VALUES), help='Board to use after the next restart')
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
+    wifi_set_parser = subparsers.add_parser('wifi-set', help='Store WiFi credentials and a new update token on the grinder (first setup, or while Menu -> WiFi is open)')
+    wifi_set_parser.add_argument('ssid', help='Network name (1-32 bytes)')
+    password_group = wifi_set_parser.add_mutually_exclusive_group()
+    password_group.add_argument('--password-env', metavar='NAME', help='Read the password from this environment variable instead of prompting')
+    password_group.add_argument('--open', action='store_true', help='Open network (no password)')
+    wifi_clear_parser = subparsers.add_parser('wifi-clear', help='Remove the stored WiFi credentials (first setup state, or while Menu -> WiFi is open)')
 
-    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, board_parser, diagnostics_parser]:
+    for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, board_parser, diagnostics_parser, wifi_set_parser, wifi_clear_parser]:
         p.add_argument('--device', default=DEVICE_NAME, help='Device name to connect to')
 
     args = parser.parse_args()
@@ -1289,7 +1397,20 @@ async def main():
         if args.command == 'scan':
             await tool.scan_devices()
         
-        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'board', 'diagnostics']:
+        elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'board', 'diagnostics', 'wifi-set', 'wifi-clear']:
+            wifi_password = None
+            if args.command == 'wifi-set':
+                # Collect and validate the input before connecting, so a typo does not cost a scan
+                try:
+                    wifi_password = wifi_provision.resolve_password(
+                        args.open, args.password_env, os.environ,
+                        lambda: getpass.getpass("WiFi password (empty = open network): "))
+                    wifi_provision.validate_credentials(args.ssid, wifi_password)
+                except wifi_provision.ProvisionError as e:
+                    tool.safe_print(f"[ERROR] {e}")
+                    return 1
+                if not wifi_password:
+                    tool.safe_print("[INFO] Empty password: configuring an open network.")
             if not await tool.connect_to_device(args.device): return 1
 
             if args.command == 'upload':
@@ -1315,6 +1436,12 @@ async def main():
                 tool.print_system_info(info)
             elif args.command == 'board':
                 if not await tool.set_board_override(args.mode):
+                    return 1
+            elif args.command == 'wifi-set':
+                if not await tool.set_wifi_credentials(args.ssid, wifi_password):
+                    return 1
+            elif args.command == 'wifi-clear':
+                if not await tool.clear_wifi_credentials():
                     return 1
             elif args.command == 'diagnostics':
                 report = await tool.get_diagnostic_report()

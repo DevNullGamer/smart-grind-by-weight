@@ -472,6 +472,17 @@ Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup
 
 ---
 
+## 📡 WiFi Setup
+
+The grinder can join your 2.4 GHz home WiFi so firmware can be pushed from your computer without Bluetooth. The WiFi details are sent to the grinder over Bluetooth (turn Bluetooth on in **Menu → Bluetooth** first); there is no on-screen keyboard.
+
+- **Web flasher (Chrome or Edge, also Chrome on Android):** open the **WiFi Setup** tab, enter the network name and password, press **Send to grinder (Bluetooth)**. The page generates a new update token; copy it or download the config file now, it is shown only there. Details in [tools/web-flasher/README.md](../tools/web-flasher/README.md).
+- **Command line:** `python3 tools/grinder.py wifi-set "My Network"` (prompts for the password; `--password-env NAME` or `--open` for scripts and open networks). It generates the token and stores it in `~/.grinder-wifi.json`, so `wifi-upload` works straight away. `python3 tools/grinder.py wifi-clear` removes the stored details.
+- **Changing the network later:** open **Menu → WiFi** on the grinder first. While that page is on screen the grinder accepts new details over Bluetooth; otherwise it refuses and says so.
+- The Bluetooth link is not encrypted: set WiFi up at home, not in a public place.
+
+---
+
 ## 🔍 Diagnostic Report
 
 Generate a comprehensive diagnostic report from your device for troubleshooting or attaching to GitHub issues. The report includes firmware version, system health metrics, load cell diagnostics, and all compile-time parameters.

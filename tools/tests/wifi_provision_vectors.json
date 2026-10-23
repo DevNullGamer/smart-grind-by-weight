@@ -1,0 +1,47 @@
+{
+  "set_frames": [
+    {
+      "name": "basic",
+      "ssid": "home",
+      "password": "secret123",
+      "token": "0123456789abcdef",
+      "frame_hex": "0404686f6d650973656372657431323330313233343536373839616263646566"
+    },
+    {
+      "name": "open_network",
+      "ssid": "Cafe5G",
+      "password": "",
+      "token": "00ff00ff00ff00ff",
+      "frame_hex": "04064361666535470030306666303066663030666630306666"
+    },
+    {
+      "name": "utf8_ssid_and_password",
+      "ssid": "Caf\u00e9 5G",
+      "password": "p\u00e4ssword1",
+      "token": "a1b2c3d4e5f60718",
+      "frame_hex": "0408436166c3a92035470a70c3a47373776f72643161316232633364346535663630373138"
+    },
+    {
+      "name": "max_lengths",
+      "ssid": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+      "password": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+      "token": "ffffffffffffffff",
+      "frame_hex": "042053535353535353535353535353535353535353535353535353535353535353533f50505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505066666666666666666666666666666666"
+    },
+    {
+      "name": "spaces_and_punctuation",
+      "ssid": "My WiFi - 2.4GHz!",
+      "password": "p@ss w0rd!#",
+      "token": "deadbeef00112233",
+      "frame_hex": "04114d792057694669202d20322e3447487a210b704073732077307264212364656164626565663030313132323333"
+    },
+    {
+      "name": "min_password",
+      "ssid": "x",
+      "password": "12345678",
+      "token": "0000000000000000",
+      "frame_hex": "04017808313233343536373830303030303030303030303030303030"
+    }
+  ],
+  "clear_frame_hex": "05"
+}
