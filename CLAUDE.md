@@ -36,7 +36,7 @@ python3 tools/grinder.py analyze
 - **GrindController**: 17-phase state machine (`GrindPhase` enum) with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
 - **WeightSensor (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
-- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, WiFi, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
+- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, WiFi, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses. The WiFi page has Receive/Confirm toggles; `WifiUpdateUIController` shows the WiFi-update Accept dialog (confirm screen, READY/MENU only) and the progress screen (never call LVGL from the HTTP task; details in `docs/DESIGN-NOTES.md`)
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
 
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`

@@ -53,6 +53,8 @@ public:
         CONFIRM_CANCEL,
         PURGE_CONFIRM_CONTINUE,
         WIFI_FORGET,
+        WIFI_PUSH_TOGGLE,
+        WIFI_CONFIRM_TOGGLE,
         COUNT
     };
 

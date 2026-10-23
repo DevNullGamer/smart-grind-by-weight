@@ -84,6 +84,9 @@ private:
     lv_obj_t* wifi_ble_warning_label = nullptr;
     lv_obj_t* wifi_manage_block = nullptr;     // shown while credentials are stored
     lv_obj_t* wifi_forget_button = nullptr;
+    lv_obj_t* wifi_push_toggle = nullptr;      // "Receive": arms the push endpoint
+    lv_obj_t* wifi_confirm_toggle = nullptr;   // "Confirm": every update needs a tap on INSTALL
+    lv_obj_t* wifi_listen_label = nullptr;     // "Listening: <name>.local" while the endpoint runs
     char wifi_ssid_display[WIFI_STATUS_TEXT_BUF] = {0};  // shortened SSID, cached from NVS
     bool wifi_has_credentials = false;                   // cached from NVS
     uint32_t wifi_loaded_revision = 0;                   // WiFiManager::credentials_revision() at last reload
@@ -170,6 +173,8 @@ public:
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
     lv_obj_t* get_board_override_radio_group() const { return board_override_radio_group; }
+    lv_obj_t* get_wifi_push_toggle() const { return wifi_push_toggle; }
+    lv_obj_t* get_wifi_confirm_toggle() const { return wifi_confirm_toggle; }
 
 private:
     void create_menu_ui();
@@ -180,6 +185,7 @@ private:
     void create_scale_page(lv_obj_t* parent);
     void create_board_page(lv_obj_t* parent);
     void create_wifi_page(lv_obj_t* parent);
+    void apply_wifi_update_toggles();  // Receive / Confirm switch states and greying (menu_screen_wifi.cpp)
     // Opens/closes the BLE provisioning window to match "WiFi page is the current page of the visible menu"
     void sync_wifi_provisioning_window();
     void create_data_page(lv_obj_t* parent);

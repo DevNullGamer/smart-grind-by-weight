@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <cstring>
 
+#include "../../network/update_status.h"
 #include "../ui_manager.h"
 
 OtaDataExportController::OtaDataExportController(UIManager* manager)
@@ -46,8 +47,12 @@ bool OtaDataExportController::update() {
         return true;
     }
 
+    // A WiFi update owns the OTA screen (WifiUpdateUIController shows its result and returns on its own)
+    const bool wifi_update_owns_screen =
+        UpdateStatus::active() || UpdateStatus::phase() == UpdatePhase::FAILED;
+
     // An aborted/failed OTA leaves the OTA screen up: show its status briefly, then return to READY
-    if (!data_export_active_ && !bluetooth->is_data_export_active() &&
+    if (!data_export_active_ && !bluetooth->is_data_export_active() && !wifi_update_owns_screen &&
         ui_manager_->state_machine->is_state(UIState::OTA_UPDATE)) {
         if (ota_idle_since_ms_ == 0) {
             ota_idle_since_ms_ = millis();

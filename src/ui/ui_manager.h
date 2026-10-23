@@ -27,6 +27,7 @@
 #include "controllers/screen_timeout_controller.h"
 #include "controllers/menu_controller.h"
 #include "controllers/status_indicator_controller.h"
+#include "controllers/wifi_update_controller.h"
 #include "../system/state_machine.h"
 #include "../system/diagnostics_controller.h"
 #include "../controllers/profile_controller.h"
@@ -62,7 +63,8 @@ class UIManager {
     friend class OtaDataExportController;
     friend class ScreenTimeoutController;
     friend class JogAdjustController;
-    
+    friend class WifiUpdateUIController;
+
 private:
     HardwareManager* hardware_manager;
     StateMachine* state_machine;
@@ -97,6 +99,7 @@ private:
     std::unique_ptr<OtaDataExportController> ota_data_export_controller_;
     std::unique_ptr<ScreenTimeoutController> screen_timeout_controller_;
     std::unique_ptr<JogAdjustController> jog_adjust_controller_;
+    std::unique_ptr<WifiUpdateUIController> wifi_update_controller_;
     std::unique_ptr<DiagnosticsController> diagnostics_controller_;
 
 public:

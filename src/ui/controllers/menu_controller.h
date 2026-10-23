@@ -36,6 +36,8 @@ public:
     void handle_grind_freshness_hours_slider_released();
     void handle_board_override_radio_button();
     void handle_wifi_forget();
+    void handle_wifi_push_toggle();
+    void handle_wifi_confirm_toggle();
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();

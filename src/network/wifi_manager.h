@@ -53,7 +53,8 @@ public:
     bool token_matches(const char* candidate);
 
     bool push_enabled();
-    void set_push_enabled(bool enabled);
+    // Returns false if the value could not be stored
+    bool set_push_enabled(bool enabled);
 
     // "Confirm on the grinder" (default true): every update needs a tap on INSTALL. Served from a RAM copy
     // (loaded in begin()), so it is safe to call while an update owns the flash. Turning it off only takes

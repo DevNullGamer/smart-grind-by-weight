@@ -11,6 +11,7 @@ void run_update_http_logic_tests();
 void run_wifi_status_text_tests();
 void run_update_approval_tests();
 void run_update_prompt_text_tests();
+void run_update_ui_logic_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -26,5 +27,6 @@ int main() {
     run_wifi_status_text_tests();
     run_update_approval_tests();
     run_update_prompt_text_tests();
+    run_update_ui_logic_tests();
     return UNITY_END();
 }

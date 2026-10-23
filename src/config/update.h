@@ -52,6 +52,12 @@
 #define UPDATE_PEER_IP_BUF 16                                                  // "255.255.255.255" + NUL
 #define UPDATE_PROMPT_MESSAGE_BUF 192                                          // Always fits the dialog message built by prompt_build_message()
 
+// On-device progress screen (see ui/controllers/wifi_update_controller)
+#define UPDATE_UI_FAILED_HOLD_MS 3000                                          // A failed update stays on screen this long, then the UI returns
+#define UPDATE_UI_STATUS_BUF 64                                                // Status line of the progress screen ("Update failed: <reason>")
+#define UPDATE_UI_REASON_MAX 16                                                // Longest failure reason shown (longer ones end in "..."); keeps the line to two rows
+#define UPDATE_UI_TAP_GUARD_MS 400                                             // Taps on the Accept dialog this soon after it opened are ignored
+
 // Dev/test only (wifi-dev env): the HTTP side plays the user at the screen. 0 off, 1 accept, 2 decline, 3 never reply.
 #ifndef DEBUG_UPDATE_PROMPT_AUTOREPLY
 #define DEBUG_UPDATE_PROMPT_AUTOREPLY 0

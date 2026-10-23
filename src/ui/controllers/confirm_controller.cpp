@@ -1,5 +1,6 @@
 #include "confirm_controller.h"
 
+#include <Arduino.h>
 #include <utility>
 
 #include "../../system/state_machine.h"
@@ -54,13 +55,14 @@ void ConfirmUIController::show(const char* title,
                           : UIState::READY;
     on_confirm_ = std::move(on_confirm);
     on_cancel_ = std::move(on_cancel);
+    tap_guard_active_ = false;
 
     ui_manager_->confirm_screen.show(title, message, confirm_text, confirm_color, cancel_text);
     ui_manager_->switch_to_state(UIState::CONFIRM);
 }
 
 void ConfirmUIController::handle_confirm() {
-    if (!ui_manager_) {
+    if (!ui_manager_ || taps_guarded()) {
         return;
     }
 
@@ -78,7 +80,7 @@ void ConfirmUIController::handle_confirm() {
 }
 
 void ConfirmUIController::handle_cancel() {
-    if (!ui_manager_) {
+    if (!ui_manager_ || taps_guarded()) {
         return;
     }
 
@@ -93,6 +95,23 @@ void ConfirmUIController::handle_cancel() {
     }
 
     reset_callbacks();
+}
+
+void ConfirmUIController::guard_taps(uint32_t duration_ms) {
+    tap_guard_until_ms_ = millis() + duration_ms;
+    tap_guard_active_ = true;
+}
+
+bool ConfirmUIController::taps_guarded() const {
+    return tap_guard_active_ && static_cast<int32_t>(tap_guard_until_ms_ - millis()) > 0;
+}
+
+void ConfirmUIController::dismiss() {
+    if (!ui_manager_ || !ui_manager_->state_machine || !ui_manager_->state_machine->is_state(UIState::CONFIRM)) {
+        return;
+    }
+    reset_callbacks();
+    ui_manager_->switch_to_state(previous_state_);
 }
 
 void ConfirmUIController::reset_callbacks() {

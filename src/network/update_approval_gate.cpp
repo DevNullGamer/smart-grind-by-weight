@@ -42,15 +42,22 @@ void UpdateApprovalGate::clear() {
     approval_clear(&approval_);
 }
 
-bool UpdateApprovalGate::pending_prompt(ApprovalPrompt* out) {
+bool UpdateApprovalGate::pending_prompt(ApprovalPrompt* out, uint32_t* generation) {
     Section section(&mux_);
     if (approval_poll(&approval_, millis()) != ApprovalState::PENDING) return false;
     if (out) *out = prompt_;
+    if (generation) *generation = generation_;
     return true;
 }
 
 bool UpdateApprovalGate::resolve(bool accept) {
     Section section(&mux_);
+    return approval_resolve(&approval_, accept, millis());
+}
+
+bool UpdateApprovalGate::resolve(bool accept, uint32_t generation) {
+    Section section(&mux_);
+    if (generation_ != generation) return false;
     return approval_resolve(&approval_, accept, millis());
 }
 

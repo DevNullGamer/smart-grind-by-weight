@@ -132,6 +132,11 @@ void UIManager::update() {
         screen_timeout_controller_->update();
     }
 
+    // WiFi update: Accept dialog and progress screen (consumes the frame while the progress screen is up)
+    if (wifi_update_controller_ && wifi_update_controller_->update()) {
+        return;
+    }
+
     bool ota_cycle_consumed = false;
     if (ota_data_export_controller_) {
         ota_cycle_consumed = ota_data_export_controller_->update();
@@ -372,6 +377,7 @@ void UIManager::init_controllers() {
     ota_data_export_controller_ = std::make_unique<OtaDataExportController>(this);
     screen_timeout_controller_ = std::make_unique<ScreenTimeoutController>(this);
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
+    wifi_update_controller_ = std::make_unique<WifiUpdateUIController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller

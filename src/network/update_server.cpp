@@ -418,7 +418,7 @@ int UpdateServer::handle_begin(httpd_req* req) {
     if (begun != SinkError::OK) {
         const char* reason = sink_.reason();
         guard_.release();
-        if (marker_stored) ota_marker_clear();
+        ota_marker_clear();  // unconditional: also drops a stale marker if storing the new one failed half-way
         unlock();
         return refuse(status_for_sink_error(begun), "rejected", reason);
     }

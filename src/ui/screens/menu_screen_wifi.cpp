@@ -4,6 +4,8 @@
 #include <string.h>
 #include "../../config/constants.h"
 #include "../../config/logging.h"
+#include "../../network/update_server.h"
+#include "../../network/update_ui_logic.h"
 #include "../../network/wifi_manager.h"
 #include "../event_bridge_lvgl.h"
 
@@ -75,7 +77,50 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
         lv_obj_add_event_cb(wifi_forget_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
                             reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::WIFI_FORGET)));
     }
+
+    // Updates: arm the push endpoint and decide whether each update needs a tap on the grinder
+    create_separator(parent, "Updates");
+    create_description_label(parent,
+                             "Lets your computer send firmware over your network (python3 tools/grinder.py "
+                             "wifi-upload). Each update must be accepted on this screen.");
+    create_toggle_row(parent, "Receive", &wifi_push_toggle);
+    create_description_label(parent,
+                             "Ask before installing. Turning this off lets anyone with the update token "
+                             "install firmware without touching the grinder.");
+    create_toggle_row(parent, "Confirm", &wifi_confirm_toggle);
+    wifi_listen_label = create_description_label(parent, "");
+    lv_obj_set_style_text_color(wifi_listen_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+
+    using ET = EventBridgeLVGL::EventType;
+    if (wifi_push_toggle) {
+        lv_obj_add_event_cb(wifi_push_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_PUSH_TOGGLE)));
+    }
+    if (wifi_confirm_toggle) {
+        lv_obj_add_event_cb(wifi_confirm_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_CONFIRM_TOGGLE)));
+    }
     // Content is filled in by reload_wifi_page() when the page is entered
+}
+
+// Toggle states come from NVS / the RAM copy of the Confirm flag. Without credentials both are greyed out and
+// off/default: arming needs a token, and an unattended Confirm-off must not survive into a later provisioning.
+void MenuScreen::apply_wifi_update_toggles() {
+    auto apply = [this](lv_obj_t* toggle, bool on) {
+        if (!toggle) return;
+        if (on) {
+            lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(toggle, LV_STATE_CHECKED);
+        }
+        if (wifi_has_credentials) {
+            lv_obj_clear_state(toggle, LV_STATE_DISABLED);
+        } else {
+            lv_obj_add_state(toggle, LV_STATE_DISABLED);
+        }
+    };
+    apply(wifi_push_toggle, wifi_has_credentials && wifi_manager.push_enabled());
+    apply(wifi_confirm_toggle, wifi_manager.accept_required());
 }
 
 bool MenuScreen::is_wifi_page_current() const {
@@ -103,6 +148,7 @@ void MenuScreen::reload_wifi_page() {
     char ssid[WIFI_SSID_MAX_LEN + 1];
     wifi_manager.get_ssid(ssid, sizeof(ssid));
     wifi_shorten_ssid(ssid, wifi_ssid_display, sizeof(wifi_ssid_display));
+    apply_wifi_update_toggles();
     update_wifi_page();
 }
 
@@ -138,6 +184,13 @@ void MenuScreen::update_wifi_page() {
     char name[WIFI_HOSTNAME_MAX_LEN + 8];
     snprintf(name, sizeof(name), "%s.local", wifi_manager.hostname());
     set_text_if_changed(wifi_name_label, name);
+
+    const bool listening = wifi_has_credentials && update_server.running();
+    if (listening) {
+        char listen_text[96];
+        set_text_if_changed(wifi_listen_label, update_listening_text(wifi_manager.hostname(), listen_text, sizeof(listen_text)));
+    }
+    set_visible(wifi_listen_label ? lv_obj_get_parent(wifi_listen_label) : nullptr, listening);
 
     set_visible(wifi_setup_block, !wifi_has_credentials);
     set_visible(wifi_manage_block, wifi_has_credentials);

@@ -33,8 +33,11 @@ public:
     void clear();
 
     // UI side
-    bool pending_prompt(ApprovalPrompt* out);  // true while PENDING (copy)
+    // True while PENDING (copy). generation (optional) is read under the same lock, so it always belongs to *out.
+    bool pending_prompt(ApprovalPrompt* out, uint32_t* generation = nullptr);
     bool resolve(bool accept);
+    // Only answers the request with this generation (false if it was replaced meanwhile): binds a tap to the request it was shown for
+    bool resolve(bool accept, uint32_t generation);
     bool resolve_busy();
     // Withdraws a pending request; true if there was one
     bool cancel();

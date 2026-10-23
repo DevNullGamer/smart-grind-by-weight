@@ -59,6 +59,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BOARD_OVERRIDE_RADIO_BUTTON, [this](lv_event_t*) { handle_board_override_radio_button(); });
 
     EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_PUSH_TOGGLE, [this](lv_event_t*) { handle_wifi_push_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_CONFIRM_TOGGLE, [this](lv_event_t*) { handle_wifi_confirm_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });

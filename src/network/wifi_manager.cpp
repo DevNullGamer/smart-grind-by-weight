@@ -226,11 +226,12 @@ bool WiFiManager::push_enabled() {
     return enabled;
 }
 
-void WiFiManager::set_push_enabled(bool enabled) {
+bool WiFiManager::set_push_enabled(bool enabled) {
     Preferences prefs;
-    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return;
-    prefs.putBool(WIFI_NVS_KEY_PUSH_ENABLED, enabled);
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const bool stored = prefs.putBool(WIFI_NVS_KEY_PUSH_ENABLED, enabled) == sizeof(uint8_t);
     prefs.end();
+    return stored;
 }
 
 void WiFiManager::set_accept_required(bool required) {
