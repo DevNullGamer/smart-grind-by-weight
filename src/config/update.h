@@ -36,6 +36,12 @@
 #define UPDATE_HTTP_CHUNK_BYTES 4096                                           // Receive buffer for the image body
 #define UPDATE_BEGIN_BODY_MAX 512                                              // Largest accepted /api/update/begin body
 #define UPDATE_VERSION_MAX_LEN 32                                              // Longest accepted "version" string
+#define UPDATE_BEARER_HEADER_MAX 48                                            // Largest accepted Authorization header value
+#define UPDATE_GATE_CHECK_INTERVAL_MS 2000                                     // How often tick() re-evaluates "WiFi up and push armed"
+#define UPDATE_PROGRESS_LOG_STEP_BYTES (256 * 1024)                            // Log a progress line every this many received bytes
+#define UPDATE_LINGER_MAX_BYTES (64 * 1024)                                    // After an early error reply: discard at most this much of the request body ...
+#define UPDATE_LINGER_MAX_MS 3000                                              // ... for at most this long, so the client sees the status instead of a TCP reset
+#define UPDATE_SESSION_ID_LEN 8                                                // Session id: 8 lowercase hex characters
 #define UPDATE_RESTART_DELAY_MS 800                                            // Pause between the "installed" reply and the restart
 
 // Authentication failure lockout (see auth_lockout_*)

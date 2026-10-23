@@ -74,6 +74,7 @@ private:
     bool installed_ = false;
     char session_[UPDATE_SESSION_ID_LEN + 1] = {0};
     uint32_t announced_size_ = 0;
+    char token_cache_[WIFI_TOKEN_LEN + 1] = {0};  // token that opened the session; the data PUT checks against it (no NVS)
 
     // Lockout state: only touched by the HTTP task
     AuthLockout lockout_;
@@ -84,6 +85,7 @@ private:
     void start_server();
     void stop_server();
     void abort_session_locked();
+    void end_session_locked();
     bool lock(TickType_t wait);
     void unlock();
 };

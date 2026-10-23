@@ -1,5 +1,6 @@
 #include "update_server.h"
 #include "wifi_manager.h"
+#include "wifi_credentials.h"
 #include "../config/constants.h"
 #include "../hardware/board_detect.h"
 #include "../hardware/hardware_manager.h"
@@ -9,7 +10,8 @@
 #include <esp_ota_ops.h>
 #include <esp_random.h>
 #include <esp_system.h>
-#include <mdns.h>
+#include <mbedtls/platform_util.h>
+#include <lwip/sockets.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,10 +20,6 @@ extern HardwareManager hardware_manager;
 extern GrindController grind_controller;
 
 namespace {
-
-constexpr size_t kBearerHeaderMax = 48;
-constexpr uint32_t kGateCheckIntervalMs = 2000;
-constexpr uint32_t kProgressLogStepBytes = 256 * 1024;
 
 // Frees a heap_caps buffer when the request ends, whatever path it takes
 struct ScopedBuffer {
@@ -44,26 +42,58 @@ void send_json(httpd_req_t* req, const char* status, const char* json) {
     httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
 }
 
-esp_err_t send_error(httpd_req_t* req, const char* status, const char* error, const char* reason) {
+// Lingering close: after an early error reply the client may still be sending the body. Closing now would make
+// the TCP stack answer with a reset that can destroy the reply before the client reads it, so keep discarding
+// the body for a bounded amount of data and time first.
+void discard_request_body(httpd_req_t* req) {
+    if (req->content_len == 0) return;
+    const int fd = httpd_req_to_sockfd(req);
+    if (fd >= 0) {
+        struct timeval timeout = {1, 0};  // never wait long for a client that stopped sending
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    }
+    char scratch[256];
+    size_t discarded = 0;
+    const uint32_t started = millis();
+    while (discarded < UPDATE_LINGER_MAX_BYTES && millis() - started < UPDATE_LINGER_MAX_MS) {
+        const int n = httpd_req_recv(req, scratch, sizeof(scratch));
+        if (n <= 0) break;  // body complete, closed or no more data
+        discarded += static_cast<size_t>(n);
+    }
+    static bool stack_logged = false;  // once is enough to see how deep the HTTP task got on this path
+    if (!stack_logged) {
+        stack_logged = true;
+        LOG_BLE("UPDATE: HTTP task stack %u bytes free after a lingering close\n",
+                (unsigned)(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
+    }
+}
+
+// linger=false for replies to unauthenticated clients (401/429): they get no free time on the single HTTP task
+esp_err_t send_error(httpd_req_t* req, const char* status, const char* error, const char* reason, bool linger = true) {
     char json[200];
     snprintf(json, sizeof(json), "{\"error\":\"%s\",\"reason\":\"%s\"}", error, reason);
     send_json(req, status, json);
+    if (linger) discard_request_body(req);
     return ESP_FAIL;
 }
 
 enum class AuthResult : uint8_t { OK, LOCKED, DENIED };
 
-// Bearer token check with the failure lockout. Called on the HTTP task only.
-AuthResult authenticate(httpd_req_t* req, AuthLockout* lockout) {
+// Bearer token check with the failure lockout. Called on the HTTP task only. matches(token) decides whether the
+// token is right (NVS for the begin request, the RAM copy once a session runs). On success token_out (if given,
+// WIFI_TOKEN_LEN + 1 bytes) receives the accepted token; the caller zeroizes it.
+template <typename Matcher>
+AuthResult authenticate(httpd_req_t* req, AuthLockout* lockout, Matcher matches, char* token_out = nullptr) {
     const uint32_t now = millis();
     if (auth_lockout_active(lockout, now)) return AuthResult::LOCKED;
 
-    char header[kBearerHeaderMax];
+    char header[UPDATE_BEARER_HEADER_MAX];
     char token[WIFI_TOKEN_LEN + 1];
     const bool parsed = get_header(req, "Authorization", header, sizeof(header)) && http_parse_bearer(header, token);
-    const bool ok = parsed && wifi_manager.token_matches(token);
-    memset(token, 0, sizeof(token));
-    memset(header, 0, sizeof(header));
+    const bool ok = parsed && matches(token);
+    if (ok && token_out) memcpy(token_out, token, sizeof(token));
+    mbedtls_platform_zeroize(token, sizeof(token));
+    mbedtls_platform_zeroize(header, sizeof(header));
     if (ok) {
         auth_lockout_record_success(lockout);
         return AuthResult::OK;
@@ -88,7 +118,7 @@ esp_err_t reject_auth(httpd_req_t* req, AuthResult result, AuthLockout* lockout)
         return ESP_FAIL;
     }
     httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
-    return send_error(req, "401 Unauthorized", "unauthorized", "Missing or wrong token");
+    return send_error(req, "401 Unauthorized", "unauthorized", "Missing or wrong token", false);
 }
 
 const char* status_for_sink_error(SinkError error) {
@@ -146,8 +176,14 @@ void UpdateServer::unlock() {
 void UpdateServer::abort_session_locked() {
     sink_.abort();
     guard_.release();
+    end_session_locked();
+}
+
+// Caller holds mutex_. Forgets the session id and the RAM copy of the token.
+void UpdateServer::end_session_locked() {
     session_active_ = false;
     memset(session_, 0, sizeof(session_));
+    mbedtls_platform_zeroize(token_cache_, sizeof(token_cache_));
 }
 
 void UpdateServer::start_server() {
@@ -187,8 +223,9 @@ void UpdateServer::start_server() {
 
     server_ = handle;
     wifi_manager.register_http_service();
-    LOG_BLE("UPDATE: push endpoint listening on port %d (free internal heap %u)\n", UPDATE_HTTP_PORT,
-            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    LOG_BLE("UPDATE: push endpoint listening on port %d (free internal heap %u, Bluetooth task stack %u bytes free at its low point)\n",
+            UPDATE_HTTP_PORT, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
     LOG_BLE("UPDATE: WARNING on-device Accept prompt is not implemented yet, any client with the token can update\n");
 }
 
@@ -211,17 +248,20 @@ void UpdateServer::tick() {
     }
 
     // Inactivity: a request that is running right now counts as activity, so skip the round if we cannot lock
+    bool busy = true;
     if (lock(0)) {
         if (session_active_ && !installed_ && guard_.check_inactivity_timeout()) {
             sink_.abort();
-            session_active_ = false;
-            memset(session_, 0, sizeof(session_));
+            end_session_locked();
             LOG_BLE("UPDATE: transfer timed out, aborted\n");
         }
+        busy = session_active_ || installed_;
         unlock();
     }
+    // While an update owns the flash and the tasks, stay away from NVS (a flash operation could block it)
+    if (busy || UpdateGuard::is_held()) return;
 
-    if (now - last_gate_check_ms_ < kGateCheckIntervalMs) return;
+    if (now - last_gate_check_ms_ < UPDATE_GATE_CHECK_INTERVAL_MS) return;
     last_gate_check_ms_ = now;
 
     const bool wanted = wifi_manager.is_connected() && wifi_manager.push_enabled();
@@ -254,7 +294,24 @@ int UpdateServer::handle_info(httpd_req* req) {
 // POST /api/update/begin
 //------------------------------------------------------------------------------
 int UpdateServer::handle_begin(httpd_req* req) {
-    const AuthResult auth = authenticate(req, &lockout_);
+    // An update is already running or finishing: answer before authenticating (no NVS read, no lockout count)
+    bool already_busy = UpdateGuard::is_held();
+    if (lock(portMAX_DELAY)) {
+        already_busy = already_busy || session_active_ || installed_;
+        unlock();
+    }
+    if (already_busy) {
+        return send_error(req, "409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::ALREADY_HELD));
+    }
+
+    // The token is checked against NVS here, before the update takes over the flash; the data PUT uses a RAM copy
+    char accepted_token[WIFI_TOKEN_LEN + 1] = {0};
+    struct TokenWiper {
+        char* data;
+        ~TokenWiper() { mbedtls_platform_zeroize(data, WIFI_TOKEN_LEN + 1); }
+    } wiper{accepted_token};
+    const AuthResult auth = authenticate(
+        req, &lockout_, [](const char* token) { return wifi_manager.token_matches(token); }, accepted_token);
     if (auth != AuthResult::OK) return reject_auth(req, auth, &lockout_);
 
     const size_t content_len = req->content_len;
@@ -283,7 +340,7 @@ int UpdateServer::handle_begin(httpd_req* req) {
         return send_error(req, "403 Forbidden", "declined", "Update declined on the device");
     }
 
-    lock(portMAX_DELAY);
+    if (!lock(portMAX_DELAY)) return send_error(req, "503 Service Unavailable", "internal", "Update unavailable");
     if (session_active_ || installed_) {
         unlock();
         return send_error(req, "409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::ALREADY_HELD));
@@ -305,6 +362,7 @@ int UpdateServer::handle_begin(httpd_req* req) {
     session_id_from_random(esp_random(), session_);
     session_active_ = true;
     announced_size_ = request.size;
+    memcpy(token_cache_, accepted_token, sizeof(token_cache_));  // lets the data PUT authenticate without NVS
     char json[48];
     snprintf(json, sizeof(json), "{\"session\":\"%s\"}", session_);
     unlock();
@@ -319,7 +377,24 @@ int UpdateServer::handle_begin(httpd_req* req) {
 // PUT /api/update/data
 //------------------------------------------------------------------------------
 int UpdateServer::handle_data(httpd_req* req) {
-    const AuthResult auth = authenticate(req, &lockout_);
+    // No session means no RAM token to check against: answer 403 (not 401, and no lockout count) like any
+    // other unknown or expired session
+    bool have_token_copy = false;
+    if (lock(portMAX_DELAY)) {
+        have_token_copy = token_cache_[0] != '\0';
+        unlock();
+    }
+    if (!have_token_copy) return send_error(req, "403 Forbidden", "session", "Unknown or expired session");
+
+    // No NVS access while the update owns the flash: compare against the RAM copy taken at begin
+    const AuthResult auth = authenticate(req, &lockout_, [this](const char* token) {
+        bool equal = false;
+        if (lock(portMAX_DELAY)) {
+            equal = token_cache_[0] != '\0' && wifi_token_equal(token_cache_, token);
+            unlock();
+        }
+        return equal;
+    });
     if (auth != AuthResult::OK) return reject_auth(req, auth, &lockout_);
 
     // The session of the caller must be the one that is running; a stray request never aborts someone else's transfer
@@ -355,14 +430,14 @@ int UpdateServer::handle_data(httpd_req* req) {
     LOG_BLE("UPDATE: receiving %lu bytes\n", (unsigned long)announced);
     size_t remaining = req->content_len;
     uint32_t received = 0;
-    uint32_t next_log = kProgressLogStepBytes;
+    uint32_t next_log = UPDATE_PROGRESS_LOG_STEP_BYTES;
     while (remaining > 0) {
         const size_t want = remaining < UPDATE_HTTP_CHUNK_BYTES ? remaining : UPDATE_HTTP_CHUNK_BYTES;
         const int n = httpd_req_recv(req, reinterpret_cast<char*>(buffer.data), want);
         if (n == HTTPD_SOCK_ERR_TIMEOUT) return fail("408 Request Timeout", "timeout", "Update aborted: upload stalled");
         if (n <= 0) return fail("400 Bad Request", "truncated", "Update aborted: connection lost");
 
-        lock(portMAX_DELAY);
+        if (!lock(portMAX_DELAY)) return fail("503 Service Unavailable", "internal", "Update unavailable");
         if (!session_active_) {  // the inactivity tick ended it while we were waiting for data
             unlock();
             return send_error(req, "410 Gone", "session", "Update aborted: timed out");
@@ -382,11 +457,11 @@ int UpdateServer::handle_data(httpd_req* req) {
         received += static_cast<uint32_t>(n);
         if (received >= next_log) {
             LOG_BLE("UPDATE: received %lu / %lu bytes\n", (unsigned long)received, (unsigned long)announced);
-            next_log += kProgressLogStepBytes;
+            next_log += UPDATE_PROGRESS_LOG_STEP_BYTES;
         }
     }
 
-    lock(portMAX_DELAY);
+    if (!lock(portMAX_DELAY)) return fail("503 Service Unavailable", "internal", "Update unavailable");
     if (!session_active_) {
         unlock();
         return send_error(req, "410 Gone", "session", "Update aborted: timed out");
@@ -401,7 +476,7 @@ int UpdateServer::handle_data(httpd_req* req) {
         return send_error(req, status_for_sink_error(finished), "rejected", reason);
     }
     // Installed: keep the guard (tasks stay suspended, grinder locked out) until the restart
-    session_active_ = false;
+    end_session_locked();  // wipes the session id and the token copy
     installed_ = true;
     unlock();
 

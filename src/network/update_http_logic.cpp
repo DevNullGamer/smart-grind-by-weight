@@ -35,7 +35,10 @@ bool http_parse_bearer(const char* header_value, char out_token[WIFI_TOKEN_LEN +
 //------------------------------------------------------------------------------
 bool auth_lockout_active(AuthLockout* state, uint32_t now_ms) {
     if (!state->locked) return false;
-    if (static_cast<int32_t>(state->lock_until_ms - now_ms) > 0) return true;
+    // Unsigned distance to the end of the lock: 0 or more than any lock we hand out means it has passed
+    // (also when the state was not consulted for longer than half the millis() range)
+    const uint32_t remaining = state->lock_until_ms - now_ms;
+    if (remaining != 0 && remaining <= UPDATE_AUTH_LOCK_MAX_MS) return true;
     state->locked = false;
     return false;
 }

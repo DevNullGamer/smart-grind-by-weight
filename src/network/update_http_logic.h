@@ -69,7 +69,6 @@ const char* begin_parse_result_text(BeginParseResult result);
 //------------------------------------------------------------------------------
 // Session id (8 lowercase hex characters, drawn from the hardware RNG by the firmware layer)
 //------------------------------------------------------------------------------
-#define UPDATE_SESSION_ID_LEN 8
 bool session_id_valid(const char* id);
 void session_id_from_random(uint32_t random_value, char out[UPDATE_SESSION_ID_LEN + 1]);
 // Constant-time; false if either id is not valid

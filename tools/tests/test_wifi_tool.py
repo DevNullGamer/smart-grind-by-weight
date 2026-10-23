@@ -113,6 +113,20 @@ def test_default_firmware_prefers_the_latest_pio_build(tmp_path):
     assert wifi.find_default_firmware(project) == project / ".pio" / "build" / ENV / "firmware.bin"
 
 
+def test_default_firmware_takes_the_newest_build_of_any_derived_env(tmp_path):
+    import os
+    old = tmp_path / ".pio" / "build" / ENV
+    new = tmp_path / ".pio" / "build" / (ENV + "-wifi-dev")
+    other = tmp_path / ".pio" / "build" / "some-other-board"
+    for directory in (old, new, other):
+        directory.mkdir(parents=True)
+        (directory / "firmware.bin").write_bytes(b"x")
+    os.utime(old / "firmware.bin", (1000, 1000))
+    os.utime(new / "firmware.bin", (2000, 2000))
+    os.utime(other / "firmware.bin", (3000, 3000))  # newest, but not an env of this project's board
+    assert wifi.find_default_firmware(tmp_path) == new / "firmware.bin"
+
+
 def test_default_firmware_falls_back_to_highest_cache_number(tmp_path):
     project = _make_project(tmp_path, cached=[(9, b"a"), (100, b"b"), (20, b"c")])
     assert wifi.find_default_firmware(project).name == "build_100.bin"
@@ -130,6 +144,24 @@ def test_find_cache_build_matches_identical_content(tmp_path):
 def test_find_cache_build_none_without_match(tmp_path):
     project = _make_project(tmp_path, built=b"image-bytes", cached=[(7, b"other-bytes!")])
     assert wifi.find_cache_build(project / ".pio" / "build" / ENV / "firmware.bin", project) is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_config_file_is_private(tmp_path):
+    import stat
+    path = tmp_path / "cfg.json"
+    wifi.save_config({"token": "0" * 16}, path)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    path.chmod(0o644)
+    wifi.save_config({"token": "1" * 16}, path)
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_format_network_error_hints_at_a_closed_connection():
+    text = wifi.format_network_error(ConnectionResetError("reset by peer"))
+    assert "closed the connection" in text and "/api/info" in text and text.isascii()
+    assert wifi.format_network_error(BrokenPipeError("pipe")).endswith("/api/info")
+    assert wifi.format_network_error(OSError("timed out")) == "timed out"
 
 
 def test_build_begin_body():

@@ -84,11 +84,13 @@ def load_config(path=CONFIG_PATH):
 def save_config(values, path=CONFIG_PATH):
     """Writes the config file; restricts it to the user where the OS supports that."""
     path = Path(path)
-    with open(path, "w", encoding="utf-8") as handle:
+    # Created with 0600 from the start (no window where the token is readable); on Windows the mode is ignored
+    descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
         json.dump(values, handle, indent=2)
         handle.write("\n")
     try:
-        os.chmod(path, 0o600)
+        os.chmod(path, 0o600)  # also tightens a file that already existed with wider permissions
     except OSError:
         pass
 
@@ -117,10 +119,12 @@ def _cache_build_number(path):
 
 
 def find_default_firmware(project_dir=PROJECT_DIR, env=FIRMWARE_ENV):
-    """The latest PlatformIO build of the main env, else the newest image in firmware_cache."""
-    built = Path(project_dir) / ".pio" / "build" / env / "firmware.bin"
-    if built.is_file():
-        return built
+    """The newest (by modification time) PlatformIO firmware.bin of the main env or one of its derived envs
+    (wifi-dev, debug, ...), else the highest-numbered image in firmware_cache of the main env."""
+    build_root = Path(project_dir) / ".pio" / "build"
+    built = [p for p in build_root.glob(env + "*/firmware.bin") if p.is_file()] if build_root.is_dir() else []
+    if built:
+        return max(built, key=lambda p: p.stat().st_mtime)
     cache = Path(project_dir) / "firmware_cache" / env
     candidates = [p for p in cache.glob("build_*.bin") if _cache_build_number(p) is not None] if cache.is_dir() else []
     if not candidates:
@@ -171,6 +175,13 @@ def describe_error(status, body):
     if "retry_after_s" in body:
         text += " (retry in %s s)" % body["retry_after_s"]
     return text
+
+
+def format_network_error(error):
+    """Readable text for a failed request; a reset usually means the device refused and closed the connection."""
+    if isinstance(error, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+        return ("%s - the device closed the connection; see its serial log or query /api/info" % error)
+    return str(error)
 
 
 def format_progress(sent, total, elapsed_s):
@@ -320,7 +331,7 @@ def cmd_upload(args):
     expected_build = args.expect_build if args.expect_build is not None else find_cache_build(firmware)
     print("Firmware: %s (%d bytes)" % (firmware, size))
     print("SHA-256:  %s" % sha)
-    print("Expected build after reboot: %s" % (expected_build if expected_build is not None else "unknown"))
+    print("Build number: %s" % (expected_build if expected_build is not None else "unknown (not found in firmware_cache)"))
 
     try:
         old_info = get_info(host)
@@ -337,8 +348,8 @@ def cmd_upload(args):
     try:
         status, body = request(host, "POST", "/api/update/begin", token=token,
                                body=build_begin_body(size, sha, expected_build))
-    except (OSError, http.client.HTTPException) as error:
-        print("ERROR: begin failed: %s" % error)
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        print("ERROR: begin failed: %s" % format_network_error(error))
         return EXIT_FAIL
     if status != 200 or "session" not in body:
         print("ERROR: begin refused - " + describe_error(status, body))
@@ -348,8 +359,8 @@ def cmd_upload(args):
 
     try:
         status, body = push_image(host, token, firmware, session, size)
-    except (OSError, http.client.HTTPException) as error:
-        print("ERROR: upload failed: %s" % error)
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        print("ERROR: upload failed: %s" % format_network_error(error))
         return EXIT_FAIL
     if status != 200 or body.get("status") != "installed":
         print("ERROR: upload failed - " + describe_error(status, body))

@@ -110,6 +110,17 @@ static void test_lockout_millis_wrap() {
     TEST_ASSERT_FALSE(auth_lockout_active(&l, start + 60001u));
 }
 
+static void test_lockout_expired_long_ago_is_not_active_again() {
+    AuthLockout l;
+    for (int i = 0; i < 3; i++) auth_lockout_record_failure(&l, 1000);
+    // Consulted for the first time after more than half the millis() range: must read as expired
+    TEST_ASSERT_FALSE(auth_lockout_active(&l, 1000u + 0x90000000u));
+    AuthLockout m;
+    for (int i = 0; i < 3; i++) auth_lockout_record_failure(&m, 1000);
+    TEST_ASSERT_FALSE(auth_lockout_active(&m, 1000u + 60000u + 0x7FFFFFFFu));
+    TEST_ASSERT_EQUAL_UINT32(0, auth_lockout_remaining_ms(&m, 1000u + 60000u + 0x7FFFFFFFu));
+}
+
 // ---- begin request ----
 
 static void test_begin_good_minimal() {
@@ -305,6 +316,7 @@ void run_update_http_logic_tests() {
     RUN_TEST(test_lockout_success_resets);
     RUN_TEST(test_lockout_failures_while_locked_ignored);
     RUN_TEST(test_lockout_millis_wrap);
+    RUN_TEST(test_lockout_expired_long_ago_is_not_active_again);
     RUN_TEST(test_begin_good_minimal);
     RUN_TEST(test_begin_good_full_and_whitespace);
     RUN_TEST(test_begin_uppercase_sha_accepted);
