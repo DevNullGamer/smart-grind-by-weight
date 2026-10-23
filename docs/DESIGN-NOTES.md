@@ -98,6 +98,13 @@ LVGL allocates from PSRAM (`src/ui/lvgl_psram_alloc.cpp`, falling back to intern
 - **WiFi spike:** its "BLE off" phases only free RAM when built with `-DDEBUG_BLE_HARD_DEINIT=1`.
 - **Residual:** the first init at boot still goes through ipc0 (has worked in practice); the soft re-enable path is not yet tested with a real client.
 
+### WiFi manager (chg008 pass 1)
+
+- `src/network/wifi_manager.*` connects as a station from NVS namespace `wifi` (`ssid`, `pass`, `token`, `push_enabled`, `name`). `begin()` runs last in `setup()` and only reads NVS; all radio work (WiFi, mDNS) runs in `tick()` on the Bluetooth task (stack raised to 8 KB), with backoff 5 s doubling to 60 s (at least 30 s after an authentication failure). No credentials means the radio is never started.
+- SSID, password and API token are stored in **plaintext** NVS (no flash/NVS encryption). Logs never contain them; the `[WIFI]` serial lines show state, IP, RSSI and disconnect reason only.
+- BLE provisioning (debug RX): `[0x04][ssid_len][ssid][pass_len][pass][token16]` and `[0x05]`. The PC generates the 16-char lowercase hex token. Accepted only while no credentials are stored or `WiFiManager::provisioning_window_open()` (future WiFi menu page); so changing credentials later is only possible through that menu window. Pure parsing/validation lives in `wifi_credentials.*` (host tests).
+- Dev builds: env `...-wifi-dev` (`DEBUG_WIFI_DEV_CREDS=1`) seeds credentials from the gitignored `include/spike_secrets.h` when NVS is empty and arms `push_enabled`; the API token comes from optional `SPIKE_API_TOKEN`, else the fixed public dev token in `wifi_manager.cpp`.
+
 ### Known loose ends
 
 - Hardware validation matrix on both boards (cold-boot visuals, forced UNKNOWN, OTA migration from old V1/V2 images) is tracked outside the repo.

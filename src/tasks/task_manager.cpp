@@ -7,6 +7,7 @@
 #include "../controllers/profile_controller.h"
 #include "../controllers/grind_controller.h"
 #include "../bluetooth/manager.h"
+#include "../network/wifi_manager.h"
 #include "../ui/ui_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
@@ -479,8 +480,12 @@ void TaskManager::bluetooth_task_impl() {
         // Use existing bluetooth manager handle method
         if (bluetooth_manager) {
             bluetooth_manager->handle();
+            // WiFi reconnect/backoff bookkeeping shares this task; paused while a BLE OTA transfer runs
+            if (!bluetooth_manager->is_updating()) {
+                wifi_manager.tick();
+            }
         }
-        
+
         uint32_t end_time = millis();
         record_task_timing(4, start_time, end_time); // Task index 4 for bluetooth
         

@@ -4,6 +4,7 @@
 
 void run_board_decide_tests();
 void run_rmt_pulse_math_tests();
+void run_wifi_credentials_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -12,5 +13,6 @@ int main() {
     UNITY_BEGIN();
     run_board_decide_tests();
     run_rmt_pulse_math_tests();
+    run_wifi_credentials_tests();
     return UNITY_END();
 }

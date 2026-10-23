@@ -47,6 +47,13 @@
     #define DEBUG_BLE_HARD_DEINIT 0
 #endif
 
+// Dev-only WiFi credentials. When 1, boot stores SPIKE_WIFI_SSID / SPIKE_WIFI_PASSWORD from the gitignored
+// include/spike_secrets.h into NVS if no credentials are stored, and enables the push endpoint flag.
+// The built image then contains the password in plaintext: do not share it. Override with build flag.
+#ifndef DEBUG_WIFI_DEV_CREDS
+    #define DEBUG_WIFI_DEV_CREDS 0
+#endif
+
 // Motor deadman test. When 1, the continuous-run deadman fires 3 s after motor start instead of
 // GRIND_TIMEOUT_SEC + margin, so any continuous run longer than 3 s exercises the trip path.
 // Override with build flag.

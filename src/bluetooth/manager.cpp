@@ -6,6 +6,7 @@
 #include <LittleFS.h>
 #include <nvs_flash.h>
 #include <nvs.h>
+#include <mbedtls/platform_util.h>
 #include "../system/performance_monitor.h"
 #include "../system/statistics_manager.h"
 #include "../system/diagnostics_controller.h"
@@ -16,6 +17,7 @@
 #include "../logging/grind_logging.h"
 #include "../hardware/hardware_manager.h"
 #include "../hardware/board_detect.h"
+#include "../network/wifi_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
 
@@ -854,6 +856,10 @@ void BluetoothManager::handle_debug_command(BLECharacteristic* characteristic) {
             case BLE_DEBUG_CMD_SET_BOARD:
                 handle_set_board_command(value);
                 break;
+            case BLE_DEBUG_CMD_WIFI_SET:
+            case BLE_DEBUG_CMD_WIFI_CLEAR:
+                handle_wifi_command(value);
+                break;
             case 0x00: // Keepalive from python script
                 break;
             default:
@@ -884,6 +890,48 @@ void BluetoothManager::handle_set_board_command(const String& value) {
         log("BLE_DEBUG: Board override stored (%d). Restart the grinder to apply.\n", static_cast<int>(requested));
     } else {
         log("BLE_DEBUG: Board override could not be stored\n");
+    }
+}
+
+void BluetoothManager::handle_wifi_command(const String& value) {
+    // Credentials can be changed over BLE only for first-time setup or while the WiFi menu page is open.
+    // Never log the payload: it contains the password.
+    if (!wifi_manager.provisioning_allowed()) {
+        log("BLE_DEBUG: WiFi command rejected, credentials already stored. Open Menu -> WiFi first.\n");
+        return;
+    }
+
+    if (static_cast<uint8_t>(value[0]) == BLE_DEBUG_CMD_WIFI_CLEAR) {
+        if (value.length() != 1) {
+            log("BLE_DEBUG: WiFi clear rejected, expected [0x05]\n");
+            return;
+        }
+        wifi_manager.clear_credentials();
+        log("BLE_DEBUG: WiFi credentials cleared\n");
+        return;
+    }
+
+    WifiProvisionFields fields;
+    const WifiProvisionResult parsed =
+        wifi_parse_provisioning(reinterpret_cast<const uint8_t*>(value.c_str()) + 1, value.length() - 1, &fields);
+    if (parsed != WifiProvisionResult::OK) {
+        log("BLE_DEBUG: WiFi set rejected, bad payload (%d), expected [0x04, ssid_len, ssid, pass_len, pass, token16]\n",
+            static_cast<int>(parsed));
+        return;
+    }
+
+    const WiFiManager::SetResult result = wifi_manager.set_credentials(fields.ssid, fields.password, fields.token);
+    mbedtls_platform_zeroize(&fields, sizeof(fields));
+    switch (result) {
+        case WiFiManager::SetResult::OK:
+            log("BLE_DEBUG: WiFi credentials stored, connecting\n");
+            break;
+        case WiFiManager::SetResult::INVALID:
+            log("BLE_DEBUG: WiFi set rejected, invalid SSID or password\n");
+            break;
+        case WiFiManager::SetResult::STORE_FAILED:
+            log("BLE_DEBUG: WiFi credentials could not be stored\n");
+            break;
     }
 }
 
@@ -1087,6 +1135,10 @@ void BluetoothManager::update_hardware_info() {
     extern HardwareManager hardware_manager;
     const bool motor_available = motor_enabled() && hardware_manager.get_grinder()->is_initialized();
 
+    // Never include the SSID, password or token here
+    char wifi_ip[16];
+    wifi_manager.get_ip(wifi_ip, sizeof(wifi_ip));
+
     snprintf(buffer, sizeof(buffer),
         "{"
         "\"load_cell_active\":true,"
@@ -1094,10 +1146,16 @@ void BluetoothManager::update_hardware_info() {
         "\"display_active\":true,"
         "\"touch_active\":true,"
         "\"ble_enabled\":true,"
-        "\"wifi_available\":false,"
+        "\"wifi_available\":true,"
+        "\"wifi\":%s,"
+        "\"ip\":\"%s\","
+        "\"host\":\"%s.local\","
         "\"flash_available\":true"
         "}",
-        motor_available ? "true" : "false"
+        motor_available ? "true" : "false",
+        wifi_manager.is_connected() ? "true" : "false",
+        wifi_ip,
+        wifi_manager.hostname()
     );
     
     sysinfo_hardware_characteristic->setValue(buffer);

@@ -11,6 +11,7 @@
 #include "ui/ui_manager.h"
 #include "config/constants.h"
 #include "bluetooth/manager.h"
+#include "network/wifi_manager.h"
 #include "tasks/task_manager.h"
 #include "tasks/weight_sampling_task.h"
 #include "tasks/grind_control_task.h"
@@ -169,6 +170,10 @@ void setup() {
     file_io_task.init(task_manager.get_file_io_queue());
     
     LOG_BLE("✅ All task modules initialized\n");
+
+    // Last: WiFi starts only when credentials are stored and never blocks boot (tick() runs in the Bluetooth task)
+    wifi_manager.begin();
+    log_internal_heap("after WiFi begin");
 
 #if DEBUG_WIFI_HEAP_SPIKE
     wifi_heap_spike_start();
