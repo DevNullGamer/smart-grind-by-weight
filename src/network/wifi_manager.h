@@ -5,13 +5,7 @@
 #include <stdint.h>
 #include "../config/constants.h"
 #include "wifi_credentials.h"
-
-enum class WiFiState : uint8_t {
-    NO_CREDENTIALS,  // nothing stored: the radio is never started
-    CONNECTING,      // association / DHCP in progress
-    CONNECTED,       // has an IP address
-    WAITING_RETRY    // connection failed or lost; next attempt after the backoff
-};
+#include "wifi_status_text.h"  // WiFiState
 
 /**
  * WiFiManager - station-mode WiFi from credentials stored in NVS (namespace "wifi").
@@ -36,9 +30,13 @@ public:
     // generates it), then (re)connects from tick(). Write order: password, token, SSID last (commit marker).
     SetResult set_credentials(const char* ssid, const char* password, const char* token);
     // Removes SSID, password, token and the push flag, and takes the radio down from tick().
-    void clear_credentials();
+    // Returns false (state and flags unchanged) if NVS could not be opened.
+    bool clear_credentials();
 
     bool has_credentials() const { return credentials_present; }
+    // Incremented whenever credentials are stored or cleared (from any task); lets the UI notice changes
+    // made over BLE while the WiFi page is open.
+    uint32_t credentials_revision() const { return credentials_rev; }
     WiFiState state() const { return wifi_state; }
     const char* state_name() const;
     bool is_connected() const { return wifi_state == WiFiState::CONNECTED; }
@@ -47,6 +45,10 @@ public:
     void get_ip(char* out, size_t out_len) const;
     int rssi() const;
     const char* hostname() const { return host_name; }
+    // Milliseconds until the next connect attempt (0 unless WAITING_RETRY)
+    uint32_t retry_in_ms() const;
+    // Stored SSID (empty string if none). Reads NVS: call on page entry / after changes, not per frame.
+    void get_ssid(char* out, size_t out_len);
     // Constant-time check of a candidate token against the stored one (false if none is stored)
     bool token_matches(const char* candidate);
 
@@ -77,6 +79,7 @@ private:
 
     WiFiState wifi_state = WiFiState::NO_CREDENTIALS;
     volatile bool credentials_present = false;
+    volatile uint32_t credentials_rev = 0;
     volatile bool http_service_wanted = false;
     bool radio_started = false;
     bool events_registered = false;

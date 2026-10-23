@@ -58,6 +58,8 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::BOARD_OVERRIDE_RADIO_BUTTON, [this](lv_event_t*) { handle_board_override_radio_button(); });
 
+    EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
+
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER, [this](lv_event_t*) { handle_brightness_screensaver_slider(); });
@@ -80,6 +82,7 @@ void MenuUIController::update() {
     ui_manager_->menu_screen.update_info(sensor, uptime_ms, free_heap);
     ui_manager_->menu_screen.update_diagnostics(sensor);
     ui_manager_->menu_screen.update_ble_status();
+    update_wifi_page();
 
     if (ui_manager_->menu_screen.is_scale_page_active()) {
         float display_weight = sensor ? sensor->get_display_weight() : 0.0f;

@@ -4,6 +4,7 @@
 #include "../../bluetooth/manager.h"
 #include "../../controllers/grind_controller.h"
 #include "../../system/diagnostics_controller.h"
+#include "../../network/wifi_status_text.h"
 #include "../ui_helpers.h"
 
 class GrindingScreen;  // Forward declaration
@@ -21,6 +22,7 @@ private:
     lv_obj_t* diagnostics_page;
     lv_obj_t* scale_page;
     lv_obj_t* board_page;
+    lv_obj_t* wifi_page = nullptr;
 
     // Info tab elements
     lv_obj_t* info_label;
@@ -72,6 +74,21 @@ private:
     lv_obj_t* board_status_label;
     lv_obj_t* board_override_radio_group;
 
+    // WiFi page elements (menu_screen_wifi.cpp)
+    lv_obj_t* wifi_status_label = nullptr;
+    lv_obj_t* wifi_network_label = nullptr;
+    lv_obj_t* wifi_ip_label = nullptr;
+    lv_obj_t* wifi_signal_label = nullptr;
+    lv_obj_t* wifi_name_label = nullptr;
+    lv_obj_t* wifi_setup_block = nullptr;      // shown while no credentials are stored
+    lv_obj_t* wifi_ble_warning_label = nullptr;
+    lv_obj_t* wifi_manage_block = nullptr;     // shown while credentials are stored
+    lv_obj_t* wifi_forget_button = nullptr;
+    char wifi_ssid_display[WIFI_STATUS_TEXT_BUF] = {0};  // shortened SSID, cached from NVS
+    bool wifi_has_credentials = false;                   // cached from NVS
+    uint32_t wifi_loaded_revision = 0;                   // WiFiManager::credentials_revision() at last reload
+    bool wifi_page_active = false;                     // provisioning window opened by this page
+
     // Tools entries / scale page elements
     lv_obj_t* scale_item;
     lv_obj_t* cal_button;
@@ -118,6 +135,13 @@ public:
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
     void update_board_page();
+    // Runtime values only (state, IP, signal, blocks); cheap, no NVS access
+    void update_wifi_page();
+    // Re-reads the stored SSID / credentials flag from NVS (page entry and after Forget), then update_wifi_page()
+    void reload_wifi_page();
+    bool is_wifi_page_current() const;
+    // True if credentials were stored/cleared since reload_wifi_page() last ran
+    bool wifi_credentials_changed() const;
     void reset_scale_display();
     void update_scale_weight(float weight);
 
@@ -155,6 +179,9 @@ private:
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);
     void create_board_page(lv_obj_t* parent);
+    void create_wifi_page(lv_obj_t* parent);
+    // Opens/closes the BLE provisioning window to match "WiFi page is the current page of the visible menu"
+    void sync_wifi_provisioning_window();
     void create_data_page(lv_obj_t* parent);
     void create_stats_page(lv_obj_t* parent);
     void create_diagnostics_page(lv_obj_t* parent);

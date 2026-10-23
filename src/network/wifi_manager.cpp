@@ -152,24 +152,29 @@ WiFiManager::SetResult WiFiManager::set_credentials(const char* ssid, const char
     credentials_present = true;
     teardown_requested = false;
     apply_requested = true;
+    credentials_rev = credentials_rev + 1;
     LOG_BLE("[WIFI] credentials stored\n");
     return SetResult::OK;
 }
 
-void WiFiManager::clear_credentials() {
+bool WiFiManager::clear_credentials() {
     Preferences prefs;
-    if (prefs.begin(WIFI_NVS_NAMESPACE, false)) {
-        // SSID first: it is the commit marker
-        prefs.remove(WIFI_NVS_KEY_SSID);
-        prefs.remove(WIFI_NVS_KEY_PASSWORD);
-        prefs.remove(WIFI_NVS_KEY_TOKEN);
-        prefs.remove(WIFI_NVS_KEY_PUSH_ENABLED);
-        prefs.end();
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) {
+        LOG_BLE("[WIFI] ERROR: could not open NVS, credentials NOT cleared\n");
+        return false;
     }
+    // SSID first: it is the commit marker
+    prefs.remove(WIFI_NVS_KEY_SSID);
+    prefs.remove(WIFI_NVS_KEY_PASSWORD);
+    prefs.remove(WIFI_NVS_KEY_TOKEN);
+    prefs.remove(WIFI_NVS_KEY_PUSH_ENABLED);
+    prefs.end();
     credentials_present = false;
     apply_requested = false;
     teardown_requested = true;
+    credentials_rev = credentials_rev + 1;
     LOG_BLE("[WIFI] credentials cleared\n");
+    return true;
 }
 
 void WiFiManager::get_ip(char* out, size_t out_len) const {
@@ -182,6 +187,21 @@ void WiFiManager::get_ip(char* out, size_t out_len) const {
 
 int WiFiManager::rssi() const {
     return wifi_state == WiFiState::CONNECTED ? WiFi.RSSI() : 0;
+}
+
+uint32_t WiFiManager::retry_in_ms() const {
+    if (wifi_state != WiFiState::WAITING_RETRY) return 0;
+    const int32_t remaining = static_cast<int32_t>(retry_at_ms - millis());
+    return remaining > 0 ? static_cast<uint32_t>(remaining) : 0;
+}
+
+void WiFiManager::get_ssid(char* out, size_t out_len) {
+    if (!out || out_len == 0) return;
+    out[0] = '\0';
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return;
+    read_string(prefs, WIFI_NVS_KEY_SSID, out, out_len);
+    prefs.end();
 }
 
 bool WiFiManager::token_matches(const char* candidate) {

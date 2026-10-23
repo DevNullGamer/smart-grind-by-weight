@@ -906,8 +906,11 @@ void BluetoothManager::handle_wifi_command(const String& value) {
             log("BLE_DEBUG: WiFi clear rejected, expected [0x05]\n");
             return;
         }
-        wifi_manager.clear_credentials();
-        log("BLE_DEBUG: WiFi credentials cleared\n");
+        if (wifi_manager.clear_credentials()) {
+            log("BLE_DEBUG: WiFi credentials cleared\n");
+        } else {
+            log("BLE_DEBUG: WiFi clear failed (storage error)\n");
+        }
         return;
     }
 

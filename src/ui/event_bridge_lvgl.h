@@ -52,6 +52,7 @@ public:
         CONFIRM,
         CONFIRM_CANCEL,
         PURGE_CONFIRM_CONTINUE,
+        WIFI_FORGET,
         COUNT
     };
 

@@ -129,9 +129,12 @@ void MenuScreen::create_menu_ui() {
     bluetooth_page = lv_menu_page_create(menu, "Bluetooth");
     create_bluetooth_page(bluetooth_page);
 
+    wifi_page = lv_menu_page_create(menu, "WiFi");
+    create_wifi_page(wifi_page);
+
     display_page = lv_menu_page_create(menu, "Display");
     create_display_page(display_page);
-    
+
     grind_mode_page = lv_menu_page_create(menu, "Grind Settings");
     create_grind_mode_page(grind_mode_page);
     
@@ -182,6 +185,9 @@ void MenuScreen::create_menu_ui() {
     lv_obj_t* bluetooth_item = create_menu_item(main_page, "Bluetooth");
     lv_menu_set_load_page_event(menu, bluetooth_item, bluetooth_page);
 
+    lv_obj_t* wifi_item = create_menu_item(main_page, "WiFi");
+    lv_menu_set_load_page_event(menu, wifi_item, wifi_page);
+
     lv_obj_t* display_item = create_menu_item(main_page, "Display");
     lv_menu_set_load_page_event(menu, display_item, display_page);
 
@@ -226,6 +232,8 @@ void MenuScreen::create_menu_ui() {
         } else if (self->scale_active) {
             self->scale_active = false;
         }
+
+        self->sync_wifi_provisioning_window();
     };
 
     lv_obj_add_event_cb(menu, changing_page_callback, LV_EVENT_VALUE_CHANGED, this);
@@ -657,6 +665,8 @@ void MenuScreen::show() {
     update_logging_toggle();
     update_grind_mode_toggles();
     update_board_page();
+    // The WiFi page can still be the current page when the menu is shown again
+    sync_wifi_provisioning_window();
 
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
 }
@@ -672,6 +682,7 @@ void MenuScreen::hide() {
     // Just hide the screen instead of deleting the menu
     lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
     visible = false;
+    sync_wifi_provisioning_window();  // closes the BLE provisioning window
     LOG_BLE("[%lums MENU] Menu screen hidden successfully\n", millis());
 }
 

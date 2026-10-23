@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <stdint.h>
 
 class UIManager;
 
@@ -34,6 +35,7 @@ public:
     void handle_grind_freshness_hours_slider();
     void handle_grind_freshness_hours_slider_released();
     void handle_board_override_radio_button();
+    void handle_wifi_forget();
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();
@@ -45,6 +47,10 @@ public:
 private:
     UIManager* ui_manager_;
     lv_timer_t* motor_timer_{};
+    uint32_t last_wifi_refresh_ms_{};
+
+    static constexpr uint32_t WIFI_PAGE_REFRESH_INTERVAL_MS = 1000;  // WiFi page runtime values refresh rate
+    void update_wifi_page();
 
     void perform_factory_reset();
     void execute_purge_operation();
