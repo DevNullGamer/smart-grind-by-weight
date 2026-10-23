@@ -9,6 +9,8 @@ void run_image_header_tests();
 void run_sha_hex_tests();
 void run_update_http_logic_tests();
 void run_wifi_status_text_tests();
+void run_update_approval_tests();
+void run_update_prompt_text_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -22,5 +24,7 @@ int main() {
     run_sha_hex_tests();
     run_update_http_logic_tests();
     run_wifi_status_text_tests();
+    run_update_approval_tests();
+    run_update_prompt_text_tests();
     return UNITY_END();
 }

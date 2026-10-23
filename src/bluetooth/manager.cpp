@@ -10,6 +10,7 @@
 #include "../system/performance_monitor.h"
 #include "../system/statistics_manager.h"
 #include "../system/diagnostics_controller.h"
+#include "../system/update_guard.h"
 #include "../config/constants.h"
 #include "../config/user.h"
 #include "../config/grind_control.h"
@@ -476,7 +477,12 @@ void BluetoothManager::start_data_export() {
         log("Bluetooth Data: Cannot start export - BLE not enabled or not connected\n");
         return;
     }
-    
+
+    if (UpdateGuard::is_held()) {
+        log("Bluetooth Data: Cannot start export - a WiFi update is running\n");
+        return;
+    }
+
     if (data_export_in_progress) {
         log("Bluetooth Data: Export already in progress\n");
         return;
@@ -989,6 +995,12 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
 void BluetoothManager::onConnect(BLEServer* server) {
     if (!ble_enabled) {
         // Connected while soft-disabled (advertising was still running): refuse
+        server->disconnect(server->getConnId());
+        return;
+    }
+    if (UpdateGuard::is_held()) {
+        // A WiFi update owns the flash and the tasks: no BLE client may interfere
+        log("BLE: Client refused - a WiFi update is running\n");
         server->disconnect(server->getConnId());
         return;
     }

@@ -79,3 +79,27 @@ bool session_id_equal(const char* a, const char* b);
 //------------------------------------------------------------------------------
 enum class UploadLengthResult : uint8_t { OK, MISSING, MISMATCH };
 UploadLengthResult upload_length_check(size_t content_length, uint32_t announced_size);
+
+//------------------------------------------------------------------------------
+// Outcome of the Accept decision for POST /api/update/begin and its HTTP reply
+//------------------------------------------------------------------------------
+enum class AcceptDecision : uint8_t {
+    ACCEPT,         // go on: take the grinder and start the sink
+    DECLINED,       // the user tapped DECLINE
+    NO_RESPONSE,    // nobody answered in time
+    UI_BUSY,        // the screen cannot show the prompt (wrong screen, no UI)
+    BLE_CONNECTED,  // a Bluetooth client is connected or exporting data
+    BACKOFF,        // declined a moment ago
+    CANCELLED       // the prompt was withdrawn (Receive switched off, WiFi forgotten)
+};
+
+struct AcceptReply {
+    const char* status;       // HTTP status line text, e.g. "403 Forbidden"
+    const char* error;        // machine-readable {"error"}
+    const char* reason;       // plain text {"reason"}
+    uint32_t retry_after_s;   // > 0: also sent as Retry-After and "retry_after_s" (BACKOFF only)
+};
+
+// Maps a non-ACCEPT decision to its reply (ACCEPT maps to a 200 placeholder that is never sent).
+// backoff_remaining_ms is only used for BACKOFF (rounded up to whole seconds, at least 1).
+AcceptReply accept_decision_reply(AcceptDecision decision, uint32_t backoff_remaining_ms);

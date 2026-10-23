@@ -36,6 +36,8 @@ ENV_TOKEN = "GRINDER_WIFI_TOKEN"
 CHUNK_BYTES = 16 * 1024
 CONNECT_TIMEOUT_S = 10
 RESPONSE_TIMEOUT_S = 90        # finish() hashes and validates the whole image before it answers
+PROMPT_TIMEOUT_S = 30          # how long the grinder waits for the user to tap INSTALL
+PROMPT_WAIT_S = 45             # begin may block that long (plus margin) while the user decides
 REBOOT_WAIT_S = 120
 TOKEN_RE = re.compile(r"^[0-9a-f]{16}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
@@ -118,11 +120,21 @@ def _cache_build_number(path):
     return int(match.group(1)) if match else None
 
 
+# Envs whose image is a normal grinder firmware that WiFi push works with: the main env, its debug build and the
+# WiFi dev build. The mock, selftest, spike and stress envs are measurement builds and must never be pushed by default.
+DEFAULT_ENV_SUFFIXES = ("", "-debug", "-wifi-dev")
+
+
 def find_default_firmware(project_dir=PROJECT_DIR, env=FIRMWARE_ENV):
-    """The newest (by modification time) PlatformIO firmware.bin of the main env or one of its derived envs
-    (wifi-dev, debug, ...), else the highest-numbered image in firmware_cache of the main env."""
+    """The newest (by modification time) PlatformIO firmware.bin of the main env, its debug env or the wifi-dev env,
+    else the highest-numbered image in firmware_cache of the main env."""
     build_root = Path(project_dir) / ".pio" / "build"
-    built = [p for p in build_root.glob(env + "*/firmware.bin") if p.is_file()] if build_root.is_dir() else []
+    built = []
+    if build_root.is_dir():
+        for suffix in DEFAULT_ENV_SUFFIXES:
+            candidate = build_root / (env + suffix) / "firmware.bin"
+            if candidate.is_file():
+                built.append(candidate)
     if built:
         return max(built, key=lambda p: p.stat().st_mtime)
     cache = Path(project_dir) / "firmware_cache" / env
@@ -175,6 +187,22 @@ def describe_error(status, body):
     if "retry_after_s" in body:
         text += " (retry in %s s)" % body["retry_after_s"]
     return text
+
+
+def explain_begin_refusal(status, body):
+    """Plain-language text for a refused begin request (the on-device Accept prompt and its neighbours)."""
+    error = body.get("error")
+    reason = body.get("reason") or "no details"
+    if status == 403 and error == "declined":
+        return "The update was declined on the grinder."
+    if status == 408 and error == "no_response":
+        return ("Nobody confirmed the update on the grinder within %d s. Run the command again and tap INSTALL "
+                "on the grinder screen." % PROMPT_TIMEOUT_S)
+    if status == 409 and error == "busy":
+        return "The grinder cannot update right now: %s." % reason.rstrip(".")
+    if status == 429 and error == "declined_recently":
+        return "The update was declined a moment ago. Try again in %s s." % body.get("retry_after_s", "a few")
+    return describe_error(status, body)
 
 
 def format_network_error(error):
@@ -281,7 +309,7 @@ def cmd_info(args):
         print("ERROR: %s did not answer /api/info properly" % host)
         return EXIT_FAIL
     print("Host:     %s" % host)
-    for key in ("name", "version", "build", "board", "busy"):
+    for key in ("name", "version", "build", "board", "busy", "confirm"):
         print("%-9s %s" % (key.capitalize() + ":", info.get(key, "?")))
     return EXIT_OK
 
@@ -344,15 +372,17 @@ def cmd_upload(args):
     old_build = old_info.get("build")
     print("Device: %s version %s build %s, busy=%s" % (
         old_info.get("name", "?"), old_info.get("version", "?"), old_build, old_info.get("busy", "?")))
+    if old_info.get("confirm") is True:
+        print("Confirm the update on the grinder screen (%d s)..." % PROMPT_TIMEOUT_S)
 
     try:
         status, body = request(host, "POST", "/api/update/begin", token=token,
-                               body=build_begin_body(size, sha, expected_build))
+                               body=build_begin_body(size, sha, expected_build), timeout=PROMPT_WAIT_S)
     except (OSError, http.client.HTTPException, ValueError) as error:
         print("ERROR: begin failed: %s" % format_network_error(error))
         return EXIT_FAIL
     if status != 200 or "session" not in body:
-        print("ERROR: begin refused - " + describe_error(status, body))
+        print("ERROR: " + explain_begin_refusal(status, body))
         return EXIT_FAIL
     session = body["session"]
     print("Session accepted, sending image...")

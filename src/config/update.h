@@ -44,6 +44,19 @@
 #define UPDATE_SESSION_ID_LEN 8                                                // Session id: 8 lowercase hex characters
 #define UPDATE_RESTART_DELAY_MS 800                                            // Pause between the "installed" reply and the restart
 
+// On-device Accept prompt (see network/update_approval)
+#define UPDATE_PROMPT_TIMEOUT_MS 30000                                         // Unanswered prompt expires after this (HTTP 408)
+#define UPDATE_PROMPT_POLL_MS 50                                               // The waiting HTTP task polls the decision this often
+#define UPDATE_DECLINE_BACKOFF_MS 30000                                        // After a decline new requests are refused (HTTP 429) for this long
+#define UPDATE_PROMPT_TEXT_MAX 32                                              // Longest client-supplied text (version) shown in the prompt
+#define UPDATE_PEER_IP_BUF 16                                                  // "255.255.255.255" + NUL
+#define UPDATE_PROMPT_MESSAGE_BUF 192                                          // Always fits the dialog message built by prompt_build_message()
+
+// Dev/test only (wifi-dev env): the HTTP side plays the user at the screen. 0 off, 1 accept, 2 decline, 3 never reply.
+#ifndef DEBUG_UPDATE_PROMPT_AUTOREPLY
+#define DEBUG_UPDATE_PROMPT_AUTOREPLY 0
+#endif
+
 // Authentication failure lockout (see auth_lockout_*)
 #define UPDATE_AUTH_MAX_FAILURES 3
 #define UPDATE_AUTH_LOCK_INITIAL_MS 60000

@@ -25,6 +25,7 @@
 #define WIFI_NVS_KEY_PASSWORD "pass"
 #define WIFI_NVS_KEY_TOKEN "token"
 #define WIFI_NVS_KEY_PUSH_ENABLED "push_enabled"                               // bool, default false
+#define WIFI_NVS_KEY_ACCEPT "accept"                                           // bool, default true: every update needs a tap on the grinder
 #define WIFI_NVS_KEY_NAME "name"                                               // mDNS hostname, default WIFI_DEFAULT_HOSTNAME
 #define WIFI_DEFAULT_HOSTNAME "grindbyweight"
 

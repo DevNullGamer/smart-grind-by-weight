@@ -308,6 +308,54 @@ static void test_upload_length() {
     TEST_ASSERT_EQUAL(UploadLengthResult::MISMATCH, upload_length_check(2000001, 2000000));
 }
 
+// ---- accept decision replies ----
+
+static void test_accept_reply_table() {
+    AcceptReply r = accept_decision_reply(AcceptDecision::DECLINED, 0);
+    TEST_ASSERT_EQUAL_STRING("403 Forbidden", r.status);
+    TEST_ASSERT_EQUAL_STRING("declined", r.error);
+    TEST_ASSERT_EQUAL_STRING("Declined on the device", r.reason);
+    TEST_ASSERT_EQUAL_UINT32(0, r.retry_after_s);
+
+    r = accept_decision_reply(AcceptDecision::NO_RESPONSE, 0);
+    TEST_ASSERT_EQUAL_STRING("408 Request Timeout", r.status);
+    TEST_ASSERT_EQUAL_STRING("no_response", r.error);
+
+    r = accept_decision_reply(AcceptDecision::UI_BUSY, 0);
+    TEST_ASSERT_EQUAL_STRING("409 Conflict", r.status);
+    TEST_ASSERT_EQUAL_STRING("busy", r.error);
+    TEST_ASSERT_EQUAL_STRING("Go to the home screen of the grinder", r.reason);
+
+    r = accept_decision_reply(AcceptDecision::BLE_CONNECTED, 0);
+    TEST_ASSERT_EQUAL_STRING("409 Conflict", r.status);
+    TEST_ASSERT_EQUAL_STRING("Disconnect Bluetooth first", r.reason);
+
+    r = accept_decision_reply(AcceptDecision::CANCELLED, 0);
+    TEST_ASSERT_EQUAL_STRING("409 Conflict", r.status);
+    TEST_ASSERT_EQUAL_STRING("busy", r.error);
+}
+
+static void test_accept_reply_backoff_rounds_up() {
+    const AcceptReply r = accept_decision_reply(AcceptDecision::BACKOFF, 29001);
+    TEST_ASSERT_EQUAL_STRING("429 Too Many Requests", r.status);
+    TEST_ASSERT_EQUAL_STRING("declined_recently", r.error);
+    TEST_ASSERT_EQUAL_UINT32(30, r.retry_after_s);
+    TEST_ASSERT_EQUAL_UINT32(29, accept_decision_reply(AcceptDecision::BACKOFF, 29000).retry_after_s);
+    TEST_ASSERT_EQUAL_UINT32(1, accept_decision_reply(AcceptDecision::BACKOFF, 1).retry_after_s);
+    TEST_ASSERT_EQUAL_UINT32(1, accept_decision_reply(AcceptDecision::BACKOFF, 0).retry_after_s);  // never 0
+}
+
+static void test_accept_reply_every_refusal_is_a_4xx_with_text() {
+    const AcceptDecision all[] = {AcceptDecision::DECLINED, AcceptDecision::NO_RESPONSE, AcceptDecision::UI_BUSY,
+                                  AcceptDecision::BLE_CONNECTED, AcceptDecision::BACKOFF, AcceptDecision::CANCELLED};
+    for (AcceptDecision d : all) {
+        const AcceptReply r = accept_decision_reply(d, 1000);
+        TEST_ASSERT_EQUAL_CHAR('4', r.status[0]);
+        TEST_ASSERT_TRUE(r.error[0] != '\0');
+        TEST_ASSERT_TRUE(r.reason[0] != '\0');
+    }
+}
+
 void run_update_http_logic_tests() {
     RUN_TEST(test_bearer_valid);
     RUN_TEST(test_bearer_invalid);
@@ -333,4 +381,7 @@ void run_update_http_logic_tests() {
     RUN_TEST(test_session_id);
     RUN_TEST(test_session_id_equal);
     RUN_TEST(test_upload_length);
+    RUN_TEST(test_accept_reply_table);
+    RUN_TEST(test_accept_reply_backoff_rounds_up);
+    RUN_TEST(test_accept_reply_every_refusal_is_a_4xx_with_text);
 }

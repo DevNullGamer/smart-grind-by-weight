@@ -4,30 +4,22 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include "update_http_logic.h"
+#include "update_accept_policy.h"
 #include "../system/update_guard.h"
 #include "../system/update_sink_image.h"
 
 struct httpd_req;  // esp_http_server request, kept out of this header
 
 /**
- * Decides whether an announced update may start (called from POST /api/update/begin after the token and the
- * request were validated, before the grinder is locked). The default policy accepts everything. A later UI
- * step plugs the on-device Accept prompt in here through UpdateServer::set_accept_policy().
- */
-class UpdateAcceptPolicy {
-public:
-    virtual ~UpdateAcceptPolicy() = default;
-    virtual bool accept(const UpdateBeginRequest& request) = 0;
-};
-
-/**
  * UpdateServer - plain-HTTP push endpoint for raw firmware images (port 80, esp_http_server).
  *
  * Runs only while WiFi is connected AND WiFiManager::push_enabled() is set; tick() starts/stops it (and the
  * mDNS "http" service) from the Bluetooth task loop. Contract:
- *   GET  /api/info                no auth; {"name","version","build","board","busy"}
+ *   GET  /api/info                no auth; {"name","version","build","board","busy","confirm"}
  *   POST /api/update/begin        Bearer token; body {"size","sha256"[,"build","version"]};
- *                                 200 {"session":"<8hex>"}; errors carry {"error","reason"}
+ *                                 200 {"session":"<8hex>"}; errors carry {"error","reason"}. Unless Confirm is
+ *                                 off, the reply waits (up to UPDATE_PROMPT_TIMEOUT_MS) for the user to tap
+ *                                 INSTALL on the grinder; 403 declined, 408 no_response, 409 busy, 429 declined_recently
  *   PUT  /api/update/data         Bearer token + X-Session; Content-Length == announced size; raw image body;
  *                                 200 {"status":"installed"}, the device restarts ~800 ms later
  * One update at a time. Any error or inactivity aborts the sink and releases the UpdateGuard; after a
@@ -44,7 +36,8 @@ public:
     // Called periodically from the Bluetooth task loop.
     void tick();
 
-    void set_accept_policy(UpdateAcceptPolicy* policy) { policy_ = policy ? policy : &default_policy_; }
+    // Replaces the Accept policy (tests); null restores production_accept_policy() at the next begin()
+    void set_accept_policy(UpdateAcceptPolicy* policy) { policy_ = policy; }
     bool running() const { return server_ != nullptr; }
 
     // Handlers (public so the C trampolines in the .cpp can reach them)
@@ -53,19 +46,13 @@ public:
     int handle_data(httpd_req* req);
 
 private:
-    class AcceptAll : public UpdateAcceptPolicy {
-    public:
-        bool accept(const UpdateBeginRequest&) override { return true; }
-    };
-
     volatile bool ready_ = false;
     SemaphoreHandle_t mutex_ = nullptr;
     void* server_ = nullptr;  // httpd_handle_t
     uint32_t last_gate_check_ms_ = 0;
     bool start_failure_logged_ = false;
 
-    AcceptAll default_policy_;
-    UpdateAcceptPolicy* policy_ = &default_policy_;
+    UpdateAcceptPolicy* policy_ = nullptr;  // set in begin()
 
     // Session state, guarded by mutex_
     UpdateGuard guard_;
@@ -84,7 +71,7 @@ private:
 
     void start_server();
     void stop_server();
-    void abort_session_locked();
+    void abort_session_locked(const char* reason);
     void end_session_locked();
     bool lock(TickType_t wait);
     void unlock();

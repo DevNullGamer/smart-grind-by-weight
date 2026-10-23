@@ -1,6 +1,9 @@
 #include "update_server.h"
 #include "wifi_manager.h"
 #include "wifi_credentials.h"
+#include "update_approval_gate.h"
+#include "update_status.h"
+#include "../system/ota_marker.h"
 #include "../config/constants.h"
 #include "../hardware/board_detect.h"
 #include "../hardware/hardware_manager.h"
@@ -149,6 +152,19 @@ bool grinder_busy() {
            hardware_manager.get_grinder()->is_grinding();
 }
 
+// Dotted IPv4 of the client (empty if unknown or not IPv4)
+void get_peer_ip(httpd_req_t* req, char* out, size_t out_len) {
+    out[0] = '\0';
+    const int fd = httpd_req_to_sockfd(req);
+    if (fd < 0) return;
+    struct sockaddr_in6 addr = {};  // large enough for either family
+    socklen_t len = sizeof(addr);
+    if (getpeername(fd, reinterpret_cast<struct sockaddr*>(&addr), &len) != 0) return;
+    if (reinterpret_cast<struct sockaddr*>(&addr)->sa_family != AF_INET) return;
+    const struct sockaddr_in* v4 = reinterpret_cast<const struct sockaddr_in*>(&addr);
+    inet_ntop(AF_INET, &v4->sin_addr, out, out_len);
+}
+
 // esp_http_server handlers are plain C callbacks: forward to the singleton
 esp_err_t info_trampoline(httpd_req_t* req) { return update_server.handle_info(req); }
 esp_err_t begin_trampoline(httpd_req_t* req) { return update_server.handle_begin(req); }
@@ -162,6 +178,7 @@ esp_err_t data_trampoline(httpd_req_t* req) { return update_server.handle_data(r
 void UpdateServer::begin() {
     if (!mutex_) mutex_ = xSemaphoreCreateMutex();
     ready_ = (mutex_ != nullptr);
+    if (!policy_) policy_ = production_accept_policy();
 }
 
 bool UpdateServer::lock(TickType_t wait) {
@@ -172,10 +189,12 @@ void UpdateServer::unlock() {
     if (mutex_) xSemaphoreGive(mutex_);
 }
 
-// Caller holds mutex_. Drops the transfer and gives the grinder back.
-void UpdateServer::abort_session_locked() {
+// Caller holds mutex_. Drops the transfer, gives the grinder back, removes the marker and publishes FAILED.
+void UpdateServer::abort_session_locked(const char* reason) {
     sink_.abort();
     guard_.release();
+    ota_marker_clear();  // tasks run again: the expected-version marker of the failed update goes
+    UpdateStatus::set_failed(reason);
     end_session_locked();
 }
 
@@ -226,7 +245,9 @@ void UpdateServer::start_server() {
     LOG_BLE("UPDATE: push endpoint listening on port %d (free internal heap %u, Bluetooth task stack %u bytes free at its low point)\n",
             UPDATE_HTTP_PORT, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
             (unsigned)(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
-    LOG_BLE("UPDATE: WARNING on-device Accept prompt is not implemented yet, any client with the token can update\n");
+    if (!wifi_manager.accept_required()) {
+        LOG_BLE("UPDATE: WARNING Confirm is off, any client with the token can update without a tap on the grinder\n");
+    }
 }
 
 void UpdateServer::stop_server() {
@@ -251,7 +272,9 @@ void UpdateServer::tick() {
     bool busy = true;
     if (lock(0)) {
         if (session_active_ && !installed_ && guard_.check_inactivity_timeout()) {
-            sink_.abort();
+            sink_.abort();  // check_inactivity_timeout() already released the guard
+            ota_marker_clear();
+            UpdateStatus::set_failed("Update timed out");
             end_session_locked();
             LOG_BLE("UPDATE: transfer timed out, aborted\n");
         }
@@ -268,7 +291,13 @@ void UpdateServer::tick() {
     if (wanted && !server_) {
         start_server();
     } else if (!wanted && server_) {
-        // Never pull the server out from under a running transfer; the request ends on its own
+        // Never pull the server out from under a running transfer; the request ends on its own. A handler that
+        // waits for the user must not be stopped either (httpd_stop would wait for it): withdraw the prompt, the
+        // handler returns, and the server stops on the next round.
+        if (update_approval.in_use()) {
+            if (update_approval.cancel()) LOG_BLE("UPDATE: gate closed, pending prompt withdrawn\n");
+            return;
+        }
         bool idle = false;
         if (lock(0)) {
             idle = !session_active_ && !installed_;
@@ -283,9 +312,11 @@ void UpdateServer::tick() {
 //------------------------------------------------------------------------------
 int UpdateServer::handle_info(httpd_req* req) {
     const bool busy = UpdateGuard::is_held() || grinder_busy();
-    char json[256];
-    snprintf(json, sizeof(json), "{\"name\":\"%s\",\"version\":\"%s\",\"build\":%d,\"board\":\"%s\",\"busy\":%s}",
-             wifi_manager.hostname(), BUILD_FIRMWARE_VERSION, BUILD_NUMBER, board().name(), busy ? "true" : "false");
+    char json[288];
+    snprintf(json, sizeof(json),
+             "{\"name\":\"%s\",\"version\":\"%s\",\"build\":%d,\"board\":\"%s\",\"busy\":%s,\"confirm\":%s}",
+             wifi_manager.hostname(), BUILD_FIRMWARE_VERSION, BUILD_NUMBER, board().name(), busy ? "true" : "false",
+             wifi_manager.accept_required() ? "true" : "false");
     send_json(req, "200 OK", json);
     return ESP_OK;
 }
@@ -295,7 +326,7 @@ int UpdateServer::handle_info(httpd_req* req) {
 //------------------------------------------------------------------------------
 int UpdateServer::handle_begin(httpd_req* req) {
     // An update is already running or finishing: answer before authenticating (no NVS read, no lockout count)
-    bool already_busy = UpdateGuard::is_held();
+    bool already_busy = UpdateGuard::is_held() || update_approval.in_use();
     if (lock(portMAX_DELAY)) {
         already_busy = already_busy || session_active_ || installed_;
         unlock();
@@ -336,29 +367,62 @@ int UpdateServer::handle_begin(httpd_req* req) {
         return send_error(req, status_for_parse_error(parsed), "bad_request", begin_parse_result_text(parsed));
     }
 
-    if (!policy_->accept(request)) {
-        return send_error(req, "403 Forbidden", "declined", "Update declined on the device");
+    // A busy grinder is refused before the user is bothered with a prompt (the guard checks again later)
+    if (grinder_busy()) {
+        return send_error(req, "409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::GRINDER_BUSY));
     }
 
-    if (!lock(portMAX_DELAY)) return send_error(req, "503 Service Unavailable", "internal", "Update unavailable");
+    char peer_ip[UPDATE_PEER_IP_BUF];
+    get_peer_ip(req, peer_ip, sizeof(peer_ip));
+    const AcceptDecision decision = policy_->decide(request, peer_ip);
+    if (decision != AcceptDecision::ACCEPT) {
+        const AcceptReply reply = accept_decision_reply(decision, update_approval.backoff_remaining_ms());
+        LOG_BLE("UPDATE: begin refused: %s\n", reply.error);
+        if (reply.retry_after_s > 0) {
+            char retry[12];
+            snprintf(retry, sizeof(retry), "%lu", (unsigned long)reply.retry_after_s);
+            httpd_resp_set_hdr(req, "Retry-After", retry);
+            char json[128];
+            snprintf(json, sizeof(json), "{\"error\":\"%s\",\"reason\":\"%s\",\"retry_after_s\":%lu}", reply.error,
+                     reply.reason, (unsigned long)reply.retry_after_s);
+            send_json(req, reply.status, json);
+            discard_request_body(req);
+            return ESP_FAIL;
+        }
+        return send_error(req, reply.status, reply.error, reply.reason);
+    }
+
+    // Past this point every refusal must also drop the "waiting for approval" status
+    auto refuse = [&](const char* status, const char* error, const char* reason) {
+        UpdateStatus::clear_awaiting();
+        return send_error(req, status, error, reason);
+    };
+
+    if (!lock(portMAX_DELAY)) return refuse("503 Service Unavailable", "internal", "Update unavailable");
     if (session_active_ || installed_) {
         unlock();
-        return send_error(req, "409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::ALREADY_HELD));
+        return refuse("409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::ALREADY_HELD));
     }
     if (guard_.acquire() != UpdateGuard::Result::OK) {
         const char* reason = guard_.refusal_reason();
         unlock();
-        return send_error(req, "409 Conflict", "busy", reason);
+        return refuse("409 Conflict", "busy", reason);
     }
+    guard_.note_activity();
+    // Expected-version marker for the post-reboot check. Only after the guard was granted (so a concurrent BLE
+    // OTA's marker is never touched), like the BLE path does after suspending the tasks.
+    const bool marker_stored = ota_marker_store(request.build, request.version);
     guard_.note_activity();
     const SinkError begun = sink_.begin(request.size, request.sha256);
     guard_.note_activity();
     if (begun != SinkError::OK) {
         const char* reason = sink_.reason();
         guard_.release();
+        if (marker_stored) ota_marker_clear();
         unlock();
-        return send_error(req, status_for_sink_error(begun), "rejected", reason);
+        return refuse(status_for_sink_error(begun), "rejected", reason);
     }
+    UpdateStatus::set_receiving(UpdateSource::WIFI_PUSH, request.size);
     session_id_from_random(esp_random(), session_);
     session_active_ = true;
     announced_size_ = request.size;
@@ -411,7 +475,7 @@ int UpdateServer::handle_data(httpd_req* req) {
 
     auto fail = [&](const char* status, const char* error, const char* reason) {
         if (lock(portMAX_DELAY)) {
-            if (session_active_) abort_session_locked();
+            if (session_active_) abort_session_locked(reason);
             unlock();
         }
         LOG_BLE("UPDATE: failed: %s\n", reason);
@@ -445,7 +509,7 @@ int UpdateServer::handle_data(httpd_req* req) {
         const SinkError written = sink_.write(buffer.data, static_cast<size_t>(n));
         if (written != SinkError::OK) {
             const char* reason = sink_.reason();
-            abort_session_locked();
+            abort_session_locked(reason);
             unlock();
             LOG_BLE("UPDATE: failed: %s\n", reason);
             return send_error(req, status_for_sink_error(written), "rejected", reason);
@@ -455,6 +519,7 @@ int UpdateServer::handle_data(httpd_req* req) {
 
         remaining -= static_cast<size_t>(n);
         received += static_cast<uint32_t>(n);
+        UpdateStatus::set_received(received);
         if (received >= next_log) {
             LOG_BLE("UPDATE: received %lu / %lu bytes\n", (unsigned long)received, (unsigned long)announced);
             next_log += UPDATE_PROGRESS_LOG_STEP_BYTES;
@@ -467,10 +532,11 @@ int UpdateServer::handle_data(httpd_req* req) {
         return send_error(req, "410 Gone", "session", "Update aborted: timed out");
     }
     LOG_BLE("UPDATE: all %lu bytes received, verifying\n", (unsigned long)received);
+    UpdateStatus::set_verifying();
     const SinkError finished = sink_.finish();
     if (finished != SinkError::OK) {
         const char* reason = sink_.reason();
-        abort_session_locked();
+        abort_session_locked(reason);
         unlock();
         LOG_BLE("UPDATE: failed: %s\n", reason);
         return send_error(req, status_for_sink_error(finished), "rejected", reason);
@@ -478,6 +544,7 @@ int UpdateServer::handle_data(httpd_req* req) {
     // Installed: keep the guard (tasks stay suspended, grinder locked out) until the restart
     end_session_locked();  // wipes the session id and the token copy
     installed_ = true;
+    UpdateStatus::set_installed();
     unlock();
 
     LOG_BLE("UPDATE: installed, stack free %u\n", (unsigned)uxTaskGetStackHighWaterMark(nullptr));

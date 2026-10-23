@@ -309,3 +309,29 @@ UploadLengthResult upload_length_check(size_t content_length, uint32_t announced
     if (content_length != announced_size) return UploadLengthResult::MISMATCH;
     return UploadLengthResult::OK;
 }
+
+//------------------------------------------------------------------------------
+// Accept decision reply
+//------------------------------------------------------------------------------
+AcceptReply accept_decision_reply(AcceptDecision decision, uint32_t backoff_remaining_ms) {
+    switch (decision) {
+        case AcceptDecision::DECLINED:
+            return {"403 Forbidden", "declined", "Declined on the device", 0};
+        case AcceptDecision::NO_RESPONSE:
+            return {"408 Request Timeout", "no_response", "No response on the device", 0};
+        case AcceptDecision::UI_BUSY:
+            return {"409 Conflict", "busy", "Go to the home screen of the grinder", 0};
+        case AcceptDecision::BLE_CONNECTED:
+            return {"409 Conflict", "busy", "Disconnect Bluetooth first", 0};
+        case AcceptDecision::BACKOFF: {
+            const uint32_t seconds = (backoff_remaining_ms + 999) / 1000;
+            return {"429 Too Many Requests", "declined_recently", "Declined recently, try again later",
+                    seconds > 0 ? seconds : 1};
+        }
+        case AcceptDecision::CANCELLED:
+            return {"409 Conflict", "busy", "Update cancelled on the device", 0};
+        case AcceptDecision::ACCEPT:
+            break;
+    }
+    return {"200 OK", "", "", 0};
+}

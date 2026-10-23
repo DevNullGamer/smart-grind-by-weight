@@ -91,6 +91,7 @@ void WiFiManager::begin() {
     if (prefs.begin(WIFI_NVS_NAMESPACE, false)) {
         char ssid[WIFI_SSID_MAX_LEN + 1];
         credentials_present = read_string(prefs, WIFI_NVS_KEY_SSID, ssid, sizeof(ssid)) && ssid[0] != '\0';
+        accept_cached = prefs.getBool(WIFI_NVS_KEY_ACCEPT, true);
         prefs.end();
     }
 #if DEBUG_WIFI_DEV_CREDS
@@ -168,7 +169,9 @@ bool WiFiManager::clear_credentials() {
     prefs.remove(WIFI_NVS_KEY_PASSWORD);
     prefs.remove(WIFI_NVS_KEY_TOKEN);
     prefs.remove(WIFI_NVS_KEY_PUSH_ENABLED);
+    if (prefs.isKey(WIFI_NVS_KEY_ACCEPT)) prefs.remove(WIFI_NVS_KEY_ACCEPT);  // back to the safe default
     prefs.end();
+    accept_cached = true;
     credentials_present = false;
     apply_requested = false;
     teardown_requested = true;
@@ -228,6 +231,17 @@ void WiFiManager::set_push_enabled(bool enabled) {
     if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return;
     prefs.putBool(WIFI_NVS_KEY_PUSH_ENABLED, enabled);
     prefs.end();
+}
+
+void WiFiManager::set_accept_required(bool required) {
+    if (required) accept_cached = true;  // the strict setting applies at once, even if it cannot be stored
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return;
+    bool stored = prefs.putBool(WIFI_NVS_KEY_ACCEPT, required) == sizeof(uint8_t);
+    // A missing key means true, so removing it is an equivalent way to store "required"
+    if (!stored && required) stored = !prefs.isKey(WIFI_NVS_KEY_ACCEPT) || prefs.remove(WIFI_NVS_KEY_ACCEPT);
+    prefs.end();
+    if (!required && stored) accept_cached = false;
 }
 
 void WiFiManager::start_radio() {

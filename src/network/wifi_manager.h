@@ -55,6 +55,12 @@ public:
     bool push_enabled();
     void set_push_enabled(bool enabled);
 
+    // "Confirm on the grinder" (default true): every update needs a tap on INSTALL. Served from a RAM copy
+    // (loaded in begin()), so it is safe to call while an update owns the flash. Turning it off only takes
+    // effect if it could be stored; forgetting the WiFi restores the default.
+    bool accept_required() const { return accept_cached; }
+    void set_accept_required(bool required);
+
     // BLE credential commands: allowed with no credentials stored, or while the window is open
     // (the WiFi menu page opens it). Closed by default.
     bool provisioning_allowed() const { return wifi_provisioning_allowed(credentials_present, provisioning_window); }
@@ -81,6 +87,7 @@ private:
     volatile bool credentials_present = false;
     volatile uint32_t credentials_rev = 0;
     volatile bool http_service_wanted = false;
+    volatile bool accept_cached = true;  // fail closed until begin() has read NVS
     bool radio_started = false;
     bool events_registered = false;
     bool mdns_started = false;

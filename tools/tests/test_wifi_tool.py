@@ -221,3 +221,90 @@ def test_grinder_py_registers_wifi_commands():
     assert cmd[2] == "upload"
     assert cmd[-1] == "x.bin"
     assert "--expect-build" in cmd and "--no-wait" in cmd
+
+
+def test_default_firmware_ignores_measurement_and_test_envs(tmp_path):
+    import os
+    wanted = {ENV: 1000, ENV + "-debug": 2000, ENV + "-wifi-dev": 3000}
+    unwanted = [ENV + "-mock", ENV + "-rmt-selftest", ENV + "-wifi-spike", ENV + "-wifi-spike-tlspsram",
+                ENV + "-ble-stress", ENV + "-ble-stress-harddeinit", ENV + "-deadman-test", ENV + "-v2"]
+    for name, mtime in wanted.items():
+        directory = tmp_path / ".pio" / "build" / name
+        directory.mkdir(parents=True)
+        (directory / "firmware.bin").write_bytes(b"x")
+        os.utime(directory / "firmware.bin", (mtime, mtime))
+    for name in unwanted:  # all newer than any wanted env
+        directory = tmp_path / ".pio" / "build" / name
+        directory.mkdir(parents=True)
+        (directory / "firmware.bin").write_bytes(b"x")
+        os.utime(directory / "firmware.bin", (9000, 9000))
+    assert wifi.find_default_firmware(tmp_path) == tmp_path / ".pio" / "build" / (ENV + "-wifi-dev") / "firmware.bin"
+
+
+def test_default_firmware_falls_back_to_cache_when_only_unwanted_envs_exist(tmp_path):
+    directory = tmp_path / ".pio" / "build" / (ENV + "-mock")
+    directory.mkdir(parents=True)
+    (directory / "firmware.bin").write_bytes(b"x")
+    cache = tmp_path / "firmware_cache" / ENV
+    cache.mkdir(parents=True)
+    (cache / "build_12.bin").write_bytes(b"y")
+    assert wifi.find_default_firmware(tmp_path).name == "build_12.bin"
+
+
+def test_prompt_wait_covers_the_device_timeout():
+    assert wifi.PROMPT_WAIT_S == 45
+    assert wifi.PROMPT_WAIT_S > wifi.PROMPT_TIMEOUT_S  # the device answers 408 before the client gives up
+
+
+def test_begin_uses_the_prompt_wait_timeout(monkeypatch, tmp_path, capsys):
+    firmware = tmp_path / "f.bin"
+    firmware.write_bytes(b"x" * 2048)
+    calls = []
+
+    def fake_request(host, method, path, token=None, body=None, headers=None, timeout=wifi.CONNECT_TIMEOUT_S):
+        calls.append((method, path, timeout))
+        return 403, {"error": "declined", "reason": "Declined on the device"}
+
+    monkeypatch.setattr(wifi, "get_info", lambda host, timeout=10: {"name": "n", "version": "1", "build": 5,
+                                                                    "busy": False, "confirm": True})
+    monkeypatch.setattr(wifi, "request", fake_request)
+    monkeypatch.setattr(wifi, "load_config", lambda path=wifi.CONFIG_PATH: {})
+    args = wifi.build_parser().parse_args(["upload", "--host", "h.local", "--token", "0" * 16, str(firmware)])
+    assert wifi.cmd_upload(args) == wifi.EXIT_FAIL
+    assert calls == [("POST", "/api/update/begin", wifi.PROMPT_WAIT_S)]
+    out = capsys.readouterr().out
+    assert "Confirm the update on the grinder screen" in out
+    assert "declined on the grinder" in out
+
+
+def test_no_confirm_hint_when_the_device_does_not_ask(monkeypatch, tmp_path, capsys):
+    firmware = tmp_path / "f.bin"
+    firmware.write_bytes(b"x" * 2048)
+    monkeypatch.setattr(wifi, "get_info", lambda host, timeout=10: {"build": 5, "confirm": False})
+    monkeypatch.setattr(wifi, "request", lambda *a, **k: (409, {"error": "busy", "reason": "x"}))
+    monkeypatch.setattr(wifi, "load_config", lambda path=wifi.CONFIG_PATH: {})
+    args = wifi.build_parser().parse_args(["upload", "--host", "h.local", "--token", "0" * 16, str(firmware)])
+    wifi.cmd_upload(args)
+    assert "Confirm the update" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("status, body, expected", [
+    (403, {"error": "declined", "reason": "Declined on the device"}, "declined on the grinder"),
+    (408, {"error": "no_response", "reason": "No response on the device"}, "tap INSTALL"),
+    (409, {"error": "busy", "reason": "Go to the home screen of the grinder"},
+     "cannot update right now: Go to the home screen of the grinder."),
+    (409, {"error": "busy", "reason": "Disconnect Bluetooth first"}, "Disconnect Bluetooth first"),
+    (409, {"error": "busy", "reason": "Update refused: grinder busy"}, "grinder busy"),
+    (429, {"error": "declined_recently", "reason": "x", "retry_after_s": 17}, "Try again in 17 s"),
+])
+def test_explain_begin_refusal(status, body, expected):
+    text = wifi.explain_begin_refusal(status, body)
+    assert expected in text
+    assert text.isascii()
+
+
+def test_explain_begin_refusal_falls_back_to_the_generic_text():
+    assert wifi.explain_begin_refusal(401, {"error": "unauthorized", "reason": "Missing or wrong token"}) == \
+        "HTTP 401: Missing or wrong token"
+    assert "retry in 60 s" in wifi.explain_begin_refusal(429, {"error": "locked", "retry_after_s": 60})
+    assert wifi.explain_begin_refusal(500, {}) == "HTTP 500: no details"
