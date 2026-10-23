@@ -16,9 +16,10 @@
  * re-enable touch, unlock the grinder. Idempotent. The guard never restarts the device; after a successful
  * update the caller restarts and simply never releases.
  *
- * Threading: acquire()/release() may be called from any task; one guard at a time system-wide
- * (is_held()). The caller serialises its own sink and calls note_activity() on each received chunk;
- * a periodic tick calls check_inactivity_timeout() and, when it returns true, aborts its sink.
+ * Threading: one guard at a time system-wide (is_held()). The owner (the HTTP update server) holds one
+ * mutex around EVERY guard and sink call, including check_inactivity_timeout(); the periodic tick only
+ * try-locks it (skips the round when a request is running, which counts as activity anyway). When
+ * check_inactivity_timeout() returns true the tick, still holding the mutex, aborts the sink.
  */
 class UpdateGuard {
 public:

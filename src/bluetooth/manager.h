@@ -189,6 +189,8 @@ public:
     bool is_enabled() const { return ble_enabled; }
     bool is_connected() const { return device_connected; }
     bool is_updating() const { return ota_handler.is_ota_active(); }
+    // Waits for a BLE OTA start in progress; used by the WiFi update guard to close the start race
+    bool is_updating_synchronized() { return ota_handler.is_ota_active_synchronized(); }
     bool is_debug_stream_active() const { return debug_stream_active; }
     
     /**

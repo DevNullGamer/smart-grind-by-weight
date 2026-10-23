@@ -54,6 +54,7 @@ class GrinderTool:
             self.venv_streamlit = self.venv_dir / "bin" / "streamlit"
         
         self.ble_tool = self.script_dir / "ble" / "grinder-ble.py"
+        self.wifi_tool = self.script_dir / "wifi" / "grinder-wifi.py"
         self.streamlit_dir = self.script_dir / "streamlit-reports"
         self.db_path = self.script_dir / "database" / "grinder_data.db"
         self.requirements_txt = self.script_dir / "requirements.txt"
@@ -381,6 +382,37 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    def run_wifi_tool(self, tool_args: List[str]) -> int:
+        """Run the WiFi tool with the current interpreter (stdlib only, no venv needed)."""
+        cmd = [sys.executable, str(self.wifi_tool)] + tool_args
+        return subprocess.run(cmd, cwd=self.project_dir).returncode
+
+    @staticmethod
+    def wifi_connection_args(args: argparse.Namespace) -> List[str]:
+        tool_args: List[str] = []
+        if getattr(args, 'host', None):
+            tool_args.extend(["--host", args.host])
+        if getattr(args, 'token', None):
+            tool_args.extend(["--token", args.token])
+        return tool_args
+
+    def cmd_wifi_info(self, args: argparse.Namespace) -> int:
+        """Show device info over WiFi."""
+        self.print_header("WiFi Device Info")
+        return self.run_wifi_tool(["info"] + self.wifi_connection_args(args))
+
+    def cmd_wifi_upload(self, args: argparse.Namespace) -> int:
+        """Push a firmware image over WiFi."""
+        self.print_header("WiFi Upload")
+        tool_args = ["upload"] + self.wifi_connection_args(args)
+        if getattr(args, 'expect_build', None) is not None:
+            tool_args.extend(["--expect-build", str(args.expect_build)])
+        if getattr(args, 'no_wait', False):
+            tool_args.append("--no-wait")
+        if getattr(args, 'firmware', None):
+            tool_args.append(args.firmware)
+        return self.run_wifi_tool(tool_args)
+
     async def cmd_board(self, args: argparse.Namespace) -> int:
         """Set the hardware board override on the device."""
         self.print_header("Hardware Board Override")
@@ -530,6 +562,17 @@ def create_parser() -> argparse.ArgumentParser:
     info_parser = subparsers.add_parser('info', help='Get comprehensive device system information')
     info_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
 
+    wifi_info_parser = subparsers.add_parser('wifi-info', help='Show device info over WiFi (no BLE needed)')
+    wifi_info_parser.add_argument('--host', help='IP address or name, e.g. grindbyweight.local (or GRINDER_WIFI_HOST)')
+    wifi_info_parser.add_argument('--token', help='API token (or GRINDER_WIFI_TOKEN)')
+
+    wifi_upload_parser = subparsers.add_parser('wifi-upload', help='Push a full firmware image over WiFi')
+    wifi_upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (uses the latest build if not specified)')
+    wifi_upload_parser.add_argument('--host', help='IP address or name, e.g. grindbyweight.local (or GRINDER_WIFI_HOST)')
+    wifi_upload_parser.add_argument('--token', help='API token (or GRINDER_WIFI_TOKEN)')
+    wifi_upload_parser.add_argument('--expect-build', type=int, help='Build number the device must report afterwards')
+    wifi_upload_parser.add_argument('--no-wait', action='store_true', help='Do not wait for the device to restart')
+
     board_parser = subparsers.add_parser('board', help='Set the hardware board override (v1, v2 or auto); auto always accepted; v1/v2 only while the board source is not probe or user')
     board_parser.add_argument('mode', choices=['v1', 'v2', 'auto'], help='Board to use after the next restart')
     board_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
@@ -578,6 +621,10 @@ async def main():
             return await tool.cmd_debug(args)
         elif args.command == 'info':
             return await tool.cmd_info(args)
+        elif args.command == 'wifi-info':
+            return tool.cmd_wifi_info(args)
+        elif args.command == 'wifi-upload':
+            return tool.cmd_wifi_upload(args)
         elif args.command == 'board':
             return await tool.cmd_board(args)
         elif args.command == 'diagnostics':

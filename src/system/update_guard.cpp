@@ -44,7 +44,7 @@ UpdateGuard::Result UpdateGuard::acquire() {
     };
 
     extern BluetoothManager g_bluetooth_manager;
-    if (g_bluetooth_manager.is_updating()) {
+    if (g_bluetooth_manager.is_updating_synchronized()) {
         LOG_BLE("UPDATE: Refusing update - BLE OTA in progress\n");
         return refuse(Result::BLE_UPDATE_ACTIVE);
     }

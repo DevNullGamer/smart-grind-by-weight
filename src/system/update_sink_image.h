@@ -28,10 +28,12 @@ enum class SinkError : uint8_t {
  * ImageSink - writes a raw, complete firmware image into the next OTA slot.
  *
  * begin() -> write()* -> finish(); abort() at any time. Every failure aborts the transfer (the slot is left
- * invalid, the running image is untouched) and is reported through last_error()/reason(). Nothing reaches
- * flash before the first UPDATE_IMAGE_HEADER_BYTES bytes passed the header check. The sink never restarts
- * the device and does not take the UpdateGuard; the caller does both. Not thread safe: the caller serialises
- * calls (one HTTP request at a time).
+ * invalid, the running image is untouched) and is reported through last_error()/reason(). begin() opens the
+ * slot with sequential writes (the slot is invalidated/erased progressively); no image byte is written to it
+ * before the first UPDATE_IMAGE_HEADER_BYTES bytes passed the header check. A begin() while a transfer is
+ * open returns ALREADY_ACTIVE, records it in last_error() and leaves the running transfer untouched.
+ * The sink never restarts the device and does not take the UpdateGuard; the caller does both.
+ * Not thread safe: the owner (the HTTP update server) holds ONE mutex around every sink and guard call.
  */
 class ImageSink {
 public:

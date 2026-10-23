@@ -146,6 +146,12 @@ public:
      * Check if OTA is in progress
      */
     bool is_ota_active() const { return ota_in_progress; }
+
+    /**
+     * Like is_ota_active() but serialised with start/complete/abort: waits for a start in progress to
+     * finish. Treated as active if the operation lock cannot be taken in time (fail safe).
+     */
+    bool is_ota_active_synchronized();
     
     /**
      * Get current firmware build number

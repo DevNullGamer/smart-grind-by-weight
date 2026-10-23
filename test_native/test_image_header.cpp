@@ -41,6 +41,22 @@ static void test_image_header_flash_mapped_entry_ok() {
     TEST_ASSERT_EQUAL(ImageHeaderResult::OK, check(h));
 }
 
+static void test_image_header_entry_range_edges() {
+    auto h = good_header();
+    put_u32(h, 4, 0x40370000);
+    TEST_ASSERT_EQUAL(ImageHeaderResult::OK, check(h));
+    put_u32(h, 4, 0x403FFFFF);
+    TEST_ASSERT_EQUAL(ImageHeaderResult::OK, check(h));
+    put_u32(h, 4, 0x42000000);
+    TEST_ASSERT_EQUAL(ImageHeaderResult::OK, check(h));
+    put_u32(h, 4, 0x43FFFFFF);
+    TEST_ASSERT_EQUAL(ImageHeaderResult::OK, check(h));
+    put_u32(h, 4, 0x44000000);
+    TEST_ASSERT_EQUAL(ImageHeaderResult::BAD_ENTRY, check(h));
+    put_u32(h, 4, 0x41000000);  // gap between the two ranges
+    TEST_ASSERT_EQUAL(ImageHeaderResult::BAD_ENTRY, check(h));
+}
+
 static void test_image_header_too_short() {
     TEST_ASSERT_EQUAL(ImageHeaderResult::TOO_SHORT, check(good_header(39)));
     TEST_ASSERT_EQUAL(ImageHeaderResult::TOO_SHORT, check(good_header(0)));
@@ -121,6 +137,7 @@ void run_image_header_tests() {
     RUN_TEST(test_image_header_good);
     RUN_TEST(test_image_header_extra_bytes_ok);
     RUN_TEST(test_image_header_flash_mapped_entry_ok);
+    RUN_TEST(test_image_header_entry_range_edges);
     RUN_TEST(test_image_header_too_short);
     RUN_TEST(test_image_header_bad_magic);
     RUN_TEST(test_image_header_segment_count_bounds);

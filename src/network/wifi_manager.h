@@ -61,6 +61,8 @@ public:
 
     // Call once an HTTP server listens on port 80: mDNS then advertises the "http" service
     void register_http_service() { http_service_wanted = true; }
+    // Call when that server stops: tick() withdraws the mDNS "http" service again
+    void unregister_http_service() { http_service_wanted = false; }
 
 private:
     static volatile bool provisioning_window;

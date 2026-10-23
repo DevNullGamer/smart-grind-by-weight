@@ -429,6 +429,11 @@ void OTAHandler::cleanup_failed_ota() {
     hardware_manager.get_grinder()->unlock();
 }
 
+bool OTAHandler::is_ota_active_synchronized() {
+    OtaLock lock(op_mutex, pdMS_TO_TICKS(2000));
+    return !lock.held() || ota_in_progress;
+}
+
 float OTAHandler::get_progress() const {
     if (patch_size == 0) return 0.0f;
     return 100.0f * received_size / patch_size;

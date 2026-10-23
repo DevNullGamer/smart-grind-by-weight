@@ -342,6 +342,9 @@ void WiFiManager::tick() {
     if (mdns_started && http_service_wanted && !http_service_registered) {
         MDNS.addService("http", "tcp", 80);
         http_service_registered = true;
+    } else if (mdns_started && !http_service_wanted && http_service_registered) {
+        mdns_service_remove("_http", "_tcp");
+        http_service_registered = false;
     }
 
     switch (wifi_state) {

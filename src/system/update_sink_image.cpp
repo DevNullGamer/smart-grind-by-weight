@@ -61,7 +61,10 @@ void ImageSink::abort() {
 }
 
 SinkError ImageSink::begin(uint32_t total_size, const char* expected_sha256_hex) {
-    if (active_) return SinkError::ALREADY_ACTIVE;  // leaves the running transfer alone
+    if (active_) {
+        error_ = SinkError::ALREADY_ACTIVE;  // leaves the running transfer alone
+        return error_;
+    }
     error_ = SinkError::OK;
     header_result_ = ImageHeaderResult::OK;
 
@@ -86,8 +89,8 @@ SinkError ImageSink::begin(uint32_t total_size, const char* expected_sha256_hex)
     sha_ready_ = true;
     if (mbedtls_sha256_starts(&sha_ctx_, 0) != 0) return fail(SinkError::HASH_FAILED);
 
-    // Erases the announced size up front (can take a few seconds)
-    if (esp_ota_begin(target, total_size, &handle_) != ESP_OK) return fail(SinkError::BEGIN_FAILED);
+    // Sequential writes: sectors are erased as the data arrives, so begin() returns quickly
+    if (esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &handle_) != ESP_OK) return fail(SinkError::BEGIN_FAILED);
 
     ota_open_ = true;
     active_ = true;
