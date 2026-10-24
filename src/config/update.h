@@ -82,6 +82,10 @@
 #define UPDATE_PULL_DOWNLOAD_MAX_MS (10UL * 60UL * 1000UL)                    // Overall download deadline (a trickling server cannot hold the grinder locked forever)
 #define UPDATE_PULL_PROGRESS_LOG_STEP_BYTES (256 * 1024)                       // Log a progress line every this many downloaded bytes
 
+// Pull UI in the WiFi menu page (see network/pull_ui_text, ui/screens/menu_screen_wifi)
+#define UPDATE_PULL_RESULT_STALE_MS (10UL * 60UL * 1000UL)                     // A check result older than this no longer offers Install (re-check required)
+#define UPDATE_PULL_NOTICE_MS 6000                                             // A refusal message ("Disconnect Bluetooth first") stays on the page this long
+
 // Dev/test only, wifi-dev envs (they #error without DEBUG_WIFI_DEV_CREDS):
 //   DEBUG_PULL_ALLOW_HTTP  accept http:// URLs (PC test server tools/wifi/pull_test_server.py)
 //   DEBUG_PULL_BASE_URL    replaces UPDATE_PULL_BASE_URL, e.g. "http://192.168.1.20:8080/". Optional SPIKE_PULL_BASE_URL in

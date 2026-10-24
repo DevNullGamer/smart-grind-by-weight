@@ -4,6 +4,7 @@
 #include "../../bluetooth/manager.h"
 #include "../../controllers/grind_controller.h"
 #include "../../system/diagnostics_controller.h"
+#include "../../network/pull_ui_text.h"
 #include "../../network/wifi_status_text.h"
 #include "../ui_helpers.h"
 
@@ -87,6 +88,14 @@ private:
     lv_obj_t* wifi_push_toggle = nullptr;      // "Receive": arms the push endpoint
     lv_obj_t* wifi_confirm_toggle = nullptr;   // "Confirm": every update needs a tap on INSTALL
     lv_obj_t* wifi_listen_label = nullptr;     // "Listening: <name>.local" while the endpoint runs
+    // Firmware section (pull update)
+    lv_obj_t* wifi_fw_latest_label = nullptr;  // "Latest:" value
+    lv_obj_t* wifi_beta_toggle = nullptr;      // include prereleases
+    lv_obj_t* wifi_check_button = nullptr;
+    lv_obj_t* wifi_install_button = nullptr;   // only visible while a fresh AVAILABLE result exists
+    lv_obj_t* wifi_fw_notice_label = nullptr;  // refusal / error text under the buttons
+    PullFailure wifi_pull_notice = PullFailure::NONE;  // refusal of the user's last tap, expires after UPDATE_PULL_NOTICE_MS
+    uint32_t wifi_pull_notice_ms = 0;
     char wifi_ssid_display[WIFI_STATUS_TEXT_BUF] = {0};  // shortened SSID, cached from NVS
     bool wifi_has_credentials = false;                   // cached from NVS
     uint32_t wifi_loaded_revision = 0;                   // WiFiManager::credentials_revision() at last reload
@@ -143,6 +152,8 @@ public:
     // Re-reads the stored SSID / credentials flag from NVS (page entry and after Forget), then update_wifi_page()
     void reload_wifi_page();
     bool is_wifi_page_current() const;
+    // Shows why a tap on Check / Install was refused until it expires (PullFailure::NONE clears it)
+    void set_wifi_pull_notice(PullFailure why);
     // True if credentials were stored/cleared since reload_wifi_page() last ran
     bool wifi_credentials_changed() const;
     void reset_scale_display();
@@ -175,6 +186,9 @@ public:
     lv_obj_t* get_board_override_radio_group() const { return board_override_radio_group; }
     lv_obj_t* get_wifi_push_toggle() const { return wifi_push_toggle; }
     lv_obj_t* get_wifi_confirm_toggle() const { return wifi_confirm_toggle; }
+    lv_obj_t* get_wifi_beta_toggle() const { return wifi_beta_toggle; }
+    lv_obj_t* get_wifi_check_button() const { return wifi_check_button; }
+    lv_obj_t* get_wifi_install_button() const { return wifi_install_button; }
 
 private:
     void create_menu_ui();
@@ -186,6 +200,7 @@ private:
     void create_board_page(lv_obj_t* parent);
     void create_wifi_page(lv_obj_t* parent);
     void apply_wifi_update_toggles();  // Receive / Confirm switch states and greying (menu_screen_wifi.cpp)
+    void update_wifi_firmware();       // Firmware section: Latest row, buttons, notice (menu_screen_wifi.cpp)
     // Opens/closes the BLE provisioning window to match "WiFi page is the current page of the visible menu"
     void sync_wifi_provisioning_window();
     void create_data_page(lv_obj_t* parent);

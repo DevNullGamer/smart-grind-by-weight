@@ -234,6 +234,22 @@ bool WiFiManager::set_push_enabled(bool enabled) {
     return stored;
 }
 
+bool WiFiManager::beta_channel() {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const bool beta = prefs.getBool(WIFI_NVS_KEY_BETA, false);
+    prefs.end();
+    return beta;
+}
+
+bool WiFiManager::set_beta_channel(bool beta) {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const bool stored = prefs.putBool(WIFI_NVS_KEY_BETA, beta) == sizeof(uint8_t);
+    prefs.end();
+    return stored;
+}
+
 void WiFiManager::set_accept_required(bool required) {
     if (required) accept_cached = true;  // the strict setting applies at once, even if it cannot be stored
     Preferences prefs;

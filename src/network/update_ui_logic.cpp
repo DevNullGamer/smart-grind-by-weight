@@ -21,11 +21,11 @@ int update_progress_percent(uint32_t received, uint32_t total) {
     return static_cast<int>((static_cast<uint64_t>(received) * 100u) / total);
 }
 
-const char* update_progress_status_text(UpdatePhase phase, const char* reason, char* out, size_t out_len) {
+const char* update_progress_status_text(UpdatePhase phase, const char* reason, char* out, size_t out_len, bool pull_job) {
     if (!out || out_len == 0) return out;
     out[0] = '\0';
     switch (phase) {
-        case UpdatePhase::RECEIVING: snprintf(out, out_len, "Receiving update..."); break;
+        case UpdatePhase::RECEIVING: snprintf(out, out_len, pull_job ? "Downloading update..." : "Receiving update..."); break;
         case UpdatePhase::VERIFYING: snprintf(out, out_len, "Verifying..."); break;
         case UpdatePhase::INSTALLED: snprintf(out, out_len, "Installed. Restarting..."); break;
         case UpdatePhase::FAILED: {
@@ -54,6 +54,24 @@ const char* update_progress_status_text(UpdatePhase phase, const char* reason, c
         default: break;
     }
     return out;
+}
+
+PullProgressView update_pull_progress_view(PullState pull, UpdatePhase status_phase, bool failure_acknowledged) {
+    if (status_phase != UpdatePhase::IDLE && status_phase != UpdatePhase::AWAITING_APPROVAL) return PullProgressView::NONE;
+    switch (pull) {
+        case PullState::DOWNLOADING:
+        case PullState::VERIFYING: return PullProgressView::CONNECTING;
+        case PullState::FAILED: return failure_acknowledged ? PullProgressView::NONE : PullProgressView::FAILED;
+        default: return PullProgressView::NONE;
+    }
+}
+
+const char* update_progress_title(bool pull_job) {
+    return pull_job ? "Downloading" : "WiFi update";
+}
+
+const char* update_pull_connecting_text() {
+    return "Connecting...";
 }
 
 const char* update_listening_text(const char* host, char* out, size_t out_len) {

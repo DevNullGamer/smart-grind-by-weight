@@ -62,6 +62,12 @@ public:
     bool accept_required() const { return accept_cached; }
     void set_accept_required(bool required);
 
+    // Update channel of the menu's "Check for update": false = stable, true = also prereleases (RC, beta).
+    // Reads/writes NVS: call from the UI task on page entry / user action, not per frame.
+    bool beta_channel();
+    // Returns false if the value could not be stored
+    bool set_beta_channel(bool beta);
+
     // BLE credential commands: allowed with no credentials stored, or while the window is open
     // (the WiFi menu page opens it). Closed by default.
     bool provisioning_allowed() const { return wifi_provisioning_allowed(credentials_present, provisioning_window); }

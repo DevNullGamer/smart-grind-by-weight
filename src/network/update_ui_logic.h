@@ -1,6 +1,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include "pull_logic.h"
 #include "update_status.h"
 #include "../config/update.h"
 
@@ -27,8 +28,23 @@ int update_progress_percent(uint32_t received, uint32_t total);
 
 // Status line of the progress screen: "Receiving update...", "Verifying...", "Installed. Restarting...",
 // "Failed: <reason>" (reason shortened to UPDATE_UI_REASON_MAX characters, printable ASCII only; "Update failed"
-// when empty). Other phases give "". Needs UPDATE_UI_STATUS_BUF bytes. Returns out.
-const char* update_progress_status_text(UpdatePhase phase, const char* reason, char* out, size_t out_len);
+// when empty). pull_job turns "Receiving update..." into "Downloading update...". Other phases give "".
+// Needs UPDATE_UI_STATUS_BUF bytes. Returns out.
+const char* update_progress_status_text(UpdatePhase phase, const char* reason, char* out, size_t out_len,
+                                        bool pull_job = false);
+
+// What the HTTPS pull job adds to the progress screen while UpdateStatus has nothing to show (status_phase IDLE or
+// AWAITING_APPROVAL): CONNECTING from the install request until the first byte is written (TLS, validation, flash
+// prepare), and FAILED for a failure that never reached UpdateStatus (e.g. 404, no connection) until the screen has
+// shown it once (failure_acknowledged). UpdateStatus phases with content always win (NONE here).
+enum class PullProgressView : uint8_t { NONE, CONNECTING, FAILED };
+PullProgressView update_pull_progress_view(PullState pull, UpdatePhase status_phase, bool failure_acknowledged);
+
+// Title of the progress screen: "Downloading" for the pull job, "WiFi update" for a push
+const char* update_progress_title(bool pull_job);
+
+// Status line while the pull job connects ("Connecting...")
+const char* update_pull_connecting_text();
 
 // "Listening:\ngrindbyweight.local" (two rows so it fits 280 px; host is cut if absurdly long). Needs 96 bytes. Returns out.
 const char* update_listening_text(const char* host, char* out, size_t out_len);

@@ -4,6 +4,7 @@
 #include <string.h>
 #include "../../config/constants.h"
 #include "../../config/logging.h"
+#include "../../network/update_pull.h"
 #include "../../network/update_server.h"
 #include "../../network/update_ui_logic.h"
 #include "../../network/wifi_manager.h"
@@ -29,6 +30,24 @@ lv_obj_t* create_block(lv_obj_t* parent) {
 // lv_label_set_text always invalidates; this page refreshes once a second, so skip unchanged text
 void set_text_if_changed(lv_obj_t* label, const char* text) {
     if (label && strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+}
+
+// Wraps the button text inside the button (a long "Install v1.5.0-rc.3" breaks into two centred lines)
+void wrap_button_text(lv_obj_t* button) {
+    lv_obj_t* label = lv_obj_get_child(button, 0);
+    if (!label) return;
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 220);  // 260 px button minus 2 x 20 px padding
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+}
+
+void set_enabled(lv_obj_t* obj, bool enabled) {
+    if (!obj) return;
+    if (enabled) {
+        lv_obj_clear_state(obj, LV_STATE_DISABLED);
+    } else {
+        lv_obj_add_state(obj, LV_STATE_DISABLED);
+    }
 }
 
 void set_visible(lv_obj_t* obj, bool show) {
@@ -91,7 +110,39 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     wifi_listen_label = create_description_label(parent, "");
     lv_obj_set_style_text_color(wifi_listen_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
 
+    // Firmware: check a release channel and install over WiFi (R7)
+    create_separator(parent, "Firmware");
+    lv_obj_t* installed_label = nullptr;
+    create_data_label(parent, "Installed:", &installed_label, true);
+    char installed[PULL_UI_VERSION_BUF + 16];
+    lv_label_set_text(installed_label, pull_installed_text(BUILD_FIRMWARE_VERSION, BUILD_NUMBER, installed, sizeof(installed)));
+    create_data_label(parent, "Latest:", &wifi_fw_latest_label, true);
+    create_description_label(parent, "Include pre-releases (RC, beta) when checking.");
+    create_toggle_row(parent, "Beta", &wifi_beta_toggle);
+    wifi_check_button = create_button(parent, "Check for update", lv_color_hex(THEME_COLOR_ACCENT));
+    wifi_install_button = create_button(parent, "Install", lv_color_hex(THEME_COLOR_SUCCESS));
+    for (lv_obj_t* button : {wifi_check_button, wifi_install_button}) {
+        lv_obj_set_style_margin_bottom(button, 10, 0);
+        lv_obj_set_style_bg_opa(button, LV_OPA_50, LV_STATE_DISABLED);
+    }
+    wrap_button_text(wifi_install_button);  // only the version label can get long
+    set_visible(wifi_install_button, false);
+    wifi_fw_notice_label = create_description_label(parent, "");
+    lv_obj_set_style_text_color(wifi_fw_notice_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+
     using ET = EventBridgeLVGL::EventType;
+    if (wifi_beta_toggle) {
+        lv_obj_add_event_cb(wifi_beta_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_BETA_TOGGLE)));
+    }
+    if (wifi_check_button) {
+        lv_obj_add_event_cb(wifi_check_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_CHECK_UPDATE)));
+    }
+    if (wifi_install_button) {
+        lv_obj_add_event_cb(wifi_install_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_INSTALL_UPDATE)));
+    }
     if (wifi_push_toggle) {
         lv_obj_add_event_cb(wifi_push_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                             reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_PUSH_TOGGLE)));
@@ -149,7 +200,22 @@ void MenuScreen::reload_wifi_page() {
     wifi_manager.get_ssid(ssid, sizeof(ssid));
     wifi_shorten_ssid(ssid, wifi_ssid_display, sizeof(wifi_ssid_display));
     apply_wifi_update_toggles();
+    // The beta choice is stored; the check result lives in update_pull, so it is simply shown again. A refusal
+    // message survives (it may come from the Install dialog that was just closed) and expires by itself.
+    if (wifi_beta_toggle) {
+        if (wifi_manager.beta_channel()) {
+            lv_obj_add_state(wifi_beta_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(wifi_beta_toggle, LV_STATE_CHECKED);
+        }
+    }
     update_wifi_page();
+}
+
+void MenuScreen::set_wifi_pull_notice(PullFailure why) {
+    wifi_pull_notice = why;
+    wifi_pull_notice_ms = millis();
+    update_wifi_firmware();
 }
 
 void MenuScreen::update_wifi_page() {
@@ -197,4 +263,48 @@ void MenuScreen::update_wifi_page() {
     // The label sits in its own padded container (create_description_label): hide that, not just the text
     set_visible(wifi_ble_warning_label ? lv_obj_get_parent(wifi_ble_warning_label) : nullptr,
                 bluetooth_manager && !bluetooth_manager->is_enabled());
+
+    update_wifi_firmware();
+}
+
+// Firmware section: everything shown comes from update_pull (state, offer, failure) through the pure pull_page_view()
+void MenuScreen::update_wifi_firmware() {
+    if (!wifi_fw_latest_label) return;
+
+    const uint32_t now = millis();
+    if (wifi_pull_notice != PullFailure::NONE && now - wifi_pull_notice_ms > UPDATE_PULL_NOTICE_MS) {
+        wifi_pull_notice = PullFailure::NONE;
+    }
+
+    PullOffer offer;
+    const bool have_offer = update_pull.offer(&offer);
+    PullPageInput in;
+    in.state = update_pull.state();
+    in.failure = update_pull.failure();
+    in.notice = wifi_pull_notice;
+    in.no_release = update_pull.no_release();
+    in.wifi_connected = wifi_manager.is_connected();
+    in.ble_enabled = bluetooth_manager && bluetooth_manager->is_enabled();
+    in.offer_version = have_offer ? offer.version : nullptr;
+    in.result_ms = update_pull.result_at_ms();
+    in.now_ms = now;
+    PullPageView view;
+    pull_page_view(in, &view);
+
+    uint32_t tone = THEME_COLOR_TEXT_SECONDARY;
+    if (view.latest_tone == PullTone::GOOD) tone = THEME_COLOR_SUCCESS;
+    if (view.latest_tone == PullTone::WARN) tone = THEME_COLOR_WARNING;
+    set_text_if_changed(wifi_fw_latest_label, view.latest);
+    lv_obj_set_style_text_color(wifi_fw_latest_label, lv_color_hex(tone), 0);
+
+    set_text_if_changed(lv_obj_get_child(wifi_check_button, 0), view.check_label);
+    set_enabled(wifi_check_button, view.check_enabled);
+    set_enabled(wifi_beta_toggle, view.beta_enabled);
+
+    set_visible(wifi_install_button, view.show_install);
+    if (view.show_install) set_text_if_changed(lv_obj_get_child(wifi_install_button, 0), view.install_label);
+
+    set_text_if_changed(wifi_fw_notice_label, view.notice);
+    // The label sits in its own padded container (create_description_label): hide that, not just the text
+    set_visible(lv_obj_get_parent(wifi_fw_notice_label), view.notice[0] != '\0');
 }

@@ -38,6 +38,9 @@ public:
     void handle_wifi_forget();
     void handle_wifi_push_toggle();
     void handle_wifi_confirm_toggle();
+    void handle_wifi_beta_toggle();
+    void handle_wifi_check_update();
+    void handle_wifi_install_update();
     void handle_brightness_normal_slider();
     void handle_brightness_normal_slider_released();
     void handle_brightness_screensaver_slider();
@@ -53,6 +56,7 @@ private:
 
     static constexpr uint32_t WIFI_PAGE_REFRESH_INTERVAL_MS = 1000;  // WiFi page runtime values refresh rate
     void update_wifi_page();
+    void install_update_confirmed(const char* version);
 
     void perform_factory_reset();
     void execute_purge_operation();

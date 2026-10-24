@@ -5,14 +5,11 @@
 
 #include "../../config/constants.h"
 #include "../../network/update_approval_gate.h"
+#include "../../network/update_pull.h"
 #include "../../network/update_prompt_text.h"
 #include "../../network/update_status.h"
 #include "../../network/update_ui_logic.h"
 #include "../ui_manager.h"
-
-namespace {
-constexpr const char* kProgressTitle = "WiFi update";
-}
 
 WifiUpdateUIController::WifiUpdateUIController(UIManager* manager)
     : ui_manager_(manager), return_state_(UIState::READY) {
@@ -103,13 +100,33 @@ void WifiUpdateUIController::answer_prompt(bool accept, uint32_t generation) {
 //------------------------------------------------------------------------------
 // Progress screen
 //------------------------------------------------------------------------------
+// A pull job is "ours" from the install request to its end; a failure counts until the screen has shown it once
+// A stale unacknowledged FAILED must not title a later push failure: with UpdateStatus content it only counts
+// when that content came from the download source.
+static bool is_pull_job(PullState pull, bool failure_acknowledged, bool status_content) {
+    return pull == PullState::DOWNLOADING || pull == PullState::VERIFYING || pull == PullState::INSTALLED ||
+           (pull == PullState::FAILED && !failure_acknowledged &&
+            (!status_content || UpdateStatus::source() == UpdateSource::WIFI_DOWNLOAD));
+}
+
 bool WifiUpdateUIController::update_progress() {
     const UpdatePhase phase = UpdateStatus::phase();
-    const bool has_content = phase == UpdatePhase::RECEIVING || phase == UpdatePhase::VERIFYING ||
-                             phase == UpdatePhase::INSTALLED || phase == UpdatePhase::FAILED;
+    const PullState pull = update_pull.state();
+    if (pull != PullState::FAILED) pull_failure_acked_ = false;  // a later failure is a new one
+
+    const bool status_content = phase == UpdatePhase::RECEIVING || phase == UpdatePhase::VERIFYING ||
+                                phase == UpdatePhase::INSTALLED || phase == UpdatePhase::FAILED;
+    const PullProgressView pull_view = update_pull_progress_view(pull, phase, pull_failure_acked_);
+    const bool has_content = status_content || pull_view != PullProgressView::NONE;
 
     if (!progress_shown_) {
         if (!has_content) return false;
+        // A pull job that never reached UpdateStatus (dev builds start one without the menu) must not take over a
+        // screen the user is working on
+        auto* state_machine = ui_manager_->state_machine;
+        const bool home = update_ui_state_allows_prompt(state_machine->is_state(UIState::READY),
+                                                        state_machine->is_state(UIState::MENU));
+        if (!status_content && !home) return false;
         begin_progress();
     } else if (!has_content) {
         // The status was reset under us (e.g. a new request while the failure was shown): leave the screen
@@ -117,21 +134,35 @@ bool WifiUpdateUIController::update_progress() {
         return false;
     }
 
+    // What to show: the UpdateStatus phase when it has content, else the pull job's own view
     char reason[48] = {0};
-    if (phase == UpdatePhase::FAILED) UpdateStatus::reason(reason, sizeof(reason));
     char status[UPDATE_UI_STATUS_BUF];
-    update_progress_status_text(phase, reason, status, sizeof(status));
+    bool failed = false;
+    int percent = 0;
+    if (status_content) {
+        failed = phase == UpdatePhase::FAILED;
+        if (failed) UpdateStatus::reason(reason, sizeof(reason));
+        update_progress_status_text(phase, reason, status, sizeof(status), pull_job_);
+        if (phase == UpdatePhase::RECEIVING) {
+            percent = update_progress_percent(UpdateStatus::received(), UpdateStatus::total());
+        } else if (!failed) {
+            percent = 100;
+        }
+    } else if (pull_view == PullProgressView::FAILED) {
+        failed = true;
+        update_progress_status_text(UpdatePhase::FAILED, pull_failure_text(update_pull.failure()), status, sizeof(status));
+    } else {
+        snprintf(status, sizeof(status), "%s", update_pull_connecting_text());
+    }
+
     if (strcmp(status, last_status_) != 0) {
         ui_manager_->ota_screen.update_status(status);
         strncpy(last_status_, status, sizeof(last_status_) - 1);
         last_status_[sizeof(last_status_) - 1] = '\0';
     }
 
-    if (phase != UpdatePhase::FAILED) {
+    if (!failed) {
         failed_since_ms_ = 0;  // a new transfer started while the screen stayed up: restart the hold next time
-        const int percent = phase == UpdatePhase::RECEIVING
-                                ? update_progress_percent(UpdateStatus::received(), UpdateStatus::total())
-                                : 100;
         if (percent != last_percent_) {
             ui_manager_->ota_screen.update_progress(percent);
             last_percent_ = percent;
@@ -157,15 +188,21 @@ void WifiUpdateUIController::begin_progress() {
     failed_since_ms_ = 0;
     last_percent_ = -1;
     last_status_[0] = '\0';
-    LOG_BLE("[UI] WiFi update progress screen shown\n");
+    const UpdatePhase phase = UpdateStatus::phase();
+    const bool status_content = phase == UpdatePhase::RECEIVING || phase == UpdatePhase::VERIFYING ||
+                                phase == UpdatePhase::INSTALLED || phase == UpdatePhase::FAILED;
+    pull_job_ = is_pull_job(update_pull.state(), pull_failure_acked_, status_content);
+    LOG_BLE("[UI] WiFi update progress screen shown (%s)\n", pull_job_ ? "download" : "push");
 
     ui_manager_->ota_screen.show_ota_mode();
-    ui_manager_->ota_screen.update_title(kProgressTitle);
+    ui_manager_->ota_screen.update_title(update_progress_title(pull_job_));
     ui_manager_->switch_to_state(UIState::OTA_UPDATE);
 }
 
 void WifiUpdateUIController::end_progress() {
     UpdateStatus::acknowledge();  // a FAILED result must not persist
+    // The pull job's FAILED state stays (the menu page explains it); the screen must not show it again
+    if (update_pull.state() == PullState::FAILED) pull_failure_acked_ = true;
     progress_shown_ = false;
     failed_since_ms_ = 0;
     ui_manager_->ota_screen.hide();

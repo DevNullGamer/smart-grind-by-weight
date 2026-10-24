@@ -39,6 +39,11 @@ public:
     bool request_install();
     // Finished states (UP_TO_DATE, AVAILABLE, CHECK_FAILED, FAILED) back to IDLE; no effect otherwise
     void reset();
+    // Why request_install() would be refused right now (NONE if it would start); no side effects. Lets the UI
+    // decide before it turns Bluetooth off.
+    PullFailure install_refusal() const;
+    // millis() when the last job ended (the age of an AVAILABLE result)
+    uint32_t result_at_ms() const { return result_ms_.load(); }
 
     PullState state() const { return static_cast<PullState>(state_.load()); }
     // Why the last CHECK_FAILED / FAILED happened (NONE otherwise)
@@ -60,6 +65,7 @@ private:
     std::atomic<uint8_t> failure_{static_cast<uint8_t>(PullFailure::NONE)};
     std::atomic<uint8_t> refusal_{static_cast<uint8_t>(PullFailure::NONE)};
     std::atomic<bool> no_release_{false};
+    std::atomic<uint32_t> result_ms_{0};
     Job job_ = Job::CHECK;
     bool beta_ = false;
 

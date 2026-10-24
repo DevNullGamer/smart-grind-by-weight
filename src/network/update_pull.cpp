@@ -136,6 +136,10 @@ bool UpdatePull::request_install() {
     return start(current, PullState::DOWNLOADING, Job::INSTALL, false);
 }
 
+PullFailure UpdatePull::install_refusal() const {
+    return pull_refusal(state(), true, gather_preconditions());
+}
+
 void UpdatePull::reset() {
     const PullState current = state();
     if (set_state(current, PullState::IDLE)) {
@@ -161,6 +165,7 @@ bool UpdatePull::offer(PullOffer* out) const {
 // Publishes the end of a job. The failure is stored first so a reader that sees the new state also sees why.
 void UpdatePull::finish_job(PullState to, PullFailure why) {
     failure_.store(static_cast<uint8_t>(why));
+    result_ms_.store(millis());
     if (!set_state(state(), to)) {
         LOG_BLE("[PULL] ERROR: unexpected state change %s -> %s\n", pull_state_name(state()), pull_state_name(to));
         state_.store(static_cast<uint8_t>(to));  // never leave the job in a running state
