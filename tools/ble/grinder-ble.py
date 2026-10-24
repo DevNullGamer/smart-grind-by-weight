@@ -48,7 +48,9 @@ def ensure_venv_requirements():
         print("Run: python3 -m venv tools/venv && source tools/venv/bin/activate && pip install -r tools/requirements.txt")
         return False
     
-    pip_cmd = str(venv_dir / "bin" / "pip")
+    # The interpreter running this script is the venv's (started by grinder.py), so use it for pip
+    # (venv/bin/pip does not exist on Windows, where the layout is venv/Scripts)
+    pip_cmd = [sys.executable, "-m", "pip"]
     
     # Check if requirements.txt exists
     if not requirements_file.exists():
@@ -58,7 +60,7 @@ def ensure_venv_requirements():
     # Check and install missing requirements
     try:
         print("[INFO] Checking venv dependencies...")
-        result = subprocess.run([pip_cmd, "install", "-r", str(requirements_file)], 
+        result = subprocess.run([*pip_cmd, "install", "-r", str(requirements_file)],
                               capture_output=True, text=True)
         if result.returncode != 0:
             print(f"[WARNING] Some dependencies may not be installed: {result.stderr}")
@@ -406,11 +408,8 @@ class GrinderBLETool:
             patch_path = patch_file.name
             patch_file.close()
             
-            # Use detools from the project venv (ensured by ensure_venv_requirements)
-            venv_dir = Path(__file__).parent.parent / "venv"
-            detools_cmd = str(venv_dir / "bin" / "detools")
-
-            cmd = [detools_cmd, 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
+            # Run detools as a module of the current (venv) interpreter, portable across platforms
+            cmd = [sys.executable, '-m', 'detools', 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -1276,7 +1275,8 @@ async def main():
 
     args = parser.parse_args()
     tool = GrinderBLETool()
-    
+    exit_code = 0
+
     try:
         if args.command == 'scan':
             await tool.scan_devices()
@@ -1291,13 +1291,15 @@ async def main():
                 if not firmware_path:
                     tool.safe_print("[ERROR] No firmware file found.")
                     return 1
-                await tool.upload_firmware(firmware_path, args.force_full)
+                if not await tool.upload_firmware(firmware_path, args.force_full):
+                    tool.safe_print("[ERROR] Firmware upload failed")
+                    exit_code = 1
             elif args.command == 'export':
-                await tool.export_data(args.db)
+                if not await tool.export_data(args.db):
+                    exit_code = 1
             elif args.command == 'analyse':
-                await tool.analyze_data(args.db, False)
                 # analyze_data handles its own disconnection after data export
-                return 0
+                return 0 if await tool.analyze_data(args.db, False) else 1
             elif args.command == 'connect':
                 tool.safe_print("[OK] Connected to device.")
             elif args.command == 'debug':
@@ -1305,6 +1307,8 @@ async def main():
             elif args.command == 'info':
                 info = await tool.get_system_info()
                 tool.print_system_info(info)
+                if not info:
+                    exit_code = 1
             elif args.command == 'board':
                 if not await tool.set_board_override(args.mode):
                     return 1
@@ -1323,17 +1327,24 @@ async def main():
                         print()
                 else:
                     tool.safe_print("[ERROR] Failed to retrieve diagnostic report")
+                    exit_code = 1
 
             await tool.disconnect()
             
     except KeyboardInterrupt:
         tool.safe_print("\n[INFO] Interrupted by user")
+        return 1
     finally:
         if tool.connected: await tool.disconnect()
+
+    return exit_code
 
 if __name__ == "__main__":
     try:
         sys.exit(asyncio.run(main()))
+    except KeyboardInterrupt:
+        print("\n[INFO] Interrupted by user")
+        sys.exit(1)
     except Exception as e:
         print(f"[ERROR] An unexpected error occurred: {e}")
         sys.exit(1)

@@ -25,8 +25,45 @@ def is_port_in_use(port):
         except OSError:
             return True
 
+def parse_netstat_listening_pid(output, port):
+    """PID of the process listening on `port` in `netstat -ano` output, or None.
+
+    Lines look like `TCP    0.0.0.0:8000    0.0.0.0:0    LISTENING    1234` (IPv6: `[::]:8000`).
+    A listening socket has foreign port 0; checking that instead of the state text keeps it
+    working on localized Windows where "LISTENING" is translated.
+    """
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or not parts[0].upper().startswith("TCP"):
+            continue
+        local, foreign, pid = parts[1], parts[2], parts[-1]
+        if local.rsplit(":", 1)[-1] == str(port) and foreign.rsplit(":", 1)[-1] == "0" and pid.isdigit():
+            return int(pid)
+    return None
+
+def get_process_using_port_windows(port):
+    """Get the PID listening on the port via netstat (IPv4, then IPv6)."""
+    for protocol in ("TCP", "TCPv6"):
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano', '-p', protocol],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            continue
+        if result.returncode == 0:
+            pid = parse_netstat_listening_pid(result.stdout, port)
+            if pid:
+                return pid
+    return None
+
 def get_process_using_port(port):
     """Get the PID of the process using the specified port."""
+    if os.name == 'nt':
+        return get_process_using_port_windows(port)
+
     try:
         # macOS/Linux
         result = subprocess.run(
@@ -60,7 +97,8 @@ def kill_process_on_port(port):
 
             # If SIGTERM didn't work, try SIGKILL
             print(f"[WARNING] Process didn't respond to SIGTERM, trying SIGKILL")
-            os.kill(pid, signal.SIGKILL)
+            # SIGKILL does not exist on Windows, where SIGTERM already terminates the process
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
             time.sleep(0.5)
             return True
 
@@ -69,6 +107,11 @@ def kill_process_on_port(port):
             return False
         except PermissionError:
             print(f"[ERROR] Permission denied to kill process {pid}")
+            return False
+        except OSError as e:
+            # e.g. Windows raises a plain OSError when TerminateProcess fails
+            print(f"[ERROR] Could not kill process {pid}: {e}")
+            print(f"[INFO] Kill it manually (Windows: taskkill /PID {pid} /F, macOS/Linux: kill {pid})")
             return False
     return False
 
@@ -164,7 +207,11 @@ Examples:
                     print(f"[ERROR] Port {args.port} still in use after attempting to kill process")
                     sys.exit(1)
             else:
-                print(f"[INFO] Cancelled. You can manually kill the process using: lsof -ti :{args.port} | xargs kill")
+                if os.name == 'nt':
+                    hint = f"netstat -ano -p TCP | findstr :{args.port}  (then: taskkill /PID <pid> /F)"
+                else:
+                    hint = f"lsof -ti :{args.port} | xargs kill"
+                print(f"[INFO] Cancelled. You can manually kill the process using: {hint}")
                 sys.exit(0)
         except (KeyboardInterrupt, EOFError):
             print(f"\n[INFO] Cancelled by user")
