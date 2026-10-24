@@ -33,8 +33,16 @@ enum class GrinderPurgeMode {
 #define GRIND_TIMEOUT_SEC 60                                              // Maximum time for grind operation
 #define GRIND_MAX_PULSE_ATTEMPTS 10                                       // Maximum pulse corrections before stopping
 
-// Safety aborts (weight mode). 0 = log only, never abort (kill switch if an abort proves a false positive)
-#define GRIND_SAFETY_ABORTS_ENABLED 1                                     // Stale/dead load cell aborts the grind ("Err: sensor"); stale limit is HW_LOADCELL_STALE_SAMPLE_MS
+// Safety aborts and fallbacks (weight mode only; time mode never uses them)
+#define GRIND_SAFETY_ABORTS_ENABLED 1                                     // 0 = log only, never abort (kill switch if an abort proves a false positive). Covers "Err: sensor" (stale limit HW_LOADCELL_STALE_SAMPLE_MS), "Err: tare", "Err: no flow"
+#define GRIND_TARE_CONFIRM_TARE_TIMEOUT_MS 5000                           // Tare still running this long after TARE_CONFIRM starts -> abort "Err: tare"
+#define GRIND_TARE_CONFIRM_SETTLE_TIMEOUT_MS 10000                        // Scale not settled this long after the tare finished -> continue anyway
+#define GRIND_SETTLE_FALLBACK_MS 4000                                     // FINAL_SETTLING / PULSE_SETTLING / PULSE_DECISION continue with the current reading after this long
+#define GRIND_PULSE_WAIT_MARGIN_MS 1000                                   // A pulse not reported complete this long after its length -> motor stopped, phase moves on
+#define GRIND_PRIME_NO_FLOW_CHECK_MS GRIND_PRIME_MAX_DURATION_MS          // Prime check time (the prime run limit)
+#define GRIND_PRIME_NO_FLOW_MIN_PERCENT 50                                // Prime below this share of the purge amount at the check time -> abort "Err: no flow"
+#define GRIND_PREDICTIVE_NO_FLOW_CHECK_MS 4000                            // PREDICTIVE check time after phase entry
+#define GRIND_PREDICTIVE_NO_FLOW_MIN_GAIN_G 0.3f                          // Less peak weight gain than this at the check time -> abort "Err: no flow"
 
 // Flow rate detection
 #define GRIND_FLOW_DETECTION_THRESHOLD_GPS 0.5f                           // Minimum coffee flow rate to establish first grinds reachinig the cup = latency

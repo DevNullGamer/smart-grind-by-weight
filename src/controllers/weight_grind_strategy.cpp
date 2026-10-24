@@ -1,6 +1,7 @@
 #include "weight_grind_strategy.h"
 
 #include "grind_controller.h"
+#include "grind_safety.h"
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "../logging/grind_logging.h"
@@ -126,6 +127,11 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
 
     float settled_weight;
     if (!controller.weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS, &settled_weight)) {
+        if (grind_phase_timed_out(loop_data.now, controller.phase_start_time, GRIND_SETTLE_FALLBACK_MS)) {
+            // D4: cannot get a settled reading to decide on another pulse, so finish with what we have
+            controller.queue_log_message("[SAFETY] Pulse decision settling timed out, finishing\n");
+            controller.switch_phase(GrindPhase::FINAL_SETTLING, loop_data);
+        }
         return;
     }
 
@@ -154,7 +160,16 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
 
 void WeightGrindStrategy::run_pulse_execute_phase(GrindController& controller,
                                                   const GrindLoopData& loop_data) const {
-    if (controller.grinder && controller.grinder->is_pulse_complete()) {
+    if (!controller.grinder) {
+        return;
+    }
+    if (controller.grinder->is_pulse_complete()) {
+        controller.switch_phase(GrindPhase::PULSE_SETTLING, loop_data);
+    } else if (grind_phase_timed_out(loop_data.now, controller.phase_start_time,
+                   grind_pulse_wait_limit_ms(controller.current_pulse_duration_ms, GRIND_PULSE_WAIT_MARGIN_MS))) {
+        // Pulse never reported complete: cut the motor and let the normal settling take over
+        controller.grinder->stop();
+        controller.queue_log_message("[SAFETY] Pulse did not complete, motor stopped\n");
         controller.switch_phase(GrindPhase::PULSE_SETTLING, loop_data);
     }
 }
@@ -168,6 +183,11 @@ void WeightGrindStrategy::run_pulse_settling_phase(GrindController& controller,
     if (loop_data.now - controller.phase_start_time >= controller.grind_latency_ms + GRIND_MOTOR_SETTLING_TIME_MS) {
         if (controller.weight_sensor->check_settling_complete(GRIND_MOTOR_SETTLING_TIME_MS)) {
             controller.switch_phase(GrindPhase::PULSE_DECISION, loop_data);
+            return;
         }
+    }
+    if (grind_phase_timed_out(loop_data.now, controller.phase_start_time, GRIND_SETTLE_FALLBACK_MS)) {
+        controller.queue_log_message("[SAFETY] Pulse settling timed out, deciding with current reading\n");
+        controller.switch_phase(GrindPhase::PULSE_DECISION, loop_data);
     }
 }

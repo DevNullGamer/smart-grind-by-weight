@@ -175,8 +175,15 @@ private:
     DiagnosticsController* diagnostics_controller_ = nullptr;
 
     // Safety monitoring (weight mode)
-    uint32_t max_sample_age_ms_ = 0;     // Oldest newest-sample age seen during this grind (session log)
-    bool sensor_stale_logged_ = false;   // Log-only mode: report a stale sensor once per grind
+    static constexpr uint8_t SAFETY_REASON_SENSOR = 1 << 0;
+    static constexpr uint8_t SAFETY_REASON_TARE = 1 << 1;
+    static constexpr uint8_t SAFETY_REASON_PRIME_FLOW = 1 << 2;
+    static constexpr uint8_t SAFETY_REASON_PREDICTIVE_FLOW = 1 << 3;
+    uint32_t max_sample_age_ms_ = 0;          // Oldest newest-sample age seen during this grind (session log)
+    uint8_t safety_logged_mask_ = 0;          // Log-only mode: each reason is reported once per grind
+    unsigned long tare_settle_start_ms_ = 0;  // When the tare finished in TARE_CONFIRM (0 = not yet)
+    float predictive_min_weight_ = 0.0f;      // Lowest weight seen since PREDICTIVE entry (gain baseline)
+    float predictive_peak_gain_g_ = 0.0f;     // Highest gain over that baseline in PREDICTIVE
 
     // Motor response latency - runtime configurable
     float motor_response_latency_ms;
@@ -279,6 +286,8 @@ private:
                      const GrindLoopData& loop_data);
 
     bool check_safety(const GrindLoopData& loop_data);  // True when the grind was aborted this cycle
+    bool raise_safety(uint8_t reason_bit, const char* ui_text, const char* log_text,
+                      const char* detail, const GrindLoopData& loop_data);  // Abort, or log once when aborts are disabled
     bool check_timeout() const;
     uint8_t get_current_phase_id() const;
     

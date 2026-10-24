@@ -3,6 +3,7 @@
 #include "../hardware/circular_buffer_math/circular_buffer_math.h"
 #include "../config/constants.h"
 #include "../hardware/sensor_health.h"
+#include "grind_safety.h"
 #include "../system/diagnostics_controller.h"
 #include "../system/statistics_manager.h"
 #include <Arduino.h>
@@ -193,7 +194,10 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
 
     reset_mechanical_anomaly_count();
     max_sample_age_ms_ = 0;
-    sensor_stale_logged_ = false;
+    safety_logged_mask_ = 0;
+    tare_settle_start_ms_ = 0;
+    predictive_min_weight_ = 0.0f;
+    predictive_peak_gain_g_ = 0.0f;
 
     if (diagnostics_controller_) {
         diagnostics_controller_->reset_diagnostic(DiagnosticCode::MECHANICAL_INSTABILITY);
@@ -378,8 +382,16 @@ void GrindController::update() {
         case GrindPhase::TARE_CONFIRM:
             // Check if tare is complete
             if (!weight_sensor->is_tare_in_progress()) {
-                // Double confirm weights are settled
-                if (weight_sensor->is_settled()) {
+                if (tare_settle_start_ms_ == 0) {
+                    tare_settle_start_ms_ = loop_data.now;
+                }
+                // Double confirm weights are settled; a noisy scale continues after the settle limit (weight mode)
+                const bool settle_gave_up = mode == GrindMode::WEIGHT &&
+                    grind_phase_timed_out(loop_data.now, tare_settle_start_ms_, GRIND_TARE_CONFIRM_SETTLE_TIMEOUT_MS);
+                if (weight_sensor->is_settled() || settle_gave_up) {
+                    if (settle_gave_up) {
+                        queue_log_message("[SAFETY] Scale not settled after tare, continuing\n");
+                    }
                     if (!grinder->is_grinding()) {
                         grinder->start();  // Ensure motor is running
                     }
@@ -496,6 +508,10 @@ void GrindController::update() {
             // Wait for weight to settle with precision settling window
             if (weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
                 final_measurement(loop_data);
+            } else if (mode == GrindMode::WEIGHT &&
+                       grind_phase_timed_out(loop_data.now, phase_start_time, GRIND_SETTLE_FALLBACK_MS)) {
+                queue_log_message("[SAFETY] Final settling timed out, using current reading\n");
+                final_measurement(loop_data);
             }
             break;
             
@@ -506,6 +522,12 @@ void GrindController::update() {
                         millis(), additional_pulse_count, weight_sensor ? weight_sensor->get_display_weight() : 0.0f);
                 
                 // Return to completed phase
+                switch_phase(GrindPhase::COMPLETED, loop_data);
+            } else if (grinder && grind_phase_timed_out(loop_data.now, phase_start_time,
+                           grind_pulse_wait_limit_ms((float)pulse_duration_ms, GRIND_PULSE_WAIT_MARGIN_MS))) {
+                // Pulse never reported complete: cut the motor and finish
+                grinder->stop();
+                queue_log_message("[SAFETY] Additional pulse did not complete, motor stopped\n");
                 switch_phase(GrindPhase::COMPLETED, loop_data);
             }
             break;
@@ -630,8 +652,27 @@ void GrindController::abort_grind(GrindSessionResult result, const char* ui_text
     switch_phase(GrindPhase::TIMEOUT, loop_data);
 }
 
+bool GrindController::raise_safety(uint8_t reason_bit, const char* ui_text, const char* log_text,
+                                   const char* detail, const GrindLoopData& loop_data) {
+#if GRIND_SAFETY_ABORTS_ENABLED
+    (void)reason_bit;
+    queue_log_message("[SAFETY] %s: %s\n", log_text, detail);
+    abort_grind(GrindSessionResult::ERROR, ui_text, log_text, loop_data);
+    return true;
+#else
+    (void)ui_text;
+    (void)loop_data;
+    if (!(safety_logged_mask_ & reason_bit)) {
+        safety_logged_mask_ |= reason_bit;
+        queue_log_message("[SAFETY] %s: %s (aborts disabled, log only)\n", log_text, detail);
+    }
+    return false;
+#endif
+}
+
 bool GrindController::check_safety(const GrindLoopData& loop_data) {
-    // Weight mode only (D1): time mode does not depend on the scale
+    // Weight mode only (D1): time mode does not depend on the scale. Never runs while paused
+    // (PURGE_CONFIRM returns before this point and is not in the list below).
     if (mode != GrindMode::WEIGHT || !weight_sensor || !grinder) {
         return false;
     }
@@ -656,28 +697,61 @@ bool GrindController::check_safety(const GrindLoopData& loop_data) {
         max_sample_age_ms_ = age_ms;
     }
 
-    if (!sensor_sample_is_stale(has_sample, age_ms, HW_LOADCELL_STALE_SAMPLE_MS)) {
-        return false;
+    if (sensor_sample_is_stale(has_sample, age_ms, HW_LOADCELL_STALE_SAMPLE_MS)) {
+        char age_text[32];
+        if (has_sample) {
+            snprintf(age_text, sizeof(age_text), "newest sample %lums old", (unsigned long)age_ms);
+        } else {
+            snprintf(age_text, sizeof(age_text), "no sample");
+        }
+        return raise_safety(SAFETY_REASON_SENSOR, "Err: sensor", "LOAD CELL STALE", age_text, loop_data);
     }
 
-    char age_text[24];
-    if (has_sample) {
-        snprintf(age_text, sizeof(age_text), "%lums old", (unsigned long)age_ms);
-    } else {
-        snprintf(age_text, sizeof(age_text), "no sample");
+    const int32_t phase_elapsed_signed = (int32_t)(loop_data.now - phase_start_time);
+    const uint32_t phase_elapsed_ms = phase_elapsed_signed > 0 ? (uint32_t)phase_elapsed_signed : 0;  // For logs
+    char detail[48];
+
+    switch (phase) {
+        case GrindPhase::TARE_CONFIRM:
+            if (weight_sensor->is_tare_in_progress() &&
+                grind_phase_timed_out(loop_data.now, phase_start_time, GRIND_TARE_CONFIRM_TARE_TIMEOUT_MS)) {
+                snprintf(detail, sizeof(detail), "tare not done after %lums", (unsigned long)phase_elapsed_ms);
+                return raise_safety(SAFETY_REASON_TARE, "Err: tare", "TARE NOT COMPLETING", detail, loop_data);
+            }
+            break;
+
+        case GrindPhase::PRIME:
+            if (grind_prime_no_flow(loop_data.now, phase_start_time, loop_data.current_weight, grinder_purge_amount_g_for_session,
+                                    GRIND_PRIME_NO_FLOW_CHECK_MS, GRIND_PRIME_NO_FLOW_MIN_PERCENT)) {
+                snprintf(detail, sizeof(detail), "%.2fg of %.2fg after %lums", loop_data.current_weight,
+                         grinder_purge_amount_g_for_session, (unsigned long)phase_elapsed_ms);
+                return raise_safety(SAFETY_REASON_PRIME_FLOW, "Err: no flow", "NO FLOW IN PRIME", detail, loop_data);
+            }
+            break;
+
+        case GrindPhase::PREDICTIVE: {
+            // Gain over the lowest reading seen, so a tap or cup disturbance cannot inflate the baseline
+            if (loop_data.current_weight < predictive_min_weight_) {
+                predictive_min_weight_ = loop_data.current_weight;
+            }
+            const float gain_g = loop_data.current_weight - predictive_min_weight_;
+            if (gain_g > predictive_peak_gain_g_) {
+                predictive_peak_gain_g_ = gain_g;
+            }
+            if (grind_predictive_no_flow(loop_data.now, phase_start_time, predictive_peak_gain_g_,
+                                         GRIND_PREDICTIVE_NO_FLOW_CHECK_MS, GRIND_PREDICTIVE_NO_FLOW_MIN_GAIN_G)) {
+                snprintf(detail, sizeof(detail), "gain %.2fg after %lums", predictive_peak_gain_g_,
+                         (unsigned long)phase_elapsed_ms);
+                return raise_safety(SAFETY_REASON_PREDICTIVE_FLOW, "Err: no flow", "NO FLOW IN PREDICTIVE", detail, loop_data);
+            }
+            break;
+        }
+
+        default:
+            break;
     }
 
-#if GRIND_SAFETY_ABORTS_ENABLED
-    queue_log_message("[SAFETY] Load cell stale: newest sample %s\n", age_text);
-    abort_grind(GrindSessionResult::ERROR, "Err: sensor", "LOAD CELL STALE", loop_data);
-    return true;
-#else
-    if (!sensor_stale_logged_) {
-        sensor_stale_logged_ = true;
-        queue_log_message("[SAFETY] Load cell stale: newest sample %s (aborts disabled, log only)\n", age_text);
-    }
     return false;
-#endif
 }
 
 void GrindController::reset_mechanical_anomaly_count() {
@@ -781,10 +855,17 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         queue_log_message("[SAFETY] Max load cell sample age: %lums\n", (unsigned long)max_sample_age_ms_);
     }
 
+    if (new_phase == GrindPhase::PREDICTIVE && weight_sensor) {
+        // Baseline for the no-flow check: read directly, continue_from_purge() passes no loop_data
+        predictive_min_weight_ = weight_sensor->get_weight_low_latency();
+        predictive_peak_gain_g_ = 0.0f;
+    }
+
     // Update phase state
+    // Order matters: the control task must never see the new phase with the old phase_start_time
+    phase_start_time = now;
     phase = new_phase;
     control_loop_paused_ = (phase == GrindPhase::PURGE_CONFIRM);
-    phase_start_time = now;
     
     // Reset loop counter for new phase
     current_phase_loop_count = 0;
