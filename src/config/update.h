@@ -71,6 +71,47 @@
 #define UPDATE_PULL_INDEX_SCHEMA 1                                             // Only schema accepted by the parser
 #define UPDATE_PULL_STRING_MAX 128                                             // Longest string value in an index file
 
+// Pull engine (see network/update_pull, network/release_client, system/mbedtls_psram_override)
+#define UPDATE_PULL_TASK_STACK 10240                                           // Worker task stack (internal RAM); high-water is logged
+#define UPDATE_PULL_TASK_PRIORITY 1                                            // Below the UI task (2)
+#define UPDATE_PULL_TASK_CORE 0                                                // With the WiFi/network stack
+#define UPDATE_PULL_CHUNK_BYTES 4096                                           // Download buffer (PSRAM, internal fallback)
+#define UPDATE_PULL_READ_TIMEOUT_MS 15000                                      // Socket timeout: no data for this long aborts the job
+#define UPDATE_PULL_MIN_FREE_INTERNAL_BYTES (42 * 1024)                        // Refuse to start below this much free internal heap (measured on COM15: start 47.7-56.5 KB, TLS dips ~9 KB, lowest 44 KB)
+#define UPDATE_PULL_URL_MAX (UPDATE_PULL_STRING_MAX + 32)                      // Index URL buffer; the image URL comes from the (<= 128 char) index
+#define UPDATE_PULL_DOWNLOAD_MAX_MS (10UL * 60UL * 1000UL)                    // Overall download deadline (a trickling server cannot hold the grinder locked forever)
+#define UPDATE_PULL_PROGRESS_LOG_STEP_BYTES (256 * 1024)                       // Log a progress line every this many downloaded bytes
+
+// Dev/test only, wifi-dev envs (they #error without DEBUG_WIFI_DEV_CREDS):
+//   DEBUG_PULL_ALLOW_HTTP  accept http:// URLs (PC test server tools/wifi/pull_test_server.py)
+//   DEBUG_PULL_BASE_URL    replaces UPDATE_PULL_BASE_URL, e.g. "http://192.168.1.20:8080/". Optional SPIKE_PULL_BASE_URL in
+//                          the gitignored include/spike_secrets.h does the same without editing platformio.ini
+//   DEBUG_PULL_AUTORUN     1: Check + Install ~25 s after boot (log only), 2: HTTPS smoke test against the real Pages site
+#ifndef DEBUG_PULL_ALLOW_HTTP
+#define DEBUG_PULL_ALLOW_HTTP 0
+#endif
+#ifndef DEBUG_PULL_AUTORUN
+#define DEBUG_PULL_AUTORUN 0
+#endif
+#ifndef DEBUG_PULL_AUTORUN_BETA
+#define DEBUG_PULL_AUTORUN_BETA 1                                              // AUTORUN 1 checks the beta channel (test images are release candidates)
+#endif
+#define DEBUG_PULL_AUTORUN_DELAY_MS 25000
+// (not for the smoke test, DEBUG_PULL_AUTORUN == 2, which must use the real Pages URL)
+#if DEBUG_PULL_ALLOW_HTTP && DEBUG_PULL_AUTORUN != 2 && !defined(DEBUG_PULL_BASE_URL) && __has_include("spike_secrets.h")
+#include "spike_secrets.h"
+#ifdef SPIKE_PULL_BASE_URL
+#define DEBUG_PULL_BASE_URL SPIKE_PULL_BASE_URL
+#endif
+#endif
+#if (DEBUG_PULL_ALLOW_HTTP || DEBUG_PULL_AUTORUN || defined(DEBUG_PULL_BASE_URL)) && !DEBUG_WIFI_DEV_CREDS
+#error "DEBUG_PULL_* is for the wifi-dev envs only (they define DEBUG_WIFI_DEV_CREDS)"
+#endif
+#ifdef DEBUG_PULL_BASE_URL
+#undef UPDATE_PULL_BASE_URL
+#define UPDATE_PULL_BASE_URL DEBUG_PULL_BASE_URL
+#endif
+
 // Dev/test only (boot-fail-test env): 0 off, 1 abort() (panic), 2 esp_restart() this long after boot, but ONLY while
 // the image is unconfirmed (installed by an update); a USB-flashed test image never crash-loops.
 #ifndef DEBUG_BOOT_FAIL_TEST

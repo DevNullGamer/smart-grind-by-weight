@@ -14,6 +14,7 @@
 #include "bluetooth/manager.h"
 #include "network/wifi_manager.h"
 #include "network/update_server.h"
+#include "network/update_pull_autorun.h"
 #include "tasks/task_manager.h"
 #include "tasks/weight_sampling_task.h"
 #include "tasks/grind_control_task.h"
@@ -179,6 +180,9 @@ void setup() {
     wifi_manager.begin();
     log_internal_heap("after WiFi begin");
     update_server.begin();  // the HTTP push endpoint itself only starts once WiFi is up and push is armed
+#if DEBUG_PULL_AUTORUN
+    update_pull_autorun_start();
+#endif
 
 #if DEBUG_WIFI_HEAP_SPIKE
     wifi_heap_spike_start();

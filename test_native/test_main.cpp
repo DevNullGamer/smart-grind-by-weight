@@ -14,6 +14,7 @@ void run_update_prompt_text_tests();
 void run_update_ui_logic_tests();
 void run_boot_health_tests();
 void run_release_index_tests();
+void run_pull_logic_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -32,5 +33,6 @@ int main() {
     run_update_ui_logic_tests();
     run_boot_health_tests();
     run_release_index_tests();
+    run_pull_logic_tests();
     return UNITY_END();
 }
