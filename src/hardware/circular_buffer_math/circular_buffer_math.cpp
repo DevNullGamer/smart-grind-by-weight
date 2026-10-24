@@ -1,5 +1,6 @@
 #include "circular_buffer_math.h"
 #include "../../config/constants.h"
+#include "../sensor_health.h"
 #include <math.h>
 #include <algorithm>
 
@@ -188,6 +189,24 @@ uint32_t CircularBufferMath::get_buffer_time_span_ms() const {
     return circular_buffer[newest_index].timestamp_ms - circular_buffer[oldest_index].timestamp_ms;
 }
 
+int CircularBufferMath::get_sample_count_in_window(uint32_t window_ms) const {
+    uint32_t window_start = millis() - window_ms;
+    int count = 0;
+    for (int i = 0; i < samples_count; i++) {
+        uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
+        if (circular_buffer[index].timestamp_ms < window_start) break;  // Time-ordered
+        count++;
+    }
+    return count;
+}
+
+bool CircularBufferMath::get_newest_sample_age_ms(uint32_t* age_out) const {
+    if (samples_count == 0) return false;
+    uint16_t latest_index = (write_index - 1 + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
+    if (age_out) *age_out = sensor_sample_age_ms(millis(), circular_buffer[latest_index].timestamp_ms);
+    return true;
+}
+
 bool CircularBufferMath::get_window_delta(uint32_t window_ms, int32_t* delta_out,
                                           uint32_t* span_ms_out, int* samples_out) const {
     if (!delta_out || samples_count < 2) {
@@ -257,7 +276,14 @@ bool CircularBufferMath::get_window_delta(uint32_t window_ms, int32_t* delta_out
 
 bool CircularBufferMath::is_settled(uint32_t window_ms, int32_t threshold_raw_units) const {
     float std_dev = get_standard_deviation_raw(window_ms);
-    bool settled = std_dev <= threshold_raw_units;
+    uint32_t newest_age_ms = 0;
+    bool has_sample = get_newest_sample_age_ms(&newest_age_ms);
+    bool stale = sensor_sample_is_stale(has_sample, newest_age_ms, HW_LOADCELL_STALE_SAMPLE_MS);
+    uint32_t min_samples = settle_min_samples(window_ms, HW_LOADCELL_SAMPLE_RATE_SPS,
+                                              HW_LOADCELL_SETTLE_MIN_SAMPLES_PERCENT,
+                                              HW_LOADCELL_SETTLE_MIN_SAMPLES_FLOOR);
+    bool settled = settle_check((uint32_t)get_sample_count_in_window(window_ms), min_samples, stale,
+                                std_dev, (float)threshold_raw_units);
     
     // Debug output every 1s during settling checks
     static uint32_t last_debug_time = 0;

@@ -179,6 +179,8 @@ public:
     
     // Status and information methods
     int get_sample_count() const;                            // Returns filter sample count
+    uint32_t get_newest_sample_age_ms() const;               // Age of newest sample; UINT32_MAX when none yet
+    bool is_sample_stale(uint32_t stale_after_ms = HW_LOADCELL_STALE_SAMPLE_MS) const; // No sample or older than stale_after_ms
     float get_calibration_factor();                          
     int32_t get_zero_offset() const { return tare_offset; }
     bool is_initialized();                                   

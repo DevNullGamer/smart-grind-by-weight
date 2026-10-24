@@ -50,6 +50,11 @@ void DiagnosticsController::check_load_cell_boot_fault(WeightSensor* sensor) {
 
     using HardwareFault = WeightSensor::HardwareFault;
 
+    // Runtime: a sensor that has delivered samples and then went quiet for a while (never raised
+    // before the first sample, so boot bring-up does not warn)
+    const bool went_quiet = sensor->get_sample_count() > 0 &&
+                            sensor->is_sample_stale(HW_LOADCELL_NO_DATA_DIAG_MS);
+
     HardwareFault fault = sensor->get_hardware_fault();
     switch (fault) {
         case HardwareFault::NONE:
@@ -68,6 +73,12 @@ void DiagnosticsController::check_load_cell_boot_fault(WeightSensor* sensor) {
             set_diagnostic_active(DiagnosticCode::HX711_SAMPLE_RATE_INVALID);
             clear_diagnostic(DiagnosticCode::HX711_NOT_CONNECTED);
             break;
+    }
+
+    if (fault == HardwareFault::NO_DATA || (fault == HardwareFault::NONE && went_quiet)) {
+        set_diagnostic_active(DiagnosticCode::HX711_NO_DATA);
+    } else {
+        clear_diagnostic(DiagnosticCode::HX711_NO_DATA);
     }
 }
 
@@ -158,10 +169,11 @@ DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
     //    a fatal fault raises as well)
     // 3. MOTOR_DISABLED - grinder output off (board not confirmed)
     // 4. HX711_NOT_CONNECTED - load cell hardware missing
-    // 5. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
-    // 6. MECHANICAL_INSTABILITY - immediate safety concern
-    // 7. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
-    // 8. LOAD_CELL_NOT_CALIBRATED - initial setup issue
+    // 5. HX711_NO_DATA - load cell delivers no samples
+    // 6. HX711_SAMPLE_RATE_INVALID - incorrect RATE pin configuration
+    // 7. MECHANICAL_INSTABILITY - immediate safety concern
+    // 8. LOAD_CELL_NOISY_SUSTAINED - affects grind quality
+    // 9. LOAD_CELL_NOT_CALIBRATED - initial setup issue
 
     if (find_diagnostic(DiagnosticCode::BOARD_UNRECOGNIZED)) {
         return DiagnosticCode::BOARD_UNRECOGNIZED;
@@ -174,6 +186,9 @@ DiagnosticCode DiagnosticsController::get_highest_priority_warning() const {
     }
     if (find_diagnostic(DiagnosticCode::HX711_NOT_CONNECTED)) {
         return DiagnosticCode::HX711_NOT_CONNECTED;
+    }
+    if (find_diagnostic(DiagnosticCode::HX711_NO_DATA)) {
+        return DiagnosticCode::HX711_NO_DATA;
     }
     if (find_diagnostic(DiagnosticCode::HX711_SAMPLE_RATE_INVALID)) {
         return DiagnosticCode::HX711_SAMPLE_RATE_INVALID;
@@ -226,6 +241,8 @@ const char* DiagnosticsController::get_diagnostic_message(DiagnosticCode code) c
     switch (code) {
         case DiagnosticCode::HX711_NOT_CONNECTED:
             return "HX711 sensor not connected. Check wiring and restart.";
+        case DiagnosticCode::HX711_NO_DATA:
+            return "HX711 sensor sends no data. Check the load cell wiring and restart.";
         case DiagnosticCode::HX711_SAMPLE_RATE_INVALID:
             return "HX711 sample rate invalid. Ensure RATE pin is wired for 10 SPS.";
         case DiagnosticCode::LOAD_CELL_NOT_CALIBRATED:

@@ -1,6 +1,7 @@
 #include "WeightSensor.h"
 #include "../config/constants.h"
 #include "hx711_driver.h"
+#include "sensor_health.h"
 #if DEBUG_ENABLE_LOADCELL_MOCK
 #include "mock_hx711_driver.h"
 #endif
@@ -507,6 +508,17 @@ bool WeightSensor::is_flow_rate_stable(uint32_t window_ms) const {
 
 int WeightSensor::get_sample_count() const {
     return raw_filter.get_sample_count();
+}
+
+uint32_t WeightSensor::get_newest_sample_age_ms() const {
+    uint32_t age_ms = 0;
+    return raw_filter.get_newest_sample_age_ms(&age_ms) ? age_ms : UINT32_MAX;
+}
+
+bool WeightSensor::is_sample_stale(uint32_t stale_after_ms) const {
+    uint32_t age_ms = 0;
+    bool has_sample = raw_filter.get_newest_sample_age_ms(&age_ms);
+    return sensor_sample_is_stale(has_sample, age_ms, stale_after_ms);
 }
 
 float WeightSensor::get_calibration_factor() {

@@ -2,6 +2,7 @@
 #include "grind_events.h"
 #include "../hardware/circular_buffer_math/circular_buffer_math.h"
 #include "../config/constants.h"
+#include "../hardware/sensor_health.h"
 #include "../system/diagnostics_controller.h"
 #include "../system/statistics_manager.h"
 #include <Arduino.h>
@@ -191,6 +192,8 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     control_loop_paused_ = false;
 
     reset_mechanical_anomaly_count();
+    max_sample_age_ms_ = 0;
+    sensor_stale_logged_ = false;
 
     if (diagnostics_controller_) {
         diagnostics_controller_->reset_diagnostic(DiagnosticCode::MECHANICAL_INSTABILITY);
@@ -332,6 +335,10 @@ void GrindController::update() {
     
     // Increment loop counter for current phase performance tracking
     current_phase_loop_count = current_phase_loop_count + 1;
+
+    if (check_safety(loop_data)) {
+        return;
+    }
 
     monitor_mechanical_instability(loop_data);
     
@@ -623,6 +630,56 @@ void GrindController::abort_grind(GrindSessionResult result, const char* ui_text
     switch_phase(GrindPhase::TIMEOUT, loop_data);
 }
 
+bool GrindController::check_safety(const GrindLoopData& loop_data) {
+    // Weight mode only (D1): time mode does not depend on the scale
+    if (mode != GrindMode::WEIGHT || !weight_sensor || !grinder) {
+        return false;
+    }
+
+    switch (phase) {
+        case GrindPhase::TARE_CONFIRM:
+        case GrindPhase::PRIME:
+        case GrindPhase::PRIME_SETTLING:
+        case GrindPhase::PREDICTIVE:
+        case GrindPhase::PULSE_DECISION:
+        case GrindPhase::PULSE_EXECUTE:
+        case GrindPhase::PULSE_SETTLING:
+        case GrindPhase::FINAL_SETTLING:
+            break;
+        default:
+            return false;
+    }
+
+    const uint32_t age_ms = weight_sensor->get_newest_sample_age_ms();  // UINT32_MAX = no sample yet
+    const bool has_sample = (age_ms != UINT32_MAX);
+    if (has_sample && age_ms > max_sample_age_ms_) {
+        max_sample_age_ms_ = age_ms;
+    }
+
+    if (!sensor_sample_is_stale(has_sample, age_ms, HW_LOADCELL_STALE_SAMPLE_MS)) {
+        return false;
+    }
+
+    char age_text[24];
+    if (has_sample) {
+        snprintf(age_text, sizeof(age_text), "%lums old", (unsigned long)age_ms);
+    } else {
+        snprintf(age_text, sizeof(age_text), "no sample");
+    }
+
+#if GRIND_SAFETY_ABORTS_ENABLED
+    queue_log_message("[SAFETY] Load cell stale: newest sample %s\n", age_text);
+    abort_grind(GrindSessionResult::ERROR, "Err: sensor", "LOAD CELL STALE", loop_data);
+    return true;
+#else
+    if (!sensor_stale_logged_) {
+        sensor_stale_logged_ = true;
+        queue_log_message("[SAFETY] Load cell stale: newest sample %s (aborts disabled, log only)\n", age_text);
+    }
+    return false;
+#endif
+}
+
 void GrindController::reset_mechanical_anomaly_count() {
     mechanical_anomaly_count_ = 0;
     last_mechanical_event_ms_ = 0;
@@ -720,6 +777,10 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         grind_logger.log_event(event_in_progress);
     }
     
+    if (mode == GrindMode::WEIGHT && (new_phase == GrindPhase::COMPLETED || new_phase == GrindPhase::TIMEOUT)) {
+        queue_log_message("[SAFETY] Max load cell sample age: %lums\n", (unsigned long)max_sample_age_ms_);
+    }
+
     // Update phase state
     phase = new_phase;
     control_loop_paused_ = (phase == GrindPhase::PURGE_CONFIRM);

@@ -174,6 +174,10 @@ private:
 
     DiagnosticsController* diagnostics_controller_ = nullptr;
 
+    // Safety monitoring (weight mode)
+    uint32_t max_sample_age_ms_ = 0;     // Oldest newest-sample age seen during this grind (session log)
+    bool sensor_stale_logged_ = false;   // Log-only mode: report a stale sensor once per grind
+
     // Motor response latency - runtime configurable
     float motor_response_latency_ms;
 
@@ -274,6 +278,7 @@ private:
     void abort_grind(GrindSessionResult result, const char* ui_text, const char* log_text,
                      const GrindLoopData& loop_data);
 
+    bool check_safety(const GrindLoopData& loop_data);  // True when the grind was aborted this cycle
     bool check_timeout() const;
     uint8_t get_current_phase_id() const;
     

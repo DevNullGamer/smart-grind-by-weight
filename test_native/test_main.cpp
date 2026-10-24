@@ -16,6 +16,7 @@ void run_boot_health_tests();
 void run_release_index_tests();
 void run_pull_logic_tests();
 void run_pull_ui_text_tests();
+void run_sensor_health_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -36,5 +37,6 @@ int main() {
     run_release_index_tests();
     run_pull_logic_tests();
     run_pull_ui_text_tests();
+    run_sensor_health_tests();
     return UNITY_END();
 }

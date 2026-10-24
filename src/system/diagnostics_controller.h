@@ -18,7 +18,8 @@ enum class DiagnosticCode {
     MECHANICAL_INSTABILITY,         // Mechanical issues during grinding - Phase 6
     BOARD_UNRECOGNIZED,             // Hardware board (V1/V2) could not be identified at boot
     MOTOR_DISABLED,                 // Grinder output is off (board not confirmed by probe or user)
-    MOTOR_FAULT                     // Motor deadman tripped (latched until reboot)
+    MOTOR_FAULT,                    // Motor deadman tripped (latched until reboot)
+    HX711_NO_DATA                   // HX711 connected but delivers no samples (boot fault or stale at runtime)
 };
 
 // State for a single diagnostic condition

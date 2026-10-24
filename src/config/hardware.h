@@ -52,6 +52,12 @@
 #define HW_LOADCELL_SAMPLE_RATE_SPS 10                                         // Current sample rate setting
 #define HW_LOADCELL_SAMPLE_INTERVAL_MS (1000 / HW_LOADCELL_SAMPLE_RATE_SPS)   // Calculated sample interval
 
+// Sample freshness and settled check (see src/hardware/sensor_health.h)
+#define HW_LOADCELL_STALE_SAMPLE_MS 500                                        // Newest sample older than this = sensor stale/dead (5 missed samples at 10 SPS)
+#define HW_LOADCELL_NO_DATA_DIAG_MS 2000                                       // Stale this long (after the first sample) raises the HX711_NO_DATA diagnostic
+#define HW_LOADCELL_SETTLE_MIN_SAMPLES_PERCENT 60                              // Settled check needs this share of the samples a window should hold
+#define HW_LOADCELL_SETTLE_MIN_SAMPLES_FLOOR 2                                 // ...and never fewer than this many
+
 // Calibration validation
 #define HW_LOADCELL_CAL_MIN_ADC_VALUE 1000                                    // Minimum ADC value to confirm weight placed on scale
 

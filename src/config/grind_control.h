@@ -33,6 +33,9 @@ enum class GrinderPurgeMode {
 #define GRIND_TIMEOUT_SEC 60                                              // Maximum time for grind operation
 #define GRIND_MAX_PULSE_ATTEMPTS 10                                       // Maximum pulse corrections before stopping
 
+// Safety aborts (weight mode). 0 = log only, never abort (kill switch if an abort proves a false positive)
+#define GRIND_SAFETY_ABORTS_ENABLED 1                                     // Stale/dead load cell aborts the grind ("Err: sensor"); stale limit is HW_LOADCELL_STALE_SAMPLE_MS
+
 // Flow rate detection
 #define GRIND_FLOW_DETECTION_THRESHOLD_GPS 0.5f                           // Minimum coffee flow rate to establish first grinds reachinig the cup = latency
 

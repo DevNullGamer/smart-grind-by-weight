@@ -82,8 +82,11 @@ public:
     // Raw access for diagnostics
     uint16_t get_sample_count() const { return samples_count; }
     uint32_t get_buffer_time_span_ms() const;
+    int get_sample_count_in_window(uint32_t window_ms) const;           // Samples newer than window_ms
+    bool get_newest_sample_age_ms(uint32_t* age_out) const;             // False when the buffer is empty
     
-    // Settling analysis - window_ms based with raw value threshold
+    // Settling analysis - window_ms based with raw value threshold. Never settled on an empty,
+    // sparse or stale buffer (see sensor_health.h)
     bool is_settled(uint32_t window_ms, int32_t threshold_raw_units) const;
     float get_settling_confidence(uint32_t window_ms) const;
     
