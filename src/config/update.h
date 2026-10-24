@@ -58,6 +58,17 @@
 #define UPDATE_UI_REASON_MAX 16                                                // Longest failure reason shown (longer ones end in "..."); keeps the line to two rows
 #define UPDATE_UI_TAP_GUARD_MS 400                                             // Taps on the Accept dialog this soon after it opened are ignored
 
+// Boot-health rollback (see system/boot_health): a freshly installed image must run this long after setup()
+// before it is confirmed; a reset or crash before that makes the bootloader return to the previous image.
+#define BOOT_HEALTH_CONFIRM_MS 30000
+
+// Dev/test only (boot-fail-test env): 0 off, 1 abort() (panic), 2 esp_restart() this long after boot, but ONLY while
+// the image is unconfirmed (installed by an update); a USB-flashed test image never crash-loops.
+#ifndef DEBUG_BOOT_FAIL_TEST
+#define DEBUG_BOOT_FAIL_TEST 0
+#endif
+#define DEBUG_BOOT_FAIL_DELAY_MS 8000
+
 // Dev/test only (wifi-dev env): the HTTP side plays the user at the screen. 0 off, 1 accept, 2 decline, 3 never reply.
 #ifndef DEBUG_UPDATE_PROMPT_AUTOREPLY
 #define DEBUG_UPDATE_PROMPT_AUTOREPLY 0

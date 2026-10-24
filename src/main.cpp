@@ -6,6 +6,7 @@
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
+#include "system/boot_health.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -73,7 +74,8 @@ void setup() {
         default: break;
     }
     LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", rr_str, rr);
-    
+    boot_health_begin();  // image state (PENDING_VERIFY after an update); confirmed from loop() once it proved itself
+
     
     // Early startup heartbeat - helps capture initialization sequence
     LOG_BLE("[STARTUP] Initializing ESP32-S3 Coffee Scale - Build %d - Core1 active\n", BUILD_NUMBER);
@@ -160,6 +162,7 @@ void setup() {
     
     if (!task_init_success) {
         LOG_BLE("ERROR: Failed to initialize TaskManager - system cannot start\n");
+        boot_health_rollback_now("task initialization failed");  // no-op unless this image is unconfirmed
         while (true) {
             delay(1000); // Halt system if task initialization fails
         }
@@ -184,10 +187,12 @@ void setup() {
 #if DEBUG_BLE_ENABLE_STRESS
     ble_enable_stress_start();
 #endif
+
+    boot_health_setup_done();  // the confirmation timer of a freshly installed image starts counting here
 }
 
 void loop() {
-
+    boot_health_tick();
 
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // Core 1 main loop timing (monitor main loop health)

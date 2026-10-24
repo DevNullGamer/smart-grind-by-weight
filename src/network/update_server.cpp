@@ -4,6 +4,7 @@
 #include "update_approval_gate.h"
 #include "update_status.h"
 #include "../system/ota_marker.h"
+#include "../system/boot_health.h"
 #include "../config/constants.h"
 #include "../hardware/board_detect.h"
 #include "../hardware/hardware_manager.h"
@@ -370,6 +371,11 @@ int UpdateServer::handle_begin(httpd_req* req) {
     // A busy grinder is refused before the user is bothered with a prompt (the guard checks again later)
     if (grinder_busy()) {
         return send_error(req, "409 Conflict", "busy", UpdateGuard::result_text(UpdateGuard::Result::GRINDER_BUSY));
+    }
+
+    // Right after an update the running image is not confirmed yet (BOOT_HEALTH_CONFIRM_MS); esp_ota_begin would fail
+    if (boot_health_pending()) {
+        return send_error(req, "409 Conflict", "busy", "Firmware is still being verified, try again in a minute");
     }
 
     char peer_ip[UPDATE_PEER_IP_BUF];

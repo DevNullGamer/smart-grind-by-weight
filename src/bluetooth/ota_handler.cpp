@@ -6,6 +6,7 @@
 #include "../controllers/grind_controller.h"
 #include "../tasks/task_manager.h"
 #include "../system/update_guard.h"
+#include "../system/boot_health.h"
 #include <Arduino.h>
 #include <BLEDevice.h>
 #include <climits>
@@ -154,6 +155,13 @@ bool OTAHandler::start_ota_locked(uint32_t size, const String& expected_build_nu
     // A WiFi update owns the grinder/tasks right now: never run two updates at once
     if (UpdateGuard::is_held()) {
         failure_reason = "Update refused: another update running";
+        current_status = BLE_OTA_ERROR;
+        return false;
+    }
+
+    // The running image is not confirmed yet (first seconds after an update): esp_ota_begin would fail anyway
+    if (boot_health_pending()) {
+        failure_reason = "Update refused: firmware still being verified";
         current_status = BLE_OTA_ERROR;
         return false;
     }
@@ -528,6 +536,18 @@ String OTAHandler::check_ota_failure_after_boot() {
     int current_build = BUILD_NUMBER;
     String current_version = BUILD_FIRMWARE_VERSION;
 
+    // A passed check keeps the marker while this image is still unconfirmed: if it crashes before the confirmation,
+    // the bootloader returns to the previous image, which then finds the marker and reports the failed update.
+    // boot_health_tick() removes it once the image is confirmed.
+    auto keep_marker_until_confirmed = [this]() {
+        if (boot_health_pending()) {
+            LOG_BLE("OTA: Keeping the expected-version marker until the new image is confirmed\n");
+            return;
+        }
+        preferences->remove("new_build_nr");
+        preferences->remove("new_fw_ver");
+    };
+
     // Web flasher sends firmware version - use that for verification (more reliable)
     if (!expected_version.isEmpty()) {
         if (expected_version != current_version) {
@@ -539,8 +559,7 @@ String OTAHandler::check_ota_failure_after_boot() {
         } else {
             LOG_BLE("OTA: Version check passed - expected v%s, got v%s\n",
                          expected_version.c_str(), current_version.c_str());
-            preferences->remove("new_build_nr");
-            preferences->remove("new_fw_ver");
+            keep_marker_until_confirmed();
             return "";
         }
     }
@@ -557,8 +576,7 @@ String OTAHandler::check_ota_failure_after_boot() {
         } else {
             LOG_BLE("OTA: Build number check passed - expected #%d, got #%d\n",
                          expected_build_num, current_build);
-            preferences->remove("new_build_nr");
-            preferences->remove("new_fw_ver");
+            keep_marker_until_confirmed();
             return "";
         }
     }

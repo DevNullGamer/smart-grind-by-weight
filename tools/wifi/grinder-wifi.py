@@ -144,21 +144,40 @@ def find_default_firmware(project_dir=PROJECT_DIR, env=FIRMWARE_ENV):
     return max(candidates, key=_cache_build_number)
 
 
+def _cache_dirs(project_dir, env):
+    """Every per-env directory of firmware_cache, the main env first (derived envs such as -wifi-dev or
+    -boot-fail-test archive their images in their own directory)."""
+    root = Path(project_dir) / "firmware_cache"
+    if not root.is_dir():
+        return []
+    return sorted((d for d in root.iterdir() if d.is_dir()), key=lambda d: (d.name != env, d.name))
+
+
 def find_cache_build(firmware_path, project_dir=PROJECT_DIR, env=FIRMWARE_ENV):
-    """Build number of a firmware_cache image that is byte-identical to firmware_path, else None."""
-    cache = Path(project_dir) / "firmware_cache" / env
-    if not cache.is_dir():
-        return None
+    """Build number of a firmware_cache image (of any env) that is byte-identical to firmware_path, else None.
+    The build number is what the device compares after the restart; without it a rolled-back update is not reported."""
     size = Path(firmware_path).stat().st_size
     sha = None
-    for candidate in sorted(cache.glob("build_*.bin"), key=lambda p: _cache_build_number(p) or 0, reverse=True):
-        number = _cache_build_number(candidate)
-        if number is None or candidate.stat().st_size != size:
-            continue
-        if sha is None:
-            sha = sha256_file(firmware_path)
-        if sha256_file(candidate) == sha:
-            return number
+    for cache in _cache_dirs(project_dir, env):
+        for candidate in sorted(cache.glob("build_*.bin"), key=lambda p: _cache_build_number(p) or 0, reverse=True):
+            number = _cache_build_number(candidate)
+            if number is None or candidate.stat().st_size != size:
+                continue
+            if sha is None:
+                sha = sha256_file(firmware_path)
+            if sha256_file(candidate) == sha:
+                return number
+    return None
+
+
+def rollback_hint(info, old_build, expected_build):
+    """Text for 'the new firmware did not show up': a device that answers with the old build was most likely rolled
+    back by the boot-health check (or never restarted); None when there is nothing to say."""
+    if not info or "build" not in info:
+        return None
+    if info["build"] == old_build and expected_build != old_build:
+        return ("The device runs the previous build %s again. The new image probably crashed or reset within "
+                "30 s of its first start and was rolled back automatically." % info["build"])
     return None
 
 
@@ -216,6 +235,14 @@ def format_progress(sent, total, elapsed_s):
     percent = 100.0 * sent / total if total else 100.0
     rate = (sent / 1024.0) / elapsed_s if elapsed_s > 0 else 0.0
     return "%5.1f%%  %d / %d KB  %.0f KB/s" % (percent, sent // 1024, total // 1024, rate)
+
+
+def confirm_note(expected_build):
+    """Reminder printed once the new image answers: it is only confirmed after a stable run."""
+    note = "Note: the new image is confirmed after ~30 s of stable running; a crash before that rolls back to the previous build"
+    if expected_build is None:
+        return note + " (no build number known, so a rollback cannot be detected by this tool)."
+    return note + "."
 
 
 def reboot_finished(info, expected_build, old_build, seen_down):
@@ -359,7 +386,8 @@ def cmd_upload(args):
     expected_build = args.expect_build if args.expect_build is not None else find_cache_build(firmware)
     print("Firmware: %s (%d bytes)" % (firmware, size))
     print("SHA-256:  %s" % sha)
-    print("Build number: %s" % (expected_build if expected_build is not None else "unknown (not found in firmware_cache)"))
+    print("Build number: %s" % (expected_build if expected_build is not None else
+                                "unknown (not found in firmware_cache, pass --expect-build to enable the rollback check)"))
 
     try:
         old_info = get_info(host)
@@ -411,9 +439,16 @@ def cmd_upload(args):
             seen_down = True
         if reboot_finished(info, expected_build, old_build, seen_down):
             print("Device is back: version %s build %s" % (info.get("version", "?"), info.get("build")))
+            print(confirm_note(expected_build))
             return EXIT_OK
         time.sleep(2)
     print("ERROR: the device did not come back with the new firmware within %d s" % REBOOT_WAIT_S)
+    try:
+        hint = rollback_hint(get_info(host, timeout=3), old_build, expected_build)
+    except (OSError, http.client.HTTPException):
+        hint = None
+    if hint:
+        print(hint)
     return EXIT_FAIL
 
 

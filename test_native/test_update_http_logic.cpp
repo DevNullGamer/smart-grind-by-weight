@@ -142,6 +142,16 @@ static void test_begin_good_full_and_whitespace() {
     TEST_ASSERT_EQUAL_STRING("1.2.3-beta", r.version);
 }
 
+// Exactly what tools/wifi/grinder-wifi.py sends: compact JSON, key order size / sha256 / build, no version
+static void test_begin_tool_body_with_build_only() {
+    UpdateBeginRequest r;
+    const std::string body = std::string("{\"size\":2191088,\"sha256\":\"") + kSha + "\",\"build\":245}";
+    TEST_ASSERT_EQUAL(BeginParseResult::OK, parse(body, &r));
+    TEST_ASSERT_EQUAL_UINT32(2191088, r.size);
+    TEST_ASSERT_EQUAL_INT32(245, r.build);
+    TEST_ASSERT_EQUAL_CHAR('\0', r.version[0]);
+}
+
 static void test_begin_uppercase_sha_accepted() {
     UpdateBeginRequest r;
     std::string up = kSha;
@@ -371,6 +381,7 @@ void run_update_http_logic_tests() {
     RUN_TEST(test_begin_size_limits);
     RUN_TEST(test_begin_slot_size_is_the_upper_bound);
     RUN_TEST(test_begin_missing_and_bad_sha);
+    RUN_TEST(test_begin_tool_body_with_build_only);
     RUN_TEST(test_begin_build_rules);
     RUN_TEST(test_begin_version_rules);
     RUN_TEST(test_begin_unknown_fields);
