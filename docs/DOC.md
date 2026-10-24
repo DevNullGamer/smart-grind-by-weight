@@ -32,6 +32,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
   - [🗺️ User Interface Navigation](#️-user-interface-navigation)
   - [⚡ Automated Grind Flow](#-automated-grind-flow)
   - [🔵 Bluetooth Connectivity](#-bluetooth-connectivity)
+  - [📡 WiFi Setup](#-wifi-setup)
   - [🔍 Diagnostic Report](#-diagnostic-report)
     - [Report Contents](#report-contents)
     - [Access Methods](#access-methods)
@@ -403,6 +404,12 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |   |-- Connection status display
     |   |   \-- Auto-disable timer display
     |   |
+    |   +-- WiFi
+    |   |   |-- Status, network, IP, signal, name
+    |   |   |-- Forget WiFi
+    |   |   |-- Receive / Confirm toggles
+    |   |   \-- Firmware: Beta toggle, Check for update, Install
+    |   |
     |   +-- Display
     |   |   |-- Normal brightness slider
     |   |   \-- Screensaver brightness slider
@@ -480,6 +487,54 @@ The grinder can join your 2.4 GHz home WiFi so firmware can be pushed from your 
 - **Command line:** `python3 tools/grinder.py wifi-set "My Network"` (prompts for the password; `--password-env NAME` or `--open` for scripts and open networks). It generates the token and stores it in `~/.grinder-wifi.json`, so `wifi-upload` works straight away. `python3 tools/grinder.py wifi-clear` removes the stored details.
 - **Changing the network later:** open **Menu → WiFi** on the grinder first. While that page is on screen the grinder accepts new details over Bluetooth; otherwise it refuses and says so.
 - The Bluetooth link is not encrypted: set WiFi up at home, not in a public place.
+
+> **Status:** On a development board the following ran: the push update (`wifi-upload`), the download engine behind Check/Install (against a PC test server and an HTTPS smoke test), the Accept handshake (with an automatic reply instead of a tap) and the rollback. The menu buttons, dialogs and screens described here were **not** run on hardware or seen on screen, and Bluetooth provisioning (web flasher tab, `wifi-set`) and the real published update index on GitHub Pages are not verified. Treat WiFi updates as experimental; Bluetooth updates remain the fallback.
+
+### Menu → WiFi
+
+Open **Menu → Settings → WiFi**. The page shows:
+
+- **Status** (Connected, Connecting..., Retry in Ns, Not set up), **Network**, **IP**, **Signal** (for example `-62 dBm Good`) and the **Name** (`grindbyweight.local`).
+- **Forget WiFi** (once set up): removes the network, password and update token after a confirmation. Updates over WiFi stop until you set it up again.
+- **Updates → Receive** (off by default): lets your computer send firmware to the grinder. Only turn it on when you want to update. **Confirm** (on by default): every update must be accepted with a tap on the grinder. Turning Confirm off lets anyone who has the token install firmware without touching the grinder; the grinder warns you before it allows that.
+- **Firmware**: the installed version, the latest version found, a **Beta** switch (include release candidates and betas), **Check for update** and **Install**.
+
+While this page is on screen the grinder accepts new WiFi details over Bluetooth. Leave the page when you are done.
+
+### Update from the computer
+
+1. Set up WiFi (above) and turn **Receive** on in **Menu → WiFi**. Go to the home screen of the grinder (not mid-grind, not in a screen with a dialog open).
+2. Build or download the firmware image (`.bin`), then run:
+
+```bash
+python3 tools/grinder.py wifi-info                # check that the grinder answers (name, version, build, Confirm)
+python3 tools/grinder.py wifi-upload              # uploads the latest build
+python3 tools/grinder.py wifi-upload path/to/firmware.bin
+```
+
+The host and token come from `~/.grinder-wifi.json` (written by `wifi-set` or the downloaded web flasher config), from `--host` / `--token`, or from the environment variables `GRINDER_WIFI_HOST` / `GRINDER_WIFI_TOKEN`. The grinder is reachable as `grindbyweight.local`; if your system cannot resolve that name, use the IP address shown in **Menu → WiFi**.
+
+3. The tool prints "Confirm the update on the grinder screen (30 s)...". Tap **INSTALL**. The screen shows a progress arc; the grinder restarts by itself when the image is installed. At weak signal an upload can take several minutes.
+
+### Update from the menu
+
+1. Connect to WiFi (Menu → WiFi shows **Connected**) and switch **Beta** on or off as you like.
+2. Press **Check for update**. The result is **Up to date**, **No release published**, **Check failed** or the new version number. A result older than 10 minutes must be checked again.
+3. Press **Install vX.Y.Z** and confirm. Bluetooth is turned off for the download (turn it on again in **Menu → Bluetooth** afterwards, or after a failed update). The grinder downloads the image over HTTPS, verifies it, and restarts.
+
+Only complete releases that work on both board revisions are offered (see [RELEASES.md](RELEASES.md)).
+
+### What the prompts and screens mean
+
+| You see | Meaning |
+|---|---|
+| **WIFI UPDATE: Install new firmware?** (INSTALL / DECLINE) | A computer on your network wants to send firmware (version, size and sender address are shown). INSTALL starts it, DECLINE refuses and blocks new requests for 30 s. No answer within 30 s counts as no. |
+| **UPDATE** with the old and new version | You started an update from the menu. Bluetooth is turned off while it runs. |
+| Progress screen (**WiFi update** / **Downloading**) | An update is running. Touch is disabled; do not power off. A failure shows `Failed: <reason>` for 3 seconds. |
+| **Update Failed**: "The device is still running the previous version" | After the restart the grinder is not on the version that was installed, most often because the new firmware crashed or reset within 30 s and was rolled back. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#wifi-updates-and-the-update-failed-screen). |
+| **TURN OFF CONFIRM** | Warning before updates without a tap are allowed. |
+
+**Rollback protection:** a freshly installed firmware must run for 30 seconds without crashing or resetting. If it resets earlier (including a power cut) the grinder returns to the previous firmware by itself and shows **Update Failed**. A new update is refused with "Firmware is still being verified" until the 30 seconds have passed. The first update from a firmware that predates this feature is not protected.
 
 ---
 

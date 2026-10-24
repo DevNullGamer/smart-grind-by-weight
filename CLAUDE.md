@@ -21,6 +21,8 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
 - `python3 tools/grinder.py scan` - Scan for BLE devices
 - `python3 tools/grinder.py info` - Get device system information
+- `python3 tools/grinder.py wifi-info` - Query the grinder over WiFi (prints name, version, build, board, busy, confirm); needs only the host (`--host`, `GRINDER_WIFI_HOST` or `~/.grinder-wifi.json`), `/api/info` is unauthenticated
+- `python3 tools/grinder.py wifi-upload [firmware.bin]` - Push firmware over WiFi; needs host and token (`--token`, `GRINDER_WIFI_TOKEN` or the config file), Receive must be on, confirm on the grinder screen
 - `python3 tools/grinder.py wifi-set "<ssid>"` / `wifi-clear` - Provision / remove WiFi credentials over BLE (changing them later needs Menu -> WiFi open on the device)
 - `python3 tools/grinder.py clean` - Clean build artifacts
 
@@ -47,6 +49,14 @@ python3 tools/grinder.py analyze
 - Override: NVS `board_override` (0 auto/1 V1/2 V2), set via Menu -> Hardware board, on-screen picker (UNKNOWN), or BLE `grinder.py board` (v1/v2 only while board not established).
 - One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
 - Dual wiring: HX711 SCK pulsed on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
+
+**WiFi / updates (invariants; details in `docs/DESIGN-NOTES.md`; BLE provisioning, screens and the real Pages index are host-tested only, not hardware-verified):**
+- Push is armed only by the Receive toggle (`push_enabled`, default off); Confirm/Accept (`accept`, default on) needs a tap on the grinder. Turning Confirm off needs the warning dialog.
+- Never call LVGL from the HTTP task or the `UpdatePull` worker; they talk to the UI only via `update_approval`, `UpdateStatus` and `update_pull` (polled by the UI task).
+- One update at a time: `UpdateGuard::is_held()` excludes push, pull and BLE OTA; `onConnect` refuses BLE while it is held.
+- Rollback: `boot_health` confirms a new image after 30 s (`BOOT_HEALTH_CONFIRM_MS`); updates are refused (409) until then. Do not add health criteria.
+- Pull TLS allocates from PSRAM only inside `TlsPsramScope`; the pull URL is the fixed `UPDATE_PULL_BASE_URL`, https only.
+- `DEBUG_PULL_*` and `DEBUG_UPDATE_PROMPT_AUTOREPLY` exist only in `...-wifi-dev*` envs (they `#error` otherwise). Erase NVS after using a wifi-dev env (it seeds a public token and arms push). `release.yml` builds only the main env.
 
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 

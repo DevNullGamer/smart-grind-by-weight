@@ -60,3 +60,20 @@ Tags containing `beta`, `alpha`, or `rc` are automatically marked as pre-release
 - `v1.2.0-alpha.1` - Alpha release
 
 This keeps experimental versions separate from stable releases.
+
+### Update index for WiFi updates (stable and beta)
+
+The grinder can download releases itself (Menu → WiFi → Firmware). It does not read the GitHub API; it reads two small files from GitHub Pages:
+
+- `update-stable.json`: the highest non-prerelease release.
+- `update-beta.json`: the highest release overall, including `-rc.N` / `-beta.N`.
+
+**How they are made:** the `deploy-web-flasher.yml` workflow downloads every published release into `tools/web-flasher/firmware/<tag>/`, writes the web flasher's `firmware/index.json`, and then runs `tools/update_index.py`, which writes both files next to `index.html` (the Pages root). Each file has the version, tag, size, SHA-256 and the URL of `smart-grind-by-weight-<tag>.bin` (the raw image, not the `-web-ota.bin` patch). If no release qualifies the file only says `"none": true` and the grinder shows "No release published". Schema and parser rules: `docs/DESIGN-NOTES.md`, section "Release index and SemVer".
+
+**Which releases are offered:** only published (not draft) releases whose manifest is the unified **auto-detect** image (V1 and V2). Older single-board releases are never offered over WiFi. Tags must look like `v1.5.0` or `v1.5.0-rc.2` (SemVer; a prerelease is anything with a `-` part). Ordering is SemVer: `1.4.1-rc.3 < 1.4.1-rc.10 < 1.4.1 < 1.5.0-beta < 1.5.0`. A grinder running a newer version than the channel head (for example an RC of the next version) is told "Up to date", never offered a downgrade.
+
+**When it runs (Pages deploy trigger):** the workflow runs when a release is published, unpublished or deleted, when `tools/web-flasher/**` changes on `main`, and manually (workflow_dispatch). So a draft release is invisible until you publish it, and the index files appear on Pages only after the first deploy on `main` that includes this feature. Until then the menu Check shows "Check failed" or "No release published"; Bluetooth and `wifi-upload` are not affected. This path has not been exercised against the real Pages site yet (host-tested only).
+
+**Trust:** the index and images are as trustworthy as the Pages deployment; there is no firmware signing. The device verifies the SHA-256 from the index and the TLS certificate chain (no expiry check, the grinder has no clock).
+
+**Rollback caveat:** a new image is confirmed after 30 s of stable running, otherwise the grinder returns to the previous firmware. The **first** update from a firmware that predates this feature is not rollback-protected (the old firmware confirms the new image at once); mention this in the release notes of the first release that contains it.

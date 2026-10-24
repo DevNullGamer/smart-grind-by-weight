@@ -9,6 +9,7 @@
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
 - [Grind Timeout Screen](#grind-timeout-screen)
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
+- [WiFi Updates and the Update Failed Screen](#wifi-updates-and-the-update-failed-screen)
 - [Getting Diagnostic Reports](#getting-diagnostic-reports)
 
 ---
@@ -238,6 +239,69 @@ Motor response latency mismatch between firmware settings and actual hardware ch
 **Verify calibration**: Check **Menu → Diagnostics → Motor Latency** to see current value. Re-run auto-tune if you change grinders, modify relay hardware, or continue experiencing unreliable pulse corrections.
 
 **Manual fallback:** If auto-tune fails, system reverts to safe 50ms default. Check grinder power connection, hopper bean level, and scale setup.
+
+---
+
+## WiFi Updates and the Update Failed Screen
+
+The WiFi features have been tested with host tests and on one development board; Bluetooth provisioning and the on-screen pages are **not hardware-verified**. If something here does not match what you see, please report it.
+
+### The grinder does not connect to WiFi
+
+Open **Menu → WiFi** and read **Status**.
+
+- **Not set up**: no credentials stored. Use the web flasher **WiFi Setup** tab or `python3 tools/grinder.py wifi-set "<ssid>"` (Bluetooth must be on).
+- **Connecting... / Retry in Ns**: the grinder keeps trying with growing pauses (5 s up to 60 s; at least 30 s after a rejected password). Check the password (8-63 characters, or empty for an open network) and re-send it with the page open.
+- **2.4 GHz only.** The ESP32-S3 cannot join 5 GHz networks. If your router uses one name for both bands, create a separate 2.4 GHz name, or turn band steering off. Enterprise (802.1X) networks are not supported.
+- **Weak signal**: the page shows `Signal`. Below about -75 dBm (Weak) connections drop and uploads crawl (10-14 KB/s measured at -94 dBm, about 4 minutes for an update). Move the router or add an access point.
+- To change the network, open **Menu → WiFi** first, otherwise the grinder refuses new details over Bluetooth.
+
+### `wifi-upload` / `wifi-info` cannot reach the grinder
+
+- `cannot resolve host` / `cannot reach`: use the IP shown in **Menu → WiFi** (`--host 192.168.x.y`). `.local` names need mDNS support on your computer.
+- Turn **Receive** on in **Menu → WiFi**; the grinder only listens while it is connected and Receive is on.
+- The computer must be on the same network (no guest network or client isolation).
+- **Connection reset / closed**: the grinder usually refused the request and closed the connection before the tool could read the reason. Run `python3 tools/grinder.py wifi-info` and look at the grinder screen; the causes in the table below are the usual ones.
+- **Windows firewall (developers using the pull test server `tools/wifi/pull_test_server.py`):** in our testing, with the network profile set to **Public**, the Windows firewall blocked incoming connections to Python and the grinder got no answer from the test server. Switching the network to the Private profile or adding an inbound rule for the server port is the likely remedy. This does not affect `wifi-upload` (the grinder is the server there).
+
+### Refusals from the grinder (HTTP codes)
+
+| Code | Meaning | What to do |
+|---|---|---|
+| 400 | The request was malformed: bad JSON or fields, Content-Length different from the announced size (411 if missing), or the upload ended early ("connection lost") | Use the project tools; retry. A truncated upload also aborts the update. |
+| 401 | Wrong token | Use the token from the last `wifi-set` / web flasher setup. Three wrong tokens lock logins for 60 s, doubling up to 15 min. |
+| 403 `declined` | You tapped DECLINE ("Declined on the device") | Run the command again. |
+| 403 `session` | The upload session is unknown or expired | Start again with a new `wifi-upload`. |
+| 408 `no_response` | Nobody tapped INSTALL within 30 s | Run again and be at the grinder. |
+| 409 "Update refused: grinder busy" | The grinder is grinding or otherwise busy | Wait until it is idle. |
+| 409 "Go to the home screen of the grinder" | The grinder is on any screen other than the home screen or the menu (for example a dialog, calibration, or another update screen) | Go to the home screen and retry. |
+| 409 "Disconnect Bluetooth first" | A Bluetooth client is connected | Disconnect it. |
+| 409 "Update refused: another update running" | A push, a download from the menu or a Bluetooth update is running | Wait for it to finish. |
+| 409 "Update cancelled on the device" | The request was withdrawn on the grinder while the prompt was waiting (Receive switched off, Forget WiFi, or WiFi dropped) | Check the WiFi page and retry. |
+| 409 "Firmware is still being verified" | The last update has not run for 30 seconds yet (rollback protection) | Wait one minute after the restart and try again. |
+| 410 `session` | The update was aborted ("timed out", no data for 15 s) and the session no longer exists | Start again; check signal and that the computer does not sleep. |
+| 413 / 422 | Image or request too big / not a valid image for this grinder, or checksum mismatch | Use a firmware `.bin` built for this project (not a `-web-ota` or merged file). |
+| 429 `declined_recently` | You declined a moment ago; new requests wait 30 s | Wait the time shown. |
+| 429 (locked) | Too many wrong tokens | Wait; see 401. |
+
+While a prompt waits for your tap the grinder answers nothing else over WiFi (`wifi-info` times out); that is expected.
+
+### The Update Failed screen / rollback
+
+The screen says "The firmware update failed. The device is still running the previous version." It appears when the version running after a restart is not the one that was just installed. Typical reasons:
+
+- The new firmware crashed or reset within its first **30 seconds**, so the bootloader switched back to the old firmware. A power cut in that window does the same.
+- The firmware shown after the restart differs from the one that was installed for another reason (version or build mismatch).
+
+Tap OK. Try the update again after one minute. If a freshly built image rolls back every time, it has a start-up bug: connect USB and read the serial log (`[BOOT] image state: PENDING_VERIFY` followed by a crash). Updates started from the menu show `Failed: <reason>` on the progress screen for 3 seconds (for example Checksum mism..., Connection lost, Not found, Low memory). The on-screen reason is cut to 16 characters; the full text appears under the buttons on the WiFi page. An aborted transfer never shows the Update Failed screen; it shows `Failed: <reason>` or a tool error and the old firmware keeps running.
+
+### Menu update: Check failed / Install is missing
+
+- **Check failed**: the grinder cannot reach `devnullgamer.github.io` over HTTPS (no internet, DNS, or low memory). Try again, or check the router.
+- **No release published**: the update index has no unified (V1 + V2 auto-detect) release for this channel yet. Switch **Beta** on to include release candidates.
+- **Install** appears only after a successful Check in the last 10 minutes, while WiFi is connected. Switching Beta clears the result.
+- Install is refused while a Bluetooth client is connected (disconnect it first) and when internal memory is too low. A refusal before the download starts leaves Bluetooth as it was; if the refusal comes after Bluetooth was already switched off, the grinder switches it back on.
+- The pull flow does not check certificate expiry (the grinder has no clock).
 
 ---
 
