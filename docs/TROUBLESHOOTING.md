@@ -8,7 +8,9 @@
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
 - [Grind Timeout Screen](#grind-timeout-screen)
+- [Grind Stopped With an Err: Message](#grind-stopped-with-an-err-message)
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
+- [After Updating: Re-run Auto-Tune](#after-updating-re-run-auto-tune)
 - [WiFi Updates and the Update Failed Screen](#wifi-updates-and-the-update-failed-screen)
 - [Getting Diagnostic Reports](#getting-diagnostic-reports)
 
@@ -110,6 +112,13 @@ If wires were reversed, swap them so Pin 3 connects to the correct GPIO. On V2, 
 - **SAMPLE_RATE_INVALID:** Ensure the HX711 `RATE` pin is tied to GND for 10 SPS; a floating/high pin forces 80 SPS and will now block startup.
 - After correcting hardware, reboot the scale. The diagnostic clears automatically when healthy samples are detected.
 
+### Warning: "HX711 sensor sends no data"
+- Raised when the HX711 is detected but delivers no samples at boot, or when a load cell that was working has been silent for 2 seconds.
+- Check the load cell cable and connectors (a cable that came loose is the usual cause), VCC/GND/SCK/DOUT wiring and the HX711 board, then restart the scale.
+- The warning clears by itself when samples return. It can also show briefly during a firmware update, because sampling is paused while the update runs; it goes away after the update finishes or fails.
+- A grind that starts while the sensor is silent stops with `Err: sensor` (see below).
+- Limitation: an HX711 that is unplugged but keeps returning a constant value is not recognised as "no data". Such a grind normally ends with `Err: no flow`.
+
 ## Unknown board ID 'esp32-s3-devkitc-1'
 
 **Applies to:** Windows development environments using PlatformIO with ESP32-S3 boards.
@@ -178,6 +187,7 @@ If you want to try a less aggressive approach first:
 
 ### Symptoms
 - Grinder reaches timeout screen during grinding cycle
+- If the screen shows an `Err: ...` text, see [Grind Stopped With an Err: Message](#grind-stopped-with-an-err-message). In weight mode a scale that does not settle after the tare now continues after 10 seconds instead of waiting for the 60 second timeout (not yet run on hardware).
 - Long taring process (>10 seconds)
 - Unstable weight readings
 
@@ -206,6 +216,24 @@ Check **Menu → Diagnostics → "Noise Floor"** section (see [Diagnostics Syste
 
 ---
 
+## Grind Stopped With an Err: Message
+
+**Applies to:** Grinds that the firmware stops on its own and shows on the timeout screen (the motor is always stopped first). `Err: sensor`, `Err: tare` and `Err: no flow` are weight mode only; `Err: motor` also applies in time mode. These checks have not yet been run on hardware with a load cell.
+
+| Message | Meaning | What to do |
+|---|---|---|
+| `Err: sensor` | The load cell stopped delivering samples (newest sample older than 0.5 s) during a grind. | Check the load cell cable and connectors, then restart the scale. Look for the "HX711 sensor sends no data" warning in Menu -> Diagnostics. |
+| `Err: tare` | The scale delivered samples too slowly to finish the tare within 5 s after the tare started (the tare needs 18 samples). Cause inferred from the code. | Check the load cell cable, the HX711 board and its RATE pin, then restart. |
+| `Err: no flow` | Almost no coffee arrived: during the purge/prime run less than half of the purge amount, or during the main grind less than 0.3 g in the first 4 seconds. | Check that there are beans in the hopper, the grinder is switched on and powered, the cup stands on the scale and the chute is not blocked. If the load cell cable is loose or disconnected this can show up as `Err: no flow` too. |
+| `Err: motor` | The motor output was cut off by the hardware safety timer (typically a run over 62 seconds, or the output could not be stopped normally). A "Motor output was cut off" warning stays until the next restart. | Check the grinder and restart the scale. If it repeats, report it with a diagnostic report. |
+
+Notes:
+- Weight mode only: after the tare, the scale continues after 10 seconds even if it has not settled, and the final and pulse settling steps continue after 4 seconds with the current reading. The purge settling step keeps its older 10 second limit. Time mode still has no such fallback. Untested on hardware.
+- The reason and measured values are printed as `[SAFETY]` lines on the USB serial monitor (best effort, not in the session log).
+- Maintainers: `GRIND_SAFETY_ABORTS_ENABLED` in `src/config/grind_control.h` (default 1) turns the sensor, tare and no-flow aborts into log-only lines if one proves to be a false positive.
+
+---
+
 ## Unreliable Pulse Corrections
 
 **Applies to:** Pulse corrections failing to produce grounds consistently, requiring multiple correction cycles.
@@ -228,7 +256,7 @@ Motor response latency mismatch between firmware settings and actual hardware ch
    - Place dosing cup on scale
    - System will automatically tare
 3. **Run calibration**: Process takes 1-2 minutes
-   - Priming phase: 1000ms pulse to position beans
+   - Priming phase: 1000ms pulse to position beans (exactly 1000 ms since the exact-pulse fix; it used to be about 1.4 s)
    - Binary search: Finds minimum reliable pulse duration
    - Verification: Confirms 80%+ success rate across 5 test pulses
 4. **Check result**: New motor latency value displayed on completion
@@ -239,6 +267,16 @@ Motor response latency mismatch between firmware settings and actual hardware ch
 **Verify calibration**: Check **Menu → Diagnostics → Motor Latency** to see current value. Re-run auto-tune if you change grinders, modify relay hardware, or continue experiencing unreliable pulse corrections.
 
 **Manual fallback:** If auto-tune fails, system reverts to safe 50ms default. Check grinder power connection, hopper bean level, and scale setup.
+
+---
+
+## After Updating: Re-run Auto-Tune
+
+**Applies to:** Grinders that ran an auto-tune with an earlier firmware and now run firmware with exact motor pulses.
+
+Earlier firmware made pulses longer than about 65 ms come out wrong: a requested 100 ms pulse ran about 69 ms and a requested 1000 ms pulse about 1443 ms. Pulses are now exact (the time-mode 100 ms pulse is a true 100 ms, the auto-tune and Motor Test 1000 ms pulse is 1000 ms). The motor latency saved by an earlier auto-tune was measured with the old pulse lengths and is therefore off.
+
+**What to do:** after installing this firmware, run **Menu -> Tune Pulses** once (beans in the hopper, cup on the scale). Weight-mode correction pulses over about 65 ms were also mis-timed before. Until then the saved latency is kept and grinds still work, but pulse corrections may be less accurate. Time mode: expect the 100 ms additional pulse to deliver somewhat more than before, since it now really lasts 100 ms.
 
 ---
 

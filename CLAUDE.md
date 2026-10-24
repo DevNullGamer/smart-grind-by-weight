@@ -58,6 +58,13 @@ python3 tools/grinder.py analyze
 - Pull TLS allocates from PSRAM only inside `TlsPsramScope`; the pull URL is the fixed `UPDATE_PULL_BASE_URL`, https only.
 - `DEBUG_PULL_*` and `DEBUG_UPDATE_PROMPT_AUTOREPLY` exist only in `...-wifi-dev*` envs (they `#error` otherwise). Erase NVS after using a wifi-dev env (it seeds a public token and arms push). `release.yml` builds only the main env.
 
+**Motor / grind safety (details in `docs/DESIGN-NOTES.md` "Safety batch 1"; NOT run on hardware yet: weight-mode checks, deadman, lock-out/OTA fail-safe, MOTOR_FAULT; exact pulses measured on a V2 bench board only):**
+- New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`.
+- Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
+- Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failure paths use `cleanup_failed_ota()` (unlocks); WiFi updates use `UpdateGuard` (same busy check and lock-out).
+- Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`) live only in the `...-rmt-selftest*` / `...-deadman-test` envs.
+- After exact pulses, saved latency is stale: re-run autotune.
+
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
 **Grind Phases:**

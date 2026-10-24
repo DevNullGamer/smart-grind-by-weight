@@ -172,6 +172,24 @@ The firmware identifies the Waveshare 1.64" revision (V1 or V2) at boot; see [DE
 
 ---
 
+## Motor and Grind Safety
+
+Design, thresholds and limitations are in the "Safety batch 1" section of [DESIGN-NOTES.md](DESIGN-NOTES.md); user-facing messages are in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#grind-stopped-with-an-err-message).
+
+- **Host tests:** the pure modules `src/hardware/sensor_health.*`, `src/controllers/grind_safety.*` and `src/hardware/rmt_pulse_math.*` have no Arduino dependencies and are covered by `pio test -c platformio-native.ini -e native-test`. `check_safety()` itself and the settled-check wiring need Arduino and can only be exercised on hardware (Build C: not yet run).
+- **New aborts:** add them with `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED` in `src/config/grind_control.h`), not with ad-hoc `set_error_message` + `switch_phase(TIMEOUT)`. Keep the decision logic in `grind_safety.*` so it stays host-testable.
+- **Debug environments** (never in the main env or releases; the `DEBUG_*` flags default to 0 in `src/config/debug.h` and are set only by these envs; `DEBUG_RMT_SELFTEST_FORCE_BOARD_V2` additionally `#error`s without the self-test flag):
+
+| Environment (suffix of `waveshare-esp32s3-touch-amoled-164`) | Flag | Purpose |
+|---|---|---|
+| `-rmt-selftest` | `DEBUG_RMT_PULSE_SELFTEST=1` | Boot-time pulse timing measurement over 20 ms - 4000 ms, prints requested vs measured. Disconnect the grinder from mains. |
+| `-rmt-selftest-v2` | adds `DEBUG_RMT_SELFTEST_FORCE_BOARD_V2=1` | Same, with the board established as V2 (GPIO16 only, nothing stored) for V2 boards that boot from the cached board. `#error` without the self-test flag. |
+| `-deadman-test` | `DEBUG_GRINDER_DEADMAN_TEST=1` | Motor deadman fires 3 s after start: any longer continuous run ends with `Err: motor` and the MOTOR_FAULT warning. |
+
+  Example: `python3 -m platformio run -e waveshare-esp32s3-touch-amoled-164-rmt-selftest-v2 -t upload`, then watch the serial monitor. Reflash the normal build afterwards; these images must not be used for grinding.
+
+---
+
 ## 📦 Release Process
 
 For maintainers creating releases, see **[RELEASES.md](RELEASES.md)** for detailed release workflow documentation.

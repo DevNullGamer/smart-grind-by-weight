@@ -259,3 +259,84 @@ Hardware status of the whole WiFi feature set: push update and Accept handshake 
 
 - Hardware validation matrix on both boards (cold-boot visuals, forced UNKNOWN, OTA migration from old V1/V2 images) is tracked outside the repo.
 - `LICENSE` still lists Arduino_GFX although the library is no longer used.
+
+## Safety batch 1 (chg003 items 1-5, chg004 items 7 and 11)
+
+Goal: a faulty sensor, a stuck phase, a lost motor command or an interrupted update must never leave the motor running or the grinder stuck. Decisions D1-D13 were approved on 2026-10-21 and are implemented as listed below.
+
+### Layout
+- Pure, host-testable modules (no Arduino/ESP includes, in `platformio-native.ini`, tested in `test_native`): `src/hardware/sensor_health.*` (sample age, stale check, settled check), `src/controllers/grind_safety.*` (phase timeouts, no-flow decisions, pulse wait limit), `src/hardware/rmt_pulse_math.*` (deadman time, exact RMT pulse symbols).
+- `GrindController` supplies measurements and acts on the answers. `check_safety()` runs once per control cycle after the pause early-return and before the phase switch; its aborts go through `raise_safety()`, which applies the kill switch and calls `abort_grind()` (`Err: motor` calls `abort_grind()` directly and ignores the kill switch). `abort_grind()` stops the motor, sets `last_session_result_ = ERROR`, queues a `[SAFETY]` log line, sets the UI text and switches to `TIMEOUT` (the session log still says TIMEOUT). A future command queue slots in before the `check_safety()` call.
+- Constants live in `src/config/grind_control.h` and `src/config/hardware.h`; include them through `constants.h`.
+
+### Thresholds
+| What | Value | Constant |
+|---|---|---|
+| Newest sample older than this = sensor stale, abort `Err: sensor` | 500 ms (5 missed samples at 10 SPS) | `HW_LOADCELL_STALE_SAMPLE_MS` |
+| Stale this long (after the first sample ever) raises `HX711_NO_DATA` | 2000 ms | `HW_LOADCELL_NO_DATA_DIAG_MS` |
+| Settled check needs this many samples in its window | max(2, 60% of the samples expected at 10 SPS) | `HW_LOADCELL_SETTLE_MIN_SAMPLES_PERCENT`, `..._FLOOR` |
+| TARE_CONFIRM: tare still running -> abort `Err: tare` | 5 s | `GRIND_TARE_CONFIRM_TARE_TIMEOUT_MS` |
+| TARE_CONFIRM: not settled after the tare finished -> continue anyway | 10 s | `GRIND_TARE_CONFIRM_SETTLE_TIMEOUT_MS` |
+| FINAL_SETTLING / PULSE_SETTLING / PULSE_DECISION fallback | 4 s | `GRIND_SETTLE_FALLBACK_MS` |
+| PRIME: cup holds < 50% of the purge amount at 5 s -> abort `Err: no flow` | 50%, 5 s (the prime run limit) | `GRIND_PRIME_NO_FLOW_MIN_PERCENT`, `GRIND_PRIME_NO_FLOW_CHECK_MS` |
+| PREDICTIVE: peak gain over the lowest reading < 0.3 g at 4 s -> abort `Err: no flow` | 0.3 g, 4 s | `GRIND_PREDICTIVE_NO_FLOW_MIN_GAIN_G`, `..._CHECK_MS` |
+| PULSE_EXECUTE / TIME_ADDITIONAL_PULSE wait for `is_pulse_complete()` | pulse length + 1 s, then the motor is stopped and the phase moves on | `GRIND_PULSE_WAIT_MARGIN_MS` |
+| Longest finite pulse `start_pulse_rmt()` accepts | 4000 ms | `HW_GRINDER_MAX_PULSE_MS` |
+| Continuous-run motor deadman | `GRIND_TIMEOUT_SEC` + 2 s = 62 s | `HW_GRINDER_DEADMAN_MARGIN_MS` |
+
+### Decisions as implemented
+- **D1 weight mode only.** `check_safety()` returns immediately in time mode. It runs only in TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING and FINAL_SETTLING, never while paused (PURGE_CONFIRM).
+- **D2 stale 500 ms.** The stale check is first in `check_safety()`. A buffer with no sample at all is stale. The largest sample age seen is tracked per grind (`max_sample_age_ms_`) and printed as `[SAFETY] Max load cell sample age`. All `[SAFETY]` lines go through `queue_log_message` -> `LOG_BLE`, which is `Serial.printf`: they are best-effort serial-monitor lines, not part of the session CSV/log, and are dropped if the queue is full.
+- **D3 TARE_CONFIRM.** Tare not finished after 5 s aborts with `Err: tare`. Once the tare is done, a scale that does not settle for 10 s continues anyway (found by code review as the cause of the "noisy cell -> timeout screen" symptom).
+- **D4 PULSE_DECISION timeout -> finish.** No settled reading after 4 s moves to FINAL_SETTLING with the current reading.
+- **D5 fallback 4 s.** PULSE_SETTLING falls through to PULSE_DECISION after 4 s; FINAL_SETTLING uses the current reading.
+- **D6 mid-grind stall abort deferred.** Only PRIME and PREDICTIVE have no-flow aborts; a flow that stops later in the grind is not detected.
+- **D7 no-flow numbers** as in the table. The predictive baseline is the lowest weight seen since phase entry, so a tap on the cup cannot inflate it. Elapsed time is clamped at 0 so an ordering race cannot underflow into a false abort.
+- **D8 OTA refused during a grind**, autotune or any motor activity (see OTA fail-safe).
+- **D9 MOTOR_FAULT latched until reboot** (typically a run over 62 s; also raised if `halt_output()` fails to stop the RMT output, and only then is the motor really dead; otherwise the latch is a warning) (`deadman_tripped_since_boot()`, set on the UI task in `check_board()`). It outranks MOTOR_DISABLED in warning priority. Text: "Motor output was cut off. Check the grinder and restart the device."
+- **D10 saved latency kept.** The user must re-run autotune once after this firmware (see exact RMT pulses).
+- **D11 kill switch.** `GRIND_SAFETY_ABORTS_ENABLED` (default 1). With 0, `raise_safety()` only queues a `[SAFETY] ... (aborts disabled, log only)` line (once per reason per grind) and the grind continues. It covers `Err: sensor`, `Err: tare` and `Err: no flow`. It does not cover the motor deadman or the pulse wait stop.
+- **D12 self-test run with the grinder disconnected from mains.** An oscilloscope is optional (pin-low timing agreed with the callback within ~1 ms).
+- **D13 boot NO_DATA mapped to `HX711_NO_DATA`.** The boot fault `HardwareFault::NO_DATA` used to map to no warning at all. `HX711_NO_DATA` is also raised at runtime when a sensor that has delivered samples has been silent for 2 s (never before the first sample, so bring-up does not warn). It is derived on the UI task in `check_load_cell_boot_fault()` (diagnostics are not thread safe) and clears when samples return.
+
+### Abort texts (UI text, session result ERROR)
+- `Err: sensor`: log `LOAD CELL STALE` with the newest sample age or "no sample".
+- `Err: tare`: log `TARE NOT COMPLETING`. The tare needs 18 samples (`DATA_SET` in `WeightSensor.h`), independent of cup or settling, so this means samples arrived too slowly (under ~3.6 SPS over 5 s; a fully stale sensor gives `Err: sensor` first). Cause inferred from code only.
+- `Err: no flow`: log `NO FLOW IN PRIME` or `NO FLOW IN PREDICTIVE` with the measured weight/gain.
+- `Err: motor`: log `MOTOR DEADMAN TRIPPED`, raised from `GrindController::update()` when `grinder->consume_deadman_trip()` fires. The flag is consumed before the idle check so a trip outside a grind (Motor Test) is not carried into the next one.
+
+### Motor deadman and lock-out (`src/hardware/grinder.cpp`)
+- `Grinder` has a mutex and atomics. A continuous run arms an `esp_timer` deadman (62 s) before the motor can start; if the timer cannot be created or armed, the start is refused. The normal 60 s timeout always wins; the deadman is the last resort.
+- The deadman is cancelled only after `halt_output()` has verified the RMT output is stopped; if stopping fails the pins are forced low (`force_motor_pins_low()`). A pulse requested over a running continuous run first halts that run, so it cannot defeat the deadman.
+- The deadman callback runs in the esp_timer task, logs with `esp_rom_printf` only, and proceeds without the mutex after 20 ms: stopping the motor outranks consistency.
+- `lock_out()` stops the motor and makes start and pulse requests fail until `unlock()`. It is used by the OTA path.
+- `DEBUG_GRINDER_DEADMAN_TEST` makes the deadman fire 3 s after motor start (env `...-deadman-test`). Expected result for any longer continuous run: `Err: motor` and the MOTOR_FAULT warning.
+
+### OTA fail-safe (`ota_handler.cpp`)
+- `start_ota()` refuses with "Update refused: grinder busy" while a grind, autotune or the motor is active, before any side effect; then it calls `lock_out()` and re-checks (a grind may start in between).
+- WiFi push/pull updates go through `UpdateGuard` (`src/system/update_guard.h`), which repeats the same refuse-if-busy, `lock_out()` and `unlock()` sequence and also excludes parallel updates.
+- Failed or aborted updates go through one cleanup routine, `cleanup_failed_ota()`: resume hardware tasks first, then restore the normal watchdog timeout (the extended 1800 s value used to stay), re-enable touch, remove the `new_build_nr` / `new_fw_ver` NVS keys and unlock the grinder. The NVS keys are now written only after `start_update()` succeeded.
+- `HX711_NO_DATA` can appear during an update because hardware tasks, and with them sampling, are suspended; it clears after the tasks resume.
+
+### Exact RMT pulses (`rmt_pulse_math.*`)
+- Finding (self-test on a V1 bench board): the old code used `loop_count` over a short payload. Looping repeats the payload remainder and the 1 us LOW tail on every pass, so pulses over 65.5 ms came out wrong. Measured: 70 -> 37.3, 100 -> 69.0, 550 -> 877.5, 1000 -> 1443.0 ms; 65 ms and below were exact. This is why `loop_count` was dropped.
+- Now a pulse is ONE plain payload with no `loop_count`: the HIGH time is split into halves of at most `RMT_MAX_HALF_US` = 32767 us (the 15-bit RMT duration field), packed two per symbol (`RmtSymbol`), followed by a `RMT_PULSE_TAIL_US` = 1 us LOW tail. The unused second half of the final tail symbol has duration 0 (end marker). Capacity is `RMT_PULSE_SYMBOL_CAPACITY` = 64 symbols; 4000 ms needs 62. The payload is transmitted from a member buffer (`pulse_symbols_`); a 64-symbol staging array on the stack is copied into it.
+- Measured on a V2 bench board (env `...-rmt-selftest-v2`, build 295): 20..4000 ms all within 0.4 percent (+40-50 us fixed overhead), callback fires once per pulse, no gaps.
+- Consequences: the time-mode 100 ms pulse is now a true 100 ms (was ~69 ms); the autotune and Motor Test 1000 ms pulse is 1000 ms (was ~1443 ms). Saved latency was measured with the old, mis-timed pulses (weight-mode correction pulses over ~65 ms were affected too), so autotune must be re-run once.
+- `start_pulse_rmt()` refuses 0 ms and more than 4000 ms; `rmt_transmit` errors stop the motor, and a start that is locked out halts a live pulse.
+
+### Debug-only flags
+- `DEBUG_RMT_PULSE_SELFTEST` (env `...-rmt-selftest`): at boot, sends pulses over a range of durations and prints requested vs measured (callback and pin-low). DISCONNECT THE GRINDER FROM MAINS.
+- `DEBUG_RMT_SELFTEST_FORCE_BOARD_V2` (env `...-rmt-selftest-v2`): establishes the board as V2 (source USER, nothing stored) so a V2 that boots from the cached board can run the self-test. GPIO16 only, never GPIO18. `#error` without `DEBUG_RMT_PULSE_SELFTEST`.
+- `DEBUG_GRINDER_DEADMAN_TEST` (env `...-deadman-test`): see above.
+- None of these belong in the main env or releases. After a self-test env, reflash the normal build; the self-test image must not grind.
+
+### Known limitations
+- **Flatline and saturation are not detected.** The planned checks (10 identical readings, ADC within 4096 counts of the rails) were deferred. A disconnected HX711 (pulled down) that keeps delivering a constant 0x800000 is therefore NOT caught by the stale check: the samples are fresh, they just never change. In weight mode it should surface as `Err: no flow` in PRIME or PREDICTIVE, not as a sensor error (not verified on hardware).
+- The stale check assumes ~10 SPS sampling; another rate needs `HW_LOADCELL_STALE_SAMPLE_MS` revisited.
+- After `Err: tare` the `doTare` request is not cancelled; the tare may still complete later.
+- Time mode has no TARE_CONFIRM / FINAL_SETTLING fallback and no sensor checks (D1).
+- `grind_phase_timed_out` with a limit of 0 counts as timed out immediately.
+- No-flow thresholds (50% at 5 s, 0.3 g at 4 s) are not field-tuned; the kill switch is the mitigation.
+- Weight-mode correction pulses over ~65 ms were also mis-timed by the old looped code and are now exact. Saved latency and correction accuracy were affected, hence the autotune re-run.
+- Hardware verification: Build B items (deadman trip, `lock_out`, OTA refuse / abort / stall cleanup, MOTOR_FAULT warning) are NOT RUN - Build B was never flashed and tested. Weight-mode checks, the deadman, lock-out/OTA fail-safe and MOTOR_FAULT have not been run on hardware. Exact pulses were measured on a V2 bench board only (the V1 run measured the old looped code). Build C items (stale abort with the cable pulled, tare abort, settle fallbacks, prime/predictive no-flow, `HX711_NO_DATA` at runtime) are NOT RUN - need a sensor. Only the RMT self-test ran on bench boards without a load cell (V1: old code, V2: exact code). Host tests cover the pure logic only; `check_safety()` and the `is_settled` wiring need Arduino and are not host-testable.

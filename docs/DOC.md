@@ -286,7 +286,7 @@ After flashing firmware, calibrate the load cell for accurate measurements:
 
 ### Auto-Tune Motor Response
 
-The auto-tune feature models your grinder's motor response behavior by measuring the physical lag between relay activation and grounds production. This accounts for hardware variations like voltage differences (110V vs 220V), relay types (solid-state vs mechanical), and burr inertia across different grinder models. The default 50ms value works well for most setups, but if you experience unreliable pulse corrections or want to minimize coffee waste through hardware-specific optimization, run auto-tune via **Menu → Tune Pulses** (Tools section). The 1-2 minute calibration process finds the minimum reliable pulse duration for your specific hardware and saves it automatically.
+The auto-tune feature models your grinder's motor response behavior by measuring the physical lag between relay activation and grounds production. This accounts for hardware variations like voltage differences (110V vs 220V), relay types (solid-state vs mechanical), and burr inertia across different grinder models. The default 50ms value works well for most setups, but if you experience unreliable pulse corrections or want to minimize coffee waste through hardware-specific optimization, run auto-tune via **Menu → Tune Pulses** (Tools section). The 1-2 minute calibration process finds the minimum reliable pulse duration for your specific hardware and saves it automatically. After updating from firmware that predates exact motor pulses, run auto-tune once more: the saved latency was measured with pulses that ran longer than requested (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#after-updating-re-run-auto-tune)).
 
 ### Diagnostics System
 
@@ -296,6 +296,8 @@ The system includes comprehensive load cell health monitoring accessible via **M
 1. **Load Cell Not Calibrated** - Appears until calibration is completed via Menu → Calibrate (Tools section)
 2. **Sustained Noise** - Triggers after 60 seconds of excessive noise; clears after 120 seconds of acceptable levels
 3. **Mechanical Instability** - Detects sudden weight drops during grinding (3+ events); auto-resets on next grind or via manual reset
+4. **HX711 No Data** - The load cell delivers no samples (at boot, or silent for 2 seconds during use); clears when samples return
+5. **Motor Fault** - The motor safety timer cut the motor output (typically a continuous run exceeded 62 seconds); stays until the device is restarted
 
 **Displayed Values:**
 - **Motor Latency** - Current motor response latency in milliseconds (default: 50ms, or calibrated value from auto-tune)
@@ -650,7 +652,7 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
 
 5. **Time Mode Additional Pulses**
    - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding
-   - 100ms fixed pulse duration
+   - 100ms fixed pulse duration (exactly 100 ms; firmware before the exact-pulse fix produced about 69 ms)
    - Split-button UI: OK + PULSE buttons on completion screen
 
 **Motor Response Latency Model:**
@@ -668,6 +670,9 @@ The latency value is automatically calibrated via **Auto-Tune Motor Response** (
 - Conservative approach: undershoots target, then corrects with bounded pulses
 - Mechanical instability detection with hysteresis and persistence
 - 60-second grind timeout protection with user acknowledgment requirement
+- Safety stops that always switch the motor off first: `Err: sensor`, `Err: tare`, `Err: no flow` (weight mode only) and `Err: motor` (hardware motor timer, 62 s, also in time mode); not yet run on hardware; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#grind-stopped-with-an-err-message) and the Safety batch 1 section in [DESIGN-NOTES.md](DESIGN-NOTES.md)
+- Weight mode: after the tare the grind continues after 10 s, final and pulse settling after 4 s, with the current reading (purge settling keeps its 10 s limit; time mode has no such fallback; not yet run on hardware)
+- Motor pulses are exact (a 100 ms pulse lasts 100 ms), up to 4000 ms
 
 ---
 
