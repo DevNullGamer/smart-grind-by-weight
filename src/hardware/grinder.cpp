@@ -207,6 +207,11 @@ void Grinder::start() {
 bool Grinder::start_locked() {
     if (!initialized || !rmt_initialized) return false;
 
+    // Never delete the encoder or queue a continuous transaction under a live pulse
+    if (pulse_active && !halt_output()) {
+        return false;
+    }
+
     motor_start_time = millis();
 
     // Clean up any existing encoder
@@ -237,18 +242,24 @@ bool Grinder::start_locked() {
     continuous_armed_ = true;
 
     // Use RMT infinite loop for continuous grinding
-    rmt_symbol_word_t continuous_data[1];
-    continuous_data[0].duration0 = 32767; // Maximum 15-bit duration per symbol (~32ms at 1MHz)
-    continuous_data[0].level0 = 1; // HIGH
-    continuous_data[0].duration1 = 0;
-    continuous_data[0].level1 = 0;
+    continuous_symbol_.duration0 = 32767; // Maximum 15-bit duration per symbol (~32ms at 1MHz)
+    continuous_symbol_.level0 = 1; // HIGH
+    continuous_symbol_.duration1 = 0;
+    continuous_symbol_.level1 = 0;
 
     rmt_transmit_config_t tx_config = {
         .loop_count = -1, // Infinite loop
     };
 
     pulse_active = false;  // Continuous mode replaces any pulse state
-    rmt_transmit(rmt_channel, current_encoder, continuous_data, sizeof(continuous_data), &tx_config);
+    const esp_err_t tx_err = rmt_transmit(rmt_channel, current_encoder, &continuous_symbol_,
+                                          sizeof(continuous_symbol_), &tx_config);
+    if (tx_err != ESP_OK) {
+        LOG_BLE("[Grinder] start refused: rmt_transmit failed: %d (%s)\n", (int)tx_err, esp_err_to_name(tx_err));
+        grinding = false;
+        halt_output();  // Disarms the deadman, idles the output (forces the pin low if that fails)
+        return false;
+    }
     grinding = true;
     return true;
 }
@@ -357,6 +368,11 @@ bool Grinder::start_pulse_locked(uint32_t duration_ms) {
         return false;
     }
 
+    // The payload buffer is shared: never rewrite it under a pulse that may still be transmitting
+    if (pulse_active && !halt_output()) {
+        return false;
+    }
+
     motor_start_time = millis();
 
     // Clean up any existing encoder
@@ -372,44 +388,36 @@ bool Grinder::start_pulse_locked(uint32_t duration_ms) {
         return false;
     }
 
-    // Create RMT symbols for HIGH pulse + LOW end
-    rmt_symbol_word_t pulse_symbols[2];
-    uint32_t duration_us = duration_ms * 1000;
+    // Exact payload: HIGH for duration_ms then a 1 us LOW tail, sent as one plain transmission
+    // (no loop_count, which repeated the remainder and tail on every pass). The buffer is a
+    // member because rmt_transmit() reads it after returning.
+    RmtSymbol symbols[RMT_PULSE_SYMBOL_CAPACITY];
+    const size_t symbol_count = rmt_build_pulse_symbols(duration_ms * 1000, symbols, RMT_PULSE_SYMBOL_CAPACITY);
+    if (symbol_count == 0) {
+        LOG_BLE("[Grinder] Pulse refused: no RMT payload for %lu ms\n", (unsigned long)duration_ms);
+        return false;
+    }
+    // Field by field: rmt_symbol_word_t is a bitfield union (15-bit durations, 1-bit levels), so
+    // the pure RmtSymbol cannot be copied or cast into it
+    for (size_t i = 0; i < symbol_count; i++) {
+        pulse_symbols_[i].level0 = symbols[i].level0;
+        pulse_symbols_[i].duration0 = symbols[i].duration0;
+        pulse_symbols_[i].level1 = symbols[i].level1;
+        pulse_symbols_[i].duration1 = symbols[i].duration1;
+    }
 
-    // Handle long durations by using maximum duration and remainder
-    if (duration_us <= 32767) {
-        // Single symbol for short durations
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = duration_us;
-        pulse_symbols[0].level1 = 0;
-        pulse_symbols[0].duration1 = 1; // Minimal LOW to end pulse
+    rmt_transmit_config_t tx_config = {.loop_count = 0};
+    pulse_active = true;
+    grinding = true;
 
-        rmt_transmit_config_t tx_config = {.loop_count = 0};
-        pulse_active = true;
-        grinding = true;
-
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(rmt_symbol_word_t), &tx_config);
-    } else {
-        // For longer durations, use loop_count to repeat
-        uint32_t base_duration = 32767; // Max single symbol duration
-        uint32_t loop_count = (duration_us / base_duration) - 1; // -1 because first isn't a loop
-        uint32_t remainder = duration_us % base_duration;
-
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = base_duration;
-        pulse_symbols[0].level1 = 1;
-        pulse_symbols[0].duration1 = remainder > 0 ? remainder : 1;
-
-        pulse_symbols[1].level0 = 0;
-        pulse_symbols[1].duration0 = 1; // Minimal LOW to end
-        pulse_symbols[1].level1 = 0;
-        pulse_symbols[1].duration1 = 0;
-
-        rmt_transmit_config_t tx_config = {.loop_count = (int)loop_count};
-        pulse_active = true;
-        grinding = true;
-
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(pulse_symbols), &tx_config);
+    const esp_err_t tx_err = rmt_transmit(rmt_channel, current_encoder, pulse_symbols_,
+                                          symbol_count * sizeof(rmt_symbol_word_t), &tx_config);
+    if (tx_err != ESP_OK) {
+        LOG_BLE("[Grinder] Pulse refused: rmt_transmit failed: %d (%s)\n", (int)tx_err, esp_err_to_name(tx_err));
+        pulse_active = false;
+        grinding = false;
+        halt_output();  // Idles the output (forces the pin low if that fails)
+        return false;
     }
     return true;
 }

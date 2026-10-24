@@ -64,6 +64,15 @@ void board_park_pins() {
 }
 
 BoardDecision detect_board() {
+#if DEBUG_RMT_SELFTEST_FORCE_BOARD_V2
+    // Bench self-test only: same outcome as a stored FORCE_V2 override (no probing), but nothing is
+    // read or written in NVS. The V2 config drives GPIO16 only.
+    const BoardDecision forced = {BoardVariant::V2, BoardSource::USER, "debug self-test: forced V2"};
+    board_set(board_config_for(forced.variant, forced.source));
+    LOG_BLE("[BOARD] WARNING: V2 forced by DEBUG_RMT_SELFTEST_FORCE_BOARD_V2 (self-test build, not persisted)\n");
+    return forced;
+#endif
+
     BoardEvidence evidence = {BoardOverride::AUTO, BoardVariant::UNKNOWN, -1, -1, -1};
 
     Preferences prefs;

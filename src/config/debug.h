@@ -26,6 +26,16 @@
     #define DEBUG_RMT_PULSE_SELFTEST 0
 #endif
 
+// Self-test bench aid: establish the board as V2 (source USER, nothing stored) at boot, so the motor
+// output is enabled on a board that only comes up from the cache. Motor GPIO16 only, never GPIO18.
+// Only valid together with DEBUG_RMT_PULSE_SELFTEST; the ...-rmt-selftest-v2 env sets both.
+#ifndef DEBUG_RMT_SELFTEST_FORCE_BOARD_V2
+    #define DEBUG_RMT_SELFTEST_FORCE_BOARD_V2 0
+#endif
+#if DEBUG_RMT_SELFTEST_FORCE_BOARD_V2 && !DEBUG_RMT_PULSE_SELFTEST
+    #error "DEBUG_RMT_SELFTEST_FORCE_BOARD_V2 is for the rmt-selftest-v2 env only (needs DEBUG_RMT_PULSE_SELFTEST=1)"
+#endif
+
 // WiFi heap spike (measurement only). When 1, setup() starts a one-shot task ~30 s after boot that
 // measures internal heap with WiFi, httpd, mDNS and an HTTPS pull alongside BLE. Needs
 // include/spike_secrets.h. Override with build flag.

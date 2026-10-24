@@ -63,7 +63,7 @@ void print_summary(const PulseResult* results, size_t count) {
 }  // namespace
 
 void Grinder::run_pulse_selftest() {
-    static const uint32_t durations_ms[] = {20, 50, 65, 70, 80, 100, 150, 200, 300, 550, 1000};
+    static const uint32_t durations_ms[] = {20, 50, 65, 70, 80, 100, 150, 200, 300, 550, 1000, 2000, 4000};
     constexpr size_t kCount = sizeof(durations_ms) / sizeof(durations_ms[0]);
     constexpr uint32_t kCountdownMs = 10000;
     constexpr uint32_t kGapMs = 500;

@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 #include "../config/constants.h"
+#include "rmt_pulse_math.h"
 
 // Forward declarations
 struct GrindEventData;
@@ -25,6 +26,11 @@ private:
     rmt_encoder_handle_t current_encoder;
     std::atomic<bool> pulse_active{false};
     std::atomic<bool> rmt_initialized{false};
+
+    // rmt_transmit() reads its payload after returning (and loops the continuous one for the whole
+    // run), so the payloads live here, not on the stack. Written under mutex_ only.
+    rmt_symbol_word_t continuous_symbol_ = {};
+    rmt_symbol_word_t pulse_symbols_[RMT_PULSE_SYMBOL_CAPACITY] = {};
 
     // Serialises the state-changing methods (control task, UI task, esp_timer task)
     SemaphoreHandle_t mutex_ = nullptr;
