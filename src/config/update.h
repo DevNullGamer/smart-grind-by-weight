@@ -62,6 +62,15 @@
 // before it is confirmed; a reset or crash before that makes the bootloader return to the previous image.
 #define BOOT_HEALTH_CONFIRM_MS 30000
 
+// Release index published on GitHub Pages (see network/release_index and tools/update_index.py).
+// The base URL is fixed in the firmware; the "url" in an index file must start with it.
+#define UPDATE_PULL_BASE_URL "https://devnullgamer.github.io/smart-grind-by-weight/"
+#define UPDATE_PULL_STABLE_FILE "update-stable.json"
+#define UPDATE_PULL_BETA_FILE "update-beta.json"
+#define UPDATE_PULL_INDEX_MAX_BYTES 2048                                       // Largest accepted index file
+#define UPDATE_PULL_INDEX_SCHEMA 1                                             // Only schema accepted by the parser
+#define UPDATE_PULL_STRING_MAX 128                                             // Longest string value in an index file
+
 // Dev/test only (boot-fail-test env): 0 off, 1 abort() (panic), 2 esp_restart() this long after boot, but ONLY while
 // the image is unconfirmed (installed by an update); a USB-flashed test image never crash-loops.
 #ifndef DEBUG_BOOT_FAIL_TEST

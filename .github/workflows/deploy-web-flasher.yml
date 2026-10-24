@@ -124,6 +124,27 @@ jobs:
                   handle.write("\n")
           PY
         
+      - name: Generate update channel index
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Publish dates (tag<TAB>timestamp) of the non-draft releases; the generator falls back to file times
+          # Best effort: a failure here must never block the existing deploy
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            --paginate \
+            "/repos/${{ github.repository }}/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | "\(.tag_name)\t\(.published_at)"' > "$RUNNER_TEMP/published.tsv" \
+            || : > "$RUNNER_TEMP/published.tsv"
+
+          # update-stable.json / update-beta.json: highest unified release per channel (see tools/update_index.py)
+          python3 tools/update_index.py \
+            --firmware-root tools/web-flasher/firmware \
+            --output-dir tools/web-flasher \
+            --published-tsv "$RUNNER_TEMP/published.tsv"
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
         
