@@ -541,6 +541,9 @@ python3 tools/grinder.py info            # Get device system information
 python3 tools/grinder.py export          # Export grind data to database
 ```
 
+### How the export updates the database
+An export merges the sessions on the grinder into `tools/database/grinder_data.db`; it does not recreate the file. Sessions that are not on the grinder any more stay in the database, and a session that is already stored is replaced together with its events and measurements. Before any change the existing database is copied to `grinder_data.db.bak-<YYYYmmdd-HHMMSS>` (the newest 5 backups are kept), and the update runs in one transaction, so a failure leaves the database as it was. If a stored session id comes back with a different timestamp (the grinder reuses ids after its log is cleared), a warning is printed before the session is replaced. A database created by an older version of the tool is upgraded in place (missing columns are added), and if that is not possible the export stops with a message; move the file aside to start a fresh database. Session files that cannot be parsed are saved as `tools/database/failed_session_<id>.bin`.
+
 ### Tools Directory Structure
 - **`grinder.py`**: Cross-platform Python tool for all operations (build, upload, analyze)
 - **`ble/`**: BLE communication tools and OTA update system
