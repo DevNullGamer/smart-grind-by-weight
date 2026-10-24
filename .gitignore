@@ -25,3 +25,6 @@ failed_session_*.bin
 
 # Git worktrees
 .worktrees/
+
+# Release assets downloaded by deploy-web-flasher.yml (never committed)
+tools/web-flasher/firmware/

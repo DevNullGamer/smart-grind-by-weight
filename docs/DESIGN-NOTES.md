@@ -93,3 +93,11 @@ LVGL allocates from PSRAM (`src/ui/lvgl_psram_alloc.cpp`, falling back to intern
 
 - Hardware validation matrix on both boards (cold-boot visuals, forced UNKNOWN, OTA migration from old V1/V2 images) is tracked outside the repo.
 - `LICENSE` still lists Arduino_GFX although the library is no longer used.
+
+### CI and repository hygiene
+
+- `ci.yml` is reusable (`workflow_call`, string input `build-firmware`, default `'true'`). `release.yml` calls it with `'false'` and its `release` job `needs` it. The input is a string because a boolean input is null on push and would be coerced equal to `false`; in a called workflow `github.event_name` is the caller's event, so the input is the only reliable switch. Only pull-request runs cancel superseded runs; running runs on `main` and release runs are not cancelled (GitHub may still drop an older pending run in the same concurrency group).
+- Lint is errors-only (`E9,F63,F7,F82`) on purpose, so existing code passes without a style rewrite; `tools/build-scripts/*.py` ignore F821 because SCons injects `Import`/`env`. Tests run with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` to keep globally installed pytest plugins out of the result. A flaky test must be fixed, not skipped, since it also gates releases.
+- The node and native steps are guarded so the workflow also works on branches without those tests (`hashFiles('tools/tests/*.test.js')`).
+- `post_build.py` prunes `firmware_cache/<env>/` to the newest 20 builds and never deletes the file it just wrote; legacy flat files and the cache README are not touched. Git history still contains the removed binaries (`tools/web-flasher/firmware/`, now ignored); no history rewrite or LFS.
+- `grind_report.py` passes the session id as a bound SQL parameter.

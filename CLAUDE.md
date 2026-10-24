@@ -114,3 +114,4 @@ python3 tools/grinder.py analyze
 - Use the src/config/constants.h aggregation file to include constants / settings - dont refer to config files directly.
 - When new features have been added and tested always update the docs as well
 - when making a commit, only focus on the end result not the process we went through to get to the end result
+- CI (`.github/workflows/ci.yml`, also gates `release.yml`) runs ruff (errors only), compileall, pytest (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) and the native tests; run them before pushing (commands in `docs/DEVELOPMENT.md`). `firmware_cache/<env>/` keeps the newest 20 builds; `tools/web-flasher/firmware/` is generated, never commit it.
