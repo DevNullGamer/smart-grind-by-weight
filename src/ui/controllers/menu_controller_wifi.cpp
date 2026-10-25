@@ -47,6 +47,7 @@ void MenuUIController::handle_wifi_push_toggle() {
         return;
     }
     if (!enabled) update_approval.cancel();  // a request waiting for the user is withdrawn
+    ui_manager_->menu_screen.update_wifi_page();  // shows / hides the Confirm row
     LOG_BLE("[UI] WiFi receive %s\n", enabled ? "on" : "off");
 }
 
@@ -67,7 +68,7 @@ void MenuUIController::handle_wifi_confirm_toggle() {
         "TURN OFF CONFIRM",
         "Anyone on your network who has the update token will be able to install firmware "
         "without touching the grinder.",
-        "TURN OFF",
+        "OFF",  // two half-width buttons: "TURN OFF" does not fit at 24 pt on 280 px
         lv_color_hex(THEME_COLOR_WARNING),
         []() {
             wifi_manager.set_accept_required(false);

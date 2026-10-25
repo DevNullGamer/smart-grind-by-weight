@@ -498,7 +498,7 @@ Open **Menu → Settings → WiFi**. The page shows:
 
 - **Status** (Connected, Connecting..., Retry in Ns, Not set up), **Network**, **IP**, **Signal** (for example `-62 dBm Good`) and the **Name** (`grindbyweight.local`).
 - **Forget WiFi** (once set up): removes the network, password and update token after a confirmation. Updates over WiFi stop until you set it up again.
-- **Updates → Receive** (off by default): lets your computer send firmware to the grinder. Only turn it on when you want to update. **Confirm** (on by default): every update must be accepted with a tap on the grinder. Turning Confirm off lets anyone who has the token install firmware without touching the grinder; the grinder warns you before it allows that.
+- **Updates → Receive** (off by default): lets your computer send firmware to the grinder. Only turn it on when you want to update. **Confirm** (on by default; it appears once Receive is on): every update must be accepted with a tap on the grinder. Turning Confirm off lets anyone who has the token install firmware without touching the grinder; the grinder warns you before it allows that.
 - **Firmware**: the installed version, the latest version found, a **Beta** switch (include release candidates and betas), **Check for update** and **Install**.
 
 While this page is on screen the grinder accepts new WiFi details over Bluetooth. Leave the page when you are done.

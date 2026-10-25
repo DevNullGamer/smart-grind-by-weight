@@ -84,6 +84,7 @@ private:
     lv_obj_t* wifi_setup_block = nullptr;      // shown while no credentials are stored
     lv_obj_t* wifi_ble_warning_label = nullptr;
     lv_obj_t* wifi_manage_block = nullptr;     // shown while credentials are stored
+    lv_obj_t* wifi_confirm_block = nullptr;    // Confirm description + toggle, hidden while Receive is off
     lv_obj_t* wifi_forget_button = nullptr;
     lv_obj_t* wifi_push_toggle = nullptr;      // "Receive": arms the push endpoint
     lv_obj_t* wifi_confirm_toggle = nullptr;   // "Confirm": every update needs a tap on INSTALL

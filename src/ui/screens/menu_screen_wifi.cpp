@@ -101,12 +101,14 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     create_separator(parent, "Updates");
     create_description_label(parent,
                              "Lets your computer send firmware over your network (python3 tools/grinder.py "
-                             "wifi-upload). Each update must be accepted on this screen.");
+                             "wifi-upload).");
     create_toggle_row(parent, "Receive", &wifi_push_toggle);
-    create_description_label(parent,
+    // Confirm only matters while Receive is on: its text and toggle are hidden together (update_wifi_page)
+    wifi_confirm_block = create_block(parent);
+    create_description_label(wifi_confirm_block,
                              "Ask before installing. Turning this off lets anyone with the update token "
                              "install firmware without touching the grinder.");
-    create_toggle_row(parent, "Confirm", &wifi_confirm_toggle);
+    create_toggle_row(wifi_confirm_block, "Confirm", &wifi_confirm_toggle);
     wifi_listen_label = create_description_label(parent, "");
     lv_obj_set_style_text_color(wifi_listen_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
 
@@ -260,6 +262,8 @@ void MenuScreen::update_wifi_page() {
 
     set_visible(wifi_setup_block, !wifi_has_credentials);
     set_visible(wifi_manage_block, wifi_has_credentials);
+    // Receive off hides Confirm (not just greys it); the stored Confirm value is untouched
+    set_visible(wifi_confirm_block, wifi_push_toggle && lv_obj_has_state(wifi_push_toggle, LV_STATE_CHECKED));
     // The label sits in its own padded container (create_description_label): hide that, not just the text
     set_visible(wifi_ble_warning_label ? lv_obj_get_parent(wifi_ble_warning_label) : nullptr,
                 bluetooth_manager && !bluetooth_manager->is_enabled());

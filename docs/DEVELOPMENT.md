@@ -184,7 +184,7 @@ Design, thresholds and limitations are in the "Safety batch 1" section of [DESIG
 |---|---|---|
 | `-rmt-selftest` | `DEBUG_RMT_PULSE_SELFTEST=1` | Boot-time pulse timing measurement over 20 ms - 4000 ms, prints requested vs measured. Disconnect the grinder from mains. |
 | `-rmt-selftest-v2` | adds `DEBUG_RMT_SELFTEST_FORCE_BOARD_V2=1` | Same, with the board established as V2 (GPIO16 only, nothing stored) for V2 boards that boot from the cached board. `#error` without the self-test flag. |
-| `-deadman-test` | `DEBUG_GRINDER_DEADMAN_TEST=1` | Motor deadman fires 3 s after start: any longer continuous run ends with `Err: motor` and the MOTOR_FAULT warning. |
+| `-deadman-test` | `DEBUG_GRINDER_DEADMAN_TEST=1` | Motor deadman fires 3 s after start: any longer continuous run ends with `Err: motor` and the MOTOR_FAULT warning. Also sets `DEBUG_GRINDER_DEADMAN_AUTORUN=1`: ~6 s after boot one continuous run starts by itself (motor really runs 3 s on every boot with a grinder connected), serial `[DEADMAN-TEST] ...` ends with `result: deadman tripped, fault latched, pin LOW` (or `skipped` / `INCONCLUSIVE` / `FAILED`). Seen on a bench V2 with nothing attached, build 304. |
 
   Example: `python3 -m platformio run -e waveshare-esp32s3-touch-amoled-164-rmt-selftest-v2 -t upload`, then watch the serial monitor. Reflash the normal build afterwards; these images must not be used for grinding.
 
