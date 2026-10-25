@@ -116,7 +116,7 @@ If wires were reversed, swap them so Pin 3 connects to the correct GPIO. On V2, 
 - Raised when the HX711 is detected but delivers no samples at boot, or when a load cell that was working has been silent for 2 seconds.
 - Check the load cell cable and connectors (a cable that came loose is the usual cause), VCC/GND/SCK/DOUT wiring and the HX711 board, then restart the scale.
 - The warning clears by itself when samples return. It can also show briefly during a firmware update, because sampling is paused while the update runs; it goes away after the update finishes or fails.
-- Tapping the grind button with a load cell fault from boot (not connected, no data, rate invalid) or during a firmware update shows a "CAN'T START" notice with the cause and does not start the motor; OK or BACK dismisses it. Start on Cup is held back in the same cases. (Decision logic is host-tested; the screen is not hardware-verified.)
+- Tapping the grind button with a load cell fault from boot (not connected, no data, rate invalid) or during a firmware update shows a "CAN'T START" notice with the cause and does not start the motor; OK dismisses it. Start on Cup is held back in the same cases. (Decision logic is host-tested; the screen is not hardware-verified.)
 - A grind that starts while the sensor is silent stops with `Err: sensor` (see below).
 - Limitation: an HX711 that is unplugged but keeps returning a constant value is not recognised as "no data". Such a grind normally ends with `Err: no flow`.
 

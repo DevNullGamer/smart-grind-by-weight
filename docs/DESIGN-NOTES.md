@@ -333,7 +333,7 @@ Goal: a faulty sensor, a stuck phase, a lost motor command or an interrupted upd
 
 ### Start refusal (`grind_start_check.*`)
 - `GrindController::start_block()` decides, in this order: motor unavailable (`MOTOR_DISABLED`), grinder locked out (`UPDATE_IN_PROGRESS`), load cell boot fault (`LOAD_CELL_NOT_CONNECTED` / `LOAD_CELL_NO_DATA` / `LOAD_CELL_RATE_INVALID`). The pure function and texts live in `grind_start_check.*` (host-tested); the controller only gathers the inputs, which are atomics or set at init, so polling it from the UI task is safe.
-- `start_grind()` returns the block and logs `[GRIND_START] Refused - <reason>`; it is not behind `GRIND_SAFETY_ABORTS_ENABLED`. `handle_grind_button` shows `UIManager::show_start_blocked_notice` (the motor dialog for MOTOR_DISABLED, otherwise "CAN'T START" with OK/BACK). `update_auto_actions` uses `start_block() == NONE` instead of `motor_available()`, so auto-start never triggers a refusal dialog.
+- `start_grind()` returns the block and logs `[GRIND_START] Refused - <reason>`; it is not behind `GRIND_SAFETY_ABORTS_ENABLED`. `handle_grind_button` shows `UIManager::show_start_blocked_notice` (the motor dialog for MOTOR_DISABLED, otherwise "CAN'T START", both with a single OK button; `ConfirmScreen::show` hides the cancel button when `cancel_text` is null). `update_auto_actions` uses `start_block() == NONE` instead of `motor_available()`, so auto-start never triggers a refusal dialog.
 - Weight and time mode are treated alike. Not refused: not calibrated, or a sensor that goes quiet only after boot (caught as `Err: sensor` once the grind runs). The notice screen is NOT hardware-verified.
 
 ### Known limitations

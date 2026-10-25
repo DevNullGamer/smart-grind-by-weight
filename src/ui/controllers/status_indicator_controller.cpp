@@ -39,6 +39,13 @@ void StatusIndicatorController::build() {
 }
 
 void StatusIndicatorController::update() {
+    // The icons sit on the active screen above every dialog and would overlap the
+    // 36 pt title of a confirm dialog, so keep them hidden while one is shown
+    if (ui_manager_ && ui_manager_->state_machine && ui_manager_->state_machine->is_state(UIState::CONFIRM)) {
+        if (ble_status_icon_) lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
+        if (warning_icon_) lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
     update_ble_status_icon();
     update_warning_icon();
 }

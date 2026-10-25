@@ -134,7 +134,7 @@ public:
     void show_motor_disabled_notice();
 
     // Tells the user why a grind did not start (block != NONE): the motor dialog for MOTOR_DISABLED,
-    // otherwise a "CAN'T START" notice with the cause. OK and BACK both just dismiss it.
+    // otherwise a "CAN'T START" notice with the cause. A single OK button dismisses it.
     void show_start_blocked_notice(GrindStartBlock block);
 
     // Degraded mode (board UNKNOWN): asks which board this is, stores the answer as

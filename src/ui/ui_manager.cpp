@@ -327,7 +327,7 @@ void UIManager::show_motor_disabled_notice() {
         "OK",
         lv_color_hex(THEME_COLOR_WARNING),
         nullptr,
-        "BACK");
+        nullptr);  // Single OK button
 }
 
 void UIManager::show_start_blocked_notice(GrindStartBlock block) {
@@ -344,7 +344,7 @@ void UIManager::show_start_blocked_notice(GrindStartBlock block) {
         "OK",
         lv_color_hex(THEME_COLOR_WARNING),
         nullptr,
-        "BACK");
+        nullptr);  // Single OK button
 }
 
 void UIManager::show_board_picker() {

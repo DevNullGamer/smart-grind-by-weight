@@ -71,8 +71,14 @@ void ConfirmScreen::show(const char* title, const char* message,
     lv_label_set_text(confirm_button_label, confirm_text);
     lv_obj_set_style_bg_color(confirm_button, confirm_color, 0);
     
-    // Set cancel button
-    lv_label_set_text(cancel_button_label, cancel_text);
+    // Set cancel button; a null cancel_text makes this a single-button notice (the
+    // hidden button leaves the flex row, so the confirm button takes the full width)
+    if (cancel_text) {
+        lv_label_set_text(cancel_button_label, cancel_text);
+        lv_obj_clear_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
+    }
     
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
     visible = true;

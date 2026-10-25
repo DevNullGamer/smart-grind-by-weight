@@ -18,6 +18,7 @@ private:
 
 public:
     void create();
+    // cancel_text == nullptr hides the cancel button (single-button notice)
     void show(const char* title, const char* message, 
               const char* confirm_text, lv_color_t confirm_color,
               const char* cancel_text = "CANCEL");
