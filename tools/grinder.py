@@ -6,15 +6,15 @@ Single script for all grinder operations: build, upload, export, analyze, report
 
 import argparse
 import asyncio
+import hashlib
 import os
 import sys
 import subprocess
 import platform
 import venv
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 import shutil
-import stat
 
 from firmware_variants import FIRMWARE_ENV, DEPRECATED_VARIANT_CHOICES, VARIANT_DEPRECATED_MSG
 
@@ -34,6 +34,24 @@ try:
 except ImportError:
     # Fallback for systems without colorama
     COLORS = {k: '' for k in ['RED', 'GREEN', 'YELLOW', 'BLUE', 'PURPLE', 'CYAN', 'RESET']}
+
+def compute_requirements_hash(requirements_txt: Path) -> str:
+    """SHA-256 of requirements.txt with line endings normalised (same hash for CRLF and LF checkouts)."""
+    content = requirements_txt.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(content).hexdigest()
+
+def venv_is_synced(requirements_txt: Path, stamp_path: Path) -> bool:
+    """True if the stamp holds the hash of the current requirements.txt (nothing to install)."""
+    if not requirements_txt.exists():
+        return True  # nothing to sync against
+    try:
+        return stamp_path.read_text(encoding="utf-8").strip() == compute_requirements_hash(requirements_txt)
+    except OSError:
+        return False
+
+def write_requirements_stamp(requirements_txt: Path, stamp_path: Path) -> None:
+    """Record that the venv matches the current requirements.txt."""
+    stamp_path.write_text(compute_requirements_hash(requirements_txt) + "\n", encoding="utf-8")
 
 class GrinderTool:
     """Unified grinder tool for cross-platform operations."""
@@ -58,6 +76,7 @@ class GrinderTool:
         self.streamlit_dir = self.script_dir / "streamlit-reports"
         self.db_path = self.script_dir / "database" / "grinder_data.db"
         self.requirements_txt = self.script_dir / "requirements.txt"
+        self.requirements_stamp = self.venv_dir / ".requirements.sha256"
     
     def safe_print(self, text: str):
         """Print text with proper encoding handling for all platforms."""
@@ -89,30 +108,24 @@ class GrinderTool:
         self.safe_print(f"{COLORS['CYAN']}[INFO] {message}{COLORS['RESET']}")
     
     def check_venv(self) -> bool:
-        """Check if virtual environment exists and is properly set up."""
+        """Check if virtual environment exists and matches requirements.txt; set it up or re-sync if not."""
         if not self.venv_python.exists():
             self.print_warning("Virtual environment not found, setting up automatically...")
             return self.install_dependencies()
+        if not venv_is_synced(self.requirements_txt, self.requirements_stamp):
+            self.print_info("requirements.txt changed since the last install, updating the virtual environment...")
+            if not self.install_dependencies():
+                # The venv works; do not block commands because the re-sync failed (e.g. offline)
+                self.print_warning("Could not update the virtual environment, continuing with the existing one")
         return True
-    
+
     def install_dependencies(self) -> bool:
         """Create virtual environment and install dependencies."""
         try:
             if not self.venv_dir.exists():
                 self.print_info("Creating virtual environment...")
                 
-                # Find Python executable
-                python_cmd = None
-                for cmd in ["python3", "python"]:
-                    if shutil.which(cmd):
-                        python_cmd = cmd
-                        break
-                
-                if not python_cmd:
-                    self.print_error("Python not found. Please install Python 3.9+")
-                    return False
-                
-                # Create virtual environment
+                # Created with the interpreter running this script
                 venv.create(self.venv_dir, with_pip=True)
             
             self.print_info("Installing Python packages...")
@@ -130,11 +143,8 @@ class GrinderTool:
                 self.print_error(f"Failed to install dependencies: {result.stderr}")
                 return False
             
-            # Also install colorama if not already present
-            subprocess.run([
-                str(self.venv_pip), "install", "-q", "colorama"
-            ], capture_output=True, text=True)
-            
+            if self.requirements_txt.exists():
+                write_requirements_stamp(self.requirements_txt, self.requirements_stamp)
             return True
             
         except Exception as e:
@@ -656,11 +666,11 @@ async def main():
             return await tool.cmd_build_upload(args)
         elif args.command == 'export':
             return await tool.cmd_export(args)
-        elif args.command in ['analyze', 'analyse']:
+        elif args.command == 'analyze':
             return await tool.cmd_analyze(args)
         elif args.command == 'report':
             return tool.cmd_report(args)
-        elif args.command in ['analyze-offline', 'analyse-offline']:
+        elif args.command == 'analyze-offline':
             return tool.cmd_report(args)  # Same as report
         elif args.command == 'scan':
             return await tool.cmd_scan(args)

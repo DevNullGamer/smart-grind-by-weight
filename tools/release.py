@@ -13,15 +13,31 @@ def run_command(cmd, capture_output=True):
     """Run a shell command and return the result"""
     result = subprocess.run(cmd, shell=True, capture_output=capture_output, text=True)
     if result.returncode != 0 and capture_output:
-        print(f"Error running command: {cmd}")
-        print(f"Error: {result.stderr}")
+        print(f"[ERROR] Command failed: {cmd}")
+        print(f"[ERROR] {result.stderr}")
         return None
     return result.stdout.strip() if capture_output else result.returncode == 0
 
+def latest_tag_from_describe(returncode, stdout):
+    """Latest tag from a `git describe --tags --abbrev=0` result, or None if the command failed or printed nothing"""
+    tag = stdout.strip()
+    return tag if returncode == 0 and tag else None
+
 def get_current_version():
     """Get the latest git tag or return v0.0.0 if none exists"""
-    latest_tag = run_command("git describe --tags --abbrev=0 2>/dev/null")
-    return latest_tag if latest_tag else "v0.0.0"
+    # Run without a shell so stderr is handled here (`2>/dev/null` does not exist on Windows cmd)
+    result = subprocess.run(["git", "describe", "--tags", "--abbrev=0"], capture_output=True, text=True)
+    latest_tag = latest_tag_from_describe(result.returncode, result.stdout)
+    if latest_tag:
+        return latest_tag
+
+    # No reachable tag: say why instead of silently starting from v0.0.0
+    all_tags = run_command("git tag -l")
+    if all_tags:
+        print("[WARNING] Tags exist but none is reachable from HEAD; starting from v0.0.0")
+    else:
+        print("[INFO] No tags found yet; starting from v0.0.0")
+    return "v0.0.0"
 
 def increment_version(version, increment_type):
     """Increment version number based on type (major, minor, patch)"""
@@ -85,7 +101,7 @@ def check_git_status():
     """Check if git working directory is clean"""
     status = run_command("git status --porcelain")
     if status:
-        print("Warning: You have uncommitted changes:")
+        print("[WARNING] You have uncommitted changes:")
         print(status)
         response = input("Continue anyway? (y/N): ")
         return response.lower() == 'y'
@@ -198,14 +214,14 @@ def clean_old_rc_tags():
     for semver_key in sorted(by_semver.keys()):
         print(f"\n{semver_key}:")
         for tag in sorted(by_semver[semver_key]):
-            print(f"  • {tag}")
+            print(f"  - {tag}")
 
     print("\n" + "="*60)
     print(f"Total: {len(tags_to_delete)} RC tags from old semvers")
     print(f"Keeping: All tags for current semver v{current_semver[0]}.{current_semver[1]}.{current_semver[2]}")
     print("="*60)
 
-    response = input("\n⚠️  Proceed with deletion (local AND remote)? (y/N): ")
+    response = input("\n[WARNING] Proceed with deletion (local AND remote)? (y/N): ")
     if response.lower() != 'y':
         print("Cleanup cancelled.")
         return False
@@ -219,26 +235,26 @@ def clean_old_rc_tags():
         # Delete local tag
         result = run_command(f'git tag -d {tag}')
         if result is None:
-            print("❌ Failed (local)")
+            print("[ERROR] Failed (local)")
             failed_tags.append(tag)
             continue
 
         # Delete remote tag
         result = run_command(f'git push origin :refs/tags/{tag}')
         if result is None:
-            print("⚠️  Deleted locally, failed remotely")
+            print("[WARNING] Deleted locally, failed remotely")
             failed_tags.append(tag)
             continue
 
-        print("✅")
+        print("[OK]")
 
     if failed_tags:
-        print(f"\n⚠️  Failed to fully delete {len(failed_tags)} tags:")
+        print(f"\n[WARNING] Failed to fully delete {len(failed_tags)} tags:")
         for tag in failed_tags:
             print(f"  - {tag}")
         return False
 
-    print(f"\n✅ Successfully deleted {len(tags_to_delete)} old RC tags (local and remote)!")
+    print(f"\n[OK] Successfully deleted {len(tags_to_delete)} old RC tags (local and remote)!")
     return True
 
 def create_release():
@@ -267,7 +283,7 @@ def create_release():
         print(commits)
     else:
         print("No new commits since last tag.")
-        print("⚠️  Warning: Creating a release without new commits.")
+        print("[WARNING] Creating a release without new commits.")
         response = input("Continue anyway? (y/N): ")
         if response.lower() != 'y':
             print("Release cancelled.")
@@ -411,7 +427,7 @@ def create_release():
         print("Failed to push tag.")
         return False
     
-    print(f"\n✅ Release {new_version} created successfully!")
+    print(f"\n[OK] Release {new_version} created successfully!")
     print("GitHub Actions will now:")
     print("  1. Build firmware with the updated version")
     print("  2. Create a draft GitHub release with fixed installation notes")
@@ -443,7 +459,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
     try:
-        create_release()
+        sys.exit(0 if create_release() else 1)
     except KeyboardInterrupt:
         print("\n\nRelease cancelled by user.")
         sys.exit(1)

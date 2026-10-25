@@ -40,8 +40,8 @@ def load_session_details(session_id):
     """Loads all event and measurement data for a single session ID."""
     with sqlite3.connect(DB_FILE) as conn:
         # Added ORDER BY to ensure data is always time-sorted on load
-        events = pd.read_sql_query(f"SELECT * FROM grind_events WHERE session_id = {session_id} ORDER BY timestamp_ms", conn)
-        measurements = pd.read_sql_query(f"SELECT * FROM grind_measurements WHERE session_id = {session_id} ORDER BY timestamp_ms", conn)
+        events = pd.read_sql_query("SELECT * FROM grind_events WHERE session_id = ? ORDER BY timestamp_ms", conn, params=(int(session_id),))
+        measurements = pd.read_sql_query("SELECT * FROM grind_measurements WHERE session_id = ? ORDER BY timestamp_ms", conn, params=(int(session_id),))
     # Clean up whitespace in phase names to prevent filtering issues
     if 'phase_name' in events.columns:
         events['phase_name'] = events['phase_name'].str.strip()
