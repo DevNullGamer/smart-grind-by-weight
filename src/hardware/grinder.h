@@ -87,7 +87,9 @@ public:
     void stop();
     
     // RMT-based precise pulse control
-    void start_pulse_rmt(uint32_t duration_ms);
+    // Returns true when the pulse was started, false when it was refused (bad duration, locked out,
+    // mutex busy, not initialised, RMT failure)
+    bool start_pulse_rmt(uint32_t duration_ms);
     bool is_pulse_complete();
     
     bool is_grinding() const { return grinding; }

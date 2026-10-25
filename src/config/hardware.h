@@ -44,6 +44,9 @@
 #define HW_GRINDER_MUTEX_WAIT_MS 100                                           // Longest wait for the grinder mutex before a command is refused
 #define HW_GRINDER_DEADMAN_MUTEX_WAIT_MS 20                                    // Deadman callback proceeds without the mutex after this
 #define HW_GRINDER_MAX_PULSE_MS 4000                                           // Longest finite pulse start_pulse_rmt() accepts
+#define HW_MOTOR_TEST_DURATION_MS 1000                                         // Menu -> Motor Test output pulse
+#define HW_MOTOR_TEST_POLL_MS 100                                              // Motor Test overlay refresh and completion poll interval
+#define HW_MOTOR_TEST_STOP_GRACE_MS 500                                        // Motor Test forces a stop if the pulse is not complete this long after its duration
 
 //------------------------------------------------------------------------------
 // LOAD CELL ADC SPECIFICATIONS

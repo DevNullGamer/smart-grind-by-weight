@@ -137,27 +137,6 @@ void MenuUIController::handle_purge() {
     );
 }
 
-void MenuUIController::handle_motor_test() {
-    if (!ui_manager_) return;
-
-    if (!ui_manager_->motor_available()) {
-        ui_manager_->show_motor_disabled_notice();
-        return;
-    }
-
-    ui_manager_->show_confirmation(
-        "MOTOR TEST",
-        "Motor will be engaged for 1 second."
-        "\n\n"
-        "Make sure grinder is safe to run.",
-        "RUN",
-        lv_color_hex(THEME_COLOR_SUCCESS),
-        [this]() { run_motor_test(); },
-        "CANCEL",
-        [this]() { return_to_menu(); }
-    );
-}
-
 void MenuUIController::handle_scale_open() {
     if (!ui_manager_) return;
     auto* hardware = ui_manager_->get_hardware_manager();
@@ -197,8 +176,9 @@ void MenuUIController::handle_scale_tare() {
 void MenuUIController::handle_autotune() {
     if (!ui_manager_) return;
 
-    if (!ui_manager_->motor_available()) {
-        ui_manager_->show_motor_disabled_notice();
+    const MotorTestBlock block = ui_manager_->motor_pulse_block();
+    if (block != MotorTestBlock::NONE) {
+        ui_manager_->show_motor_pulse_blocked_notice(block);
         return;
     }
 
@@ -642,25 +622,6 @@ void MenuUIController::execute_purge_operation() {
                              "PURGING LOGS...\nPlease wait");
 }
 
-void MenuUIController::run_motor_test() {
-    if (!ui_manager_) return;
-
-    auto* grinder = ui_manager_->get_hardware_manager()->get_grinder();
-    if (!grinder) return;
-
-    ui_manager_->set_background_active(true);
-    grinder->start_pulse_rmt(1000);
-
-    // Update statistics for motor test (1000ms = 1 second)
-    statistics_manager.update_motor_test(1000);
-
-    stop_motor_timer();
-    motor_timer_ = lv_timer_create(static_motor_timer_cb, 2000, this);
-    if (motor_timer_) {
-        lv_timer_set_user_data(motor_timer_, this);
-    }
-}
-
 void MenuUIController::return_to_menu() {
     if (!ui_manager_) return;
     ui_manager_->set_current_tab(3);
@@ -699,34 +660,3 @@ float MenuUIController::get_screensaver_brightness() const {
     return brightness;
 }
 
-void MenuUIController::stop_motor_timer() {
-    if (motor_timer_) {
-        lv_timer_del(motor_timer_);
-        motor_timer_ = nullptr;
-    }
-}
-
-void MenuUIController::motor_timer_cb(lv_timer_t* timer) {
-    if (!ui_manager_) {
-        return;
-    }
-
-    auto* grinder = ui_manager_->get_hardware_manager()->get_grinder();
-    if (grinder && !grinder->is_pulse_complete()) {
-        grinder->stop();
-    }
-
-    stop_motor_timer();
-    ui_manager_->set_background_active(false);
-    return_to_menu();
-}
-
-void MenuUIController::static_motor_timer_cb(lv_timer_t* timer) {
-    if (!timer) {
-        return;
-    }
-    auto* controller = static_cast<MenuUIController*>(lv_timer_get_user_data(timer));
-    if (controller) {
-        controller->motor_timer_cb(timer);
-    }
-}

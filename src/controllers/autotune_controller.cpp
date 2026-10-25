@@ -129,6 +129,7 @@ void AutoTuneController::update() {
 
     if (cancel_requested) {
         LOG_BLE("AutoTune: Cancelled by user\n");
+        grinder->stop();  // A mid-pulse cancel must not leave the output active/grinding
         complete_with_failure("Cancelled by user");
         return;
     }
@@ -494,7 +495,12 @@ void AutoTuneController::start_pulse(float pulse_duration_ms) {
 
     active_pulse_ms = pulse_duration_ms;
 
-    grinder->start_pulse_rmt(static_cast<uint32_t>(pulse_duration_ms));
+    // A refused pulse never ran: do not measure it as a pulse that produced no grounds
+    if (!grinder->start_pulse_rmt(static_cast<uint32_t>(pulse_duration_ms))) {
+        LOG_BLE("ERROR: AutoTune pulse refused by the grinder\n");
+        complete_with_failure("Motor output did not start");
+        return;
+    }
 
     // Notify mock driver for weight simulation
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)

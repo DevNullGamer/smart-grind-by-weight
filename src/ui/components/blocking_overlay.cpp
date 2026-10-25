@@ -2,6 +2,8 @@
 #include "../../config/constants.h"
 #include <lvgl.h>
 #include <Arduino.h>
+#include <utility>
+#include "../ui_helpers.h"
 
 // Static instance
 BlockingOperationOverlay* BlockingOperationOverlay::g_instance = nullptr;
@@ -43,6 +45,14 @@ void BlockingOperationOverlay::init() {
     lv_obj_set_style_text_color(wait_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_text_align(wait_label, LV_TEXT_ALIGN_CENTER, 0);
     
+    // STOP button (hidden unless show_with_stop() is used); a child of the overlay so it is
+    // reachable while the overlay swallows all other touches
+    stop_button = create_button(overlay, "STOP", lv_color_hex(THEME_COLOR_ERROR), 200, 70, &lv_font_montserrat_28);
+    lv_obj_align(stop_button, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_add_event_cb(stop_button, stop_button_cb, LV_EVENT_CLICKED, this);
+    lv_obj_add_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+    stop_callback = nullptr;
+
     // Hide initially
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     is_visible = false;
@@ -60,6 +70,8 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, 240);
     
+    set_stop_visible(false);
+
     // Store callbacks
     completion_callback = completion_func;
     operation_callback = operation_func;
@@ -136,6 +148,8 @@ void BlockingOperationOverlay::operation_timer_cb(lv_timer_t* timer) {
 }
 
 void BlockingOperationOverlay::show(const char* message) {
+    set_stop_visible(false);
+
     // Set message
     lv_label_set_text(label, message);
     
@@ -146,7 +160,46 @@ void BlockingOperationOverlay::show(const char* message) {
 }
 
 void BlockingOperationOverlay::hide() {
+    set_stop_visible(false);
+
     // Hide overlay
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     is_visible = false;
+}
+
+void BlockingOperationOverlay::show_with_stop(const char* message, OperationCallback on_stop) {
+    lv_label_set_text(label, message);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 240);
+
+    stop_callback = std::move(on_stop);
+    set_stop_visible(true);
+
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlay);
+    is_visible = true;
+}
+
+void BlockingOperationOverlay::set_message(const char* message) {
+    lv_label_set_text(label, message);
+}
+
+void BlockingOperationOverlay::set_stop_visible(bool visible) {
+    if (visible) {
+        lv_obj_clear_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+        stop_callback = nullptr;
+    }
+}
+
+void BlockingOperationOverlay::stop_button_cb(lv_event_t* e) {
+    auto* instance = static_cast<BlockingOperationOverlay*>(lv_event_get_user_data(e));
+    if (!instance || !instance->stop_callback) {
+        return;
+    }
+    // Move out first: the callback hides the overlay, which clears stop_callback
+    auto callback = std::move(instance->stop_callback);
+    instance->stop_callback = nullptr;
+    callback();
 }

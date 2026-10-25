@@ -105,6 +105,16 @@ void AutoTuneUIController::confirm_and_begin() {
         return;
     }
 
+    // Called from the confirm dialog callback, so a refusal notice must wait until the dialog has
+    // returned to the menu (show_notice_after_dialog)
+    const MotorTestBlock block = ui_manager_->motor_pulse_block();
+    if (block != MotorTestBlock::NONE) {
+        LOG_BLE("AutoTune UI: Refused - %s\n", motor_test_block_reason(block));
+        auto* ui = ui_manager_;
+        ui->show_notice_after_dialog([ui, block]() { ui->show_motor_pulse_blocked_notice(block); });
+        return;
+    }
+
     LOG_BLE("AutoTune UI: Starting autotune process\n");
 
     // Switch to autotune screen and show console
@@ -118,6 +128,9 @@ void AutoTuneUIController::confirm_and_begin() {
     } else {
         LOG_BLE("ERROR: AutoTune failed to start\n");
         ui_manager_->switch_to_state(UIState::MENU);
+        auto* ui = ui_manager_;
+        ui->show_notice_after_dialog(
+            [ui]() { ui->show_motor_pulse_blocked_notice(MotorTestBlock::START_FAILED); });
     }
 }
 
@@ -136,6 +149,9 @@ void AutoTuneUIController::handle_cancel() {
     auto autotune_controller = hw_manager->get_autotune_controller();
     if (autotune_controller && autotune_controller->is_active()) {
         autotune_controller->cancel();
+        // update() only runs while the autotune screen is up; finalise now so the run is not left
+        // active (stops the output and clears is_active(), which Motor Test treats as busy)
+        autotune_controller->update();
     }
 
     autotune_started_ = false;

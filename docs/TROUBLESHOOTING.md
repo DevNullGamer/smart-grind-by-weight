@@ -68,7 +68,7 @@ The motor control wire (Pin 3) and button signal wire (Pin 2) from the Eureka 4-
 
 **Option 1: Use Motor Test Function (Recommended)**
 
-Access **Menu → Motor Test** (Tools section) to verify motor connectivity. This button activates the motor for a short test pulse. If the motor does not run during the test, the motor wire is incorrectly connected.
+Access **Menu → Motor Test** (Tools section) to verify motor connectivity. This button activates the motor output for a 1 second test pulse. While it runs the screen shows **MOTOR RUNNING** with a countdown and a **STOP** button; afterwards a result notice appears. The grinder cannot see the motor, only its own output, so **"Output ran 1.0 s" means the output switched, not that the motor turned**. If the motor did not run during the test, the motor wire is incorrectly connected. Other results: "Output ended after ... instead of 1.0 s" (the output was cut short), "Output did not stop in time" (restart the grinder), "Stopped" (you pressed STOP). The test refuses to start, with a notice saying why, while an update is running, a grind or Auto-Tune is active, the board is not confirmed, or after a **Motor Fault** (restart the device). Auto-Tune shows the same refusal notices, and cancelling Auto-Tune ends the run and stops the output at once. The result and refusal screens are not hardware-verified.
 
 **Option 2: Manual Wire Identification (Advanced - Use with Extreme Caution)**
 

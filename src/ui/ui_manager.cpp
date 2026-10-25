@@ -347,6 +347,55 @@ void UIManager::show_start_blocked_notice(GrindStartBlock block) {
         nullptr);  // Single OK button
 }
 
+MotorTestBlock UIManager::motor_pulse_block() const {
+    auto* grinder = hardware_manager ? hardware_manager->get_grinder() : nullptr;
+    if (!grinder) {
+        return MotorTestBlock::MOTOR_DISABLED;
+    }
+    auto* autotune = hardware_manager->get_autotune_controller();
+    const bool busy = (grind_controller && grind_controller->is_grind_running()) ||
+                      (autotune && autotune->is_active()) || grinder->is_grinding();
+    return motor_test_block(motor_available(), grinder->is_locked_out(), busy,
+                            grinder->deadman_tripped_since_boot());
+}
+
+void UIManager::show_motor_pulse_blocked_notice(MotorTestBlock block) {
+    if (block == MotorTestBlock::NONE) {
+        return;
+    }
+    if (block == MotorTestBlock::MOTOR_DISABLED) {
+        show_motor_disabled_notice();
+        return;
+    }
+    show_confirmation(
+        motor_test_block_title(block),
+        motor_test_block_message(block),
+        "OK",
+        lv_color_hex(block == MotorTestBlock::MOTOR_FAULT ? THEME_COLOR_ERROR : THEME_COLOR_WARNING),
+        nullptr,
+        nullptr);  // Single OK button
+}
+
+void UIManager::show_notice_after_dialog(std::function<void()> show_notice) {
+    if (!show_notice) {
+        return;
+    }
+    auto* payload = new std::function<void()>(std::move(show_notice));
+    lv_timer_t* timer = lv_timer_create([](lv_timer_t* t) {
+        auto* notice = static_cast<std::function<void()>*>(lv_timer_get_user_data(t));
+        auto* ui = UIManager::get_instance();
+        if (notice && ui && ui->state_machine && ui->state_machine->is_state(UIState::MENU)) {
+            (*notice)();
+        }
+        delete notice;  // One-shot: LVGL deletes the timer itself after this callback
+    }, 50, payload);
+    if (!timer) {
+        delete payload;
+        return;
+    }
+    lv_timer_set_repeat_count(timer, 1);
+}
+
 void UIManager::show_board_picker() {
     show_confirmation(
         "SELECT BOARD",

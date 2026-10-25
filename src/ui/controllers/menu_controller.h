@@ -1,6 +1,7 @@
 #pragma once
 #include <lvgl.h>
 #include <stdint.h>
+#include "../../controllers/motor_test_check.h"
 
 class UIManager;
 
@@ -51,7 +52,8 @@ public:
 
 private:
     UIManager* ui_manager_;
-    lv_timer_t* motor_timer_{};
+    lv_timer_t* motor_timer_{};  // Motor Test poll timer; non-null exactly while a test runs
+    uint32_t motor_test_start_ms_{};
     uint32_t last_wifi_refresh_ms_{};
 
     static constexpr uint32_t WIFI_PAGE_REFRESH_INTERVAL_MS = 1000;  // WiFi page runtime values refresh rate
@@ -63,6 +65,8 @@ private:
     void run_motor_test();
     void stop_motor_timer();
     void motor_timer_cb(lv_timer_t* timer);
+    void finish_motor_test(bool completed, bool stopped_by_user);
+    void show_motor_test_result(MotorTestOutcome outcome, uint32_t ran_ms);
     static void static_motor_timer_cb(lv_timer_t* timer);
     void return_to_menu();
     void perform_diagnostics_reset();

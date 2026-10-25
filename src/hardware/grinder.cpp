@@ -324,10 +324,10 @@ void Grinder::stop_locked() {
 }
 #endif
 
-void Grinder::start_pulse_rmt(uint32_t duration_ms) {
+bool Grinder::start_pulse_rmt(uint32_t duration_ms) {
     if (duration_ms == 0 || duration_ms > HW_GRINDER_MAX_PULSE_MS) {
         LOG_BLE("[Grinder] Pulse refused: %lu ms outside 1-%d ms\n", (unsigned long)duration_ms, HW_GRINDER_MAX_PULSE_MS);
-        return;
+        return false;
     }
 
     bool started = false;
@@ -340,7 +340,7 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
             refused = "Pulse refused: locked out";
         } else {
 #if DEBUG_ENABLE_LOADCELL_MOCK
-            if (!initialized) return;
+            if (!initialized) return false;
             MockHX711Driver::notify_pulse(duration_ms);
             pulse_active = true;
             grinding = true;
@@ -357,6 +357,7 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
     if (started) {
         emit_background_change(true);
     }
+    return started;
 }
 
 #if !DEBUG_ENABLE_LOADCELL_MOCK

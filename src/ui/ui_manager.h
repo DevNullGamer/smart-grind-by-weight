@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include "../controllers/grind_start_check.h"
+#include "../controllers/motor_test_check.h"
 #include "components/blocking_overlay.h"
 #include "components/ui_operations.h"
 #include "screens/ready_screen.h"
@@ -136,6 +137,18 @@ public:
     // Tells the user why a grind did not start (block != NONE): the motor dialog for MOTOR_DISABLED,
     // otherwise a "CAN'T START" notice with the cause. A single OK button dismisses it.
     void show_start_blocked_notice(GrindStartBlock block);
+
+    // Whether a finite motor pulse (Motor Test, Auto-Tune) may start now; NONE when it may.
+    MotorTestBlock motor_pulse_block() const;
+
+    // Refusal notice for a motor_pulse_block() answer (block != NONE): the motor dialog for
+    // MOTOR_DISABLED, otherwise a single-OK notice with the cause. Not for use inside a confirm callback.
+    void show_motor_pulse_blocked_notice(MotorTestBlock block);
+
+    // Runs show_notice from a one-shot timer, after the confirm dialog that is handling a tap has
+    // returned to its previous state (a dialog opened inside a confirm callback corrupts that state).
+    // The notice is dropped unless the menu is the current state by then.
+    void show_notice_after_dialog(std::function<void()> show_notice);
 
     // Degraded mode (board UNKNOWN): asks which board this is, stores the answer as
     // the board override and restarts so detection picks it up. Reuses the confirm

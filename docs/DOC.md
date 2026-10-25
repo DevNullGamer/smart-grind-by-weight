@@ -21,6 +21,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
     - [Command Line (Fallback)](#command-line-fallback)
   - [⚖️ Initial Calibration](#️-initial-calibration)
     - [Auto-Tune Motor Response](#auto-tune-motor-response)
+    - [Motor Test](#motor-test)
     - [Diagnostics System](#diagnostics-system)
   - [📱 Usage Guide](#-usage-guide)
     - [Grinding Profiles](#grinding-profiles)
@@ -287,6 +288,10 @@ After flashing firmware, calibrate the load cell for accurate measurements:
 ### Auto-Tune Motor Response
 
 The auto-tune feature models your grinder's motor response behavior by measuring the physical lag between relay activation and grounds production. This accounts for hardware variations like voltage differences (110V vs 220V), relay types (solid-state vs mechanical), and burr inertia across different grinder models. The default 50ms value works well for most setups, but if you experience unreliable pulse corrections or want to minimize coffee waste through hardware-specific optimization, run auto-tune via **Menu → Tune Pulses** (Tools section). The 1-2 minute calibration process finds the minimum reliable pulse duration for your specific hardware and saves it automatically. After updating from firmware that predates exact motor pulses, run auto-tune once more: the saved latency was measured with pulses that ran longer than requested (see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#after-updating-re-run-auto-tune)).
+
+### Motor Test
+
+**Menu → Motor Test** (Tools section) pulses the grinder output for 1 second after you confirm. The screen shows **MOTOR RUNNING**, a countdown and a **STOP** button, then a result notice ("Output ran 1.0 s", "Output ended after ... instead of 1.0 s", "Output did not stop in time", or "Stopped"). The result describes the output only: the grinder cannot see the motor, so check the motor yourself. The test, like Auto-Tune, refuses to start with a notice when an update is running, a grind or Auto-Tune is active, the board is not confirmed, or the motor was cut off by the safety timer (restart the device). The run time is added to the lifetime motor runtime. Not hardware-verified yet.
 
 ### Diagnostics System
 
