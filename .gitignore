@@ -28,3 +28,5 @@ failed_session_*.bin
 
 # WiFi heap spike credentials (never commit)
 include/spike_secrets.h
+# Release assets downloaded by deploy-web-flasher.yml (never committed)
+tools/web-flasher/firmware/

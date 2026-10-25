@@ -1,0 +1,8 @@
+# Dependencies for running the Python tool tests and lint (CI and local):
+#   python -m pip install -r tools/requirements-dev.txt
+#   PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
+# The tests mock bleak and never touch BLE, serial ports or PlatformIO, so the runtime
+# requirements (tools/requirements.txt) are not needed.
+pytest>=8.0
+ruff>=0.6,<1
+colorama>=0.4.0

@@ -32,6 +32,8 @@ import subprocess
 import tempfile
 import sqlite3
 import json
+import re
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 
@@ -52,7 +54,9 @@ def ensure_venv_requirements():
         print("Run: python3 -m venv tools/venv && source tools/venv/bin/activate && pip install -r tools/requirements.txt")
         return False
     
-    pip_cmd = str(venv_dir / "bin" / "pip")
+    # The interpreter running this script is the venv's (started by grinder.py), so use it for pip
+    # (venv/bin/pip does not exist on Windows, where the layout is venv/Scripts)
+    pip_cmd = [sys.executable, "-m", "pip"]
     
     # Check if requirements.txt exists
     if not requirements_file.exists():
@@ -62,7 +66,7 @@ def ensure_venv_requirements():
     # Check and install missing requirements
     try:
         print("[INFO] Checking venv dependencies...")
-        result = subprocess.run([pip_cmd, "install", "-r", str(requirements_file)], 
+        result = subprocess.run([*pip_cmd, "install", "-r", str(requirements_file)],
                               capture_output=True, text=True)
         if result.returncode != 0:
             print(f"[WARNING] Some dependencies may not be installed: {result.stderr}")
@@ -149,6 +153,261 @@ BLE_DATA_ERROR = 0x23
 DEVICE_NAME = "GrindByWeight"
 CHUNK_SIZE = 512
 DATA_CHUNK_SIZE = 500
+
+# === Database storage helpers (module level so they can be tested without BLE) ===
+DB_BACKUP_KEEP = 5
+
+SCHEMA_STATEMENTS = (
+    """
+    CREATE TABLE IF NOT EXISTS grind_sessions (
+        session_id INTEGER PRIMARY KEY,
+        session_timestamp INTEGER,
+        profile_id INTEGER,
+        grind_mode INTEGER,
+        target_weight REAL,
+        target_time_ms INTEGER,
+        tolerance REAL,
+        final_weight REAL,
+        start_weight REAL,
+        error_grams REAL,
+        time_error_ms INTEGER,
+        total_time_ms INTEGER,
+        total_motor_on_time_ms INTEGER,
+        pulse_count INTEGER,
+        max_pulse_attempts INTEGER,
+        termination_reason INTEGER,
+        latency_to_coast_ratio REAL,
+        flow_rate_threshold REAL,
+        schema_version INTEGER,
+        result_status TEXT,
+        checksum INTEGER,
+        session_size_bytes INTEGER,
+        received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );""",
+    """
+    CREATE TABLE IF NOT EXISTS grind_events (
+        session_id INTEGER, event_sequence_id INTEGER, timestamp_ms INTEGER,
+        phase_id INTEGER, phase_name TEXT, pulse_attempt_number INTEGER,
+        duration_ms INTEGER, start_weight REAL, end_weight REAL,
+        motor_stop_target_weight REAL, pulse_duration_ms REAL, grind_latency_ms INTEGER,
+        settling_duration_ms INTEGER, pulse_flow_rate REAL, loop_count INTEGER,
+        event_flags INTEGER,
+        FOREIGN KEY (session_id) REFERENCES grind_sessions(session_id),
+        PRIMARY KEY (session_id, event_sequence_id)
+    );""",
+    """
+    CREATE TABLE IF NOT EXISTS grind_measurements (
+        session_id INTEGER, sequence_id INTEGER, timestamp_ms INTEGER,
+        weight_grams REAL, weight_delta REAL, flow_rate_g_per_s REAL, motor_is_on BOOLEAN,
+        phase_id INTEGER, phase_name TEXT, motor_stop_target_weight REAL,
+        FOREIGN KEY (session_id) REFERENCES grind_sessions(session_id),
+        PRIMARY KEY (session_id, sequence_id)
+    );""",
+)
+
+# Expected columns per table (name, declaration used when an old database lacks the column).
+# received_at has no default here: SQLite cannot ADD COLUMN with a non-constant default.
+EXPECTED_COLUMNS = {
+    "grind_sessions": [
+        ("session_id", "INTEGER"), ("session_timestamp", "INTEGER"), ("profile_id", "INTEGER"),
+        ("grind_mode", "INTEGER"), ("target_weight", "REAL"), ("target_time_ms", "INTEGER"),
+        ("tolerance", "REAL"), ("final_weight", "REAL"), ("start_weight", "REAL"), ("error_grams", "REAL"),
+        ("time_error_ms", "INTEGER"), ("total_time_ms", "INTEGER"), ("total_motor_on_time_ms", "INTEGER"),
+        ("pulse_count", "INTEGER"), ("max_pulse_attempts", "INTEGER"), ("termination_reason", "INTEGER"),
+        ("latency_to_coast_ratio", "REAL"), ("flow_rate_threshold", "REAL"), ("schema_version", "INTEGER"),
+        ("result_status", "TEXT"), ("checksum", "INTEGER"), ("session_size_bytes", "INTEGER"),
+        ("received_at", "TIMESTAMP"),
+    ],
+    "grind_events": [
+        ("session_id", "INTEGER"), ("event_sequence_id", "INTEGER"), ("timestamp_ms", "INTEGER"),
+        ("phase_id", "INTEGER"), ("phase_name", "TEXT"), ("pulse_attempt_number", "INTEGER"),
+        ("duration_ms", "INTEGER"), ("start_weight", "REAL"), ("end_weight", "REAL"),
+        ("motor_stop_target_weight", "REAL"), ("pulse_duration_ms", "REAL"), ("grind_latency_ms", "INTEGER"),
+        ("settling_duration_ms", "INTEGER"), ("pulse_flow_rate", "REAL"), ("loop_count", "INTEGER"),
+        ("event_flags", "INTEGER"),
+    ],
+    "grind_measurements": [
+        ("session_id", "INTEGER"), ("sequence_id", "INTEGER"), ("timestamp_ms", "INTEGER"),
+        ("weight_grams", "REAL"), ("weight_delta", "REAL"), ("flow_rate_g_per_s", "REAL"),
+        ("motor_is_on", "BOOLEAN"), ("phase_id", "INTEGER"), ("phase_name", "TEXT"),
+        ("motor_stop_target_weight", "REAL"),
+    ],
+}
+# Columns that are written by an export (everything except received_at, which the database fills in)
+_SESSION_COLUMNS = ", ".join(name for name, _ in EXPECTED_COLUMNS["grind_sessions"] if name != "received_at")
+_EVENT_COLUMNS = ", ".join(name for name, _ in EXPECTED_COLUMNS["grind_events"])
+_MEASUREMENT_COLUMNS = ", ".join(name for name, _ in EXPECTED_COLUMNS["grind_measurements"])
+
+
+class DatabaseSchemaError(Exception):
+    """The existing database cannot be brought to the current schema."""
+
+
+def create_schema(conn: sqlite3.Connection) -> None:
+    """Create the three grind tables if they do not exist yet, and add columns an older database lacks.
+
+    Databases written by older versions of this tool lack later columns (for example event_flags,
+    grind_mode, schema_version); those are added as nullable columns so old rows stay valid.
+    """
+    for statement in SCHEMA_STATEMENTS:
+        conn.execute(statement)
+    for table, columns in EXPECTED_COLUMNS.items():
+        present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, declaration in columns:
+            if name in present:
+                continue
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+            except sqlite3.Error as e:
+                raise DatabaseSchemaError(
+                    f"Table {table} lacks column {name} and it could not be added ({e}). "
+                    f"Move the database file aside and export again to create a fresh one."
+                ) from e
+
+
+_BACKUP_NAME_TAIL = r"\.bak-(\d{8}-\d{6})(?:-(\d+))?"
+
+
+def _backup_sort_key(db_name: str, file_name: str):
+    """(timestamp, counter) of a backup file name for ordering, or None if it is not a backup of db_name."""
+    match = re.fullmatch(re.escape(db_name) + _BACKUP_NAME_TAIL, file_name)
+    if not match:
+        return None
+    return (match.group(1), int(match.group(2) or 0))
+
+
+def backup_database(db_path, now: Optional[datetime] = None, keep: int = DB_BACKUP_KEEP) -> Optional[Path]:
+    """Copy an existing database to <db>.bak-<YYYYmmdd-HHMMSS> and keep only the newest `keep` backups.
+
+    Returns the backup path, or None if there is no database yet. A second backup in the same second
+    gets a -1, -2, ... suffix. Only files named exactly like our backups are rotated, and the backup
+    made by this call is never deleted (even if the clock went backwards).
+    """
+    db_path = Path(db_path)
+    if not db_path.exists():
+        return None
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
+    backup_path = db_path.with_name(f"{db_path.name}.bak-{stamp}")
+    counter = 0
+    while backup_path.exists():
+        counter += 1
+        backup_path = db_path.with_name(f"{db_path.name}.bak-{stamp}-{counter}")
+
+    # sqlite3's backup API copies a consistent snapshot even if the file is mid-write
+    source = sqlite3.connect(str(db_path))
+    try:
+        target = sqlite3.connect(str(backup_path))
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    except BaseException:
+        # Leave no stray .bak file behind when the source is not a valid database
+        try:
+            backup_path.unlink()
+        except OSError:
+            pass
+        raise
+    finally:
+        source.close()
+
+    older = []
+    for path in db_path.parent.iterdir():
+        key = _backup_sort_key(db_path.name, path.name)
+        if key is not None and path != backup_path:
+            older.append((key, path))
+    older.sort(reverse=True)
+    for _, old in older[max(keep - 1, 0):]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    return backup_path
+
+
+def find_timestamp_collisions(conn: sqlite3.Connection, sessions: List[Dict]) -> List[Tuple[int, int, int]]:
+    """(session_id, stored_timestamp, new_timestamp) for sessions already stored with a different timestamp.
+
+    The device reuses session ids after its log is cleared, so the same id can name a different grind.
+    """
+    collisions = []
+    for session in sessions:
+        row = conn.execute("SELECT session_timestamp FROM grind_sessions WHERE session_id = ?",
+                           (session['session_id'],)).fetchone()
+        if row is not None and row[0] != session['session_timestamp']:
+            collisions.append((session['session_id'], row[0], session['session_timestamp']))
+    return collisions
+
+
+def store_sessions(db_path, sessions: List[Dict], events: List[Dict], measurements: List[Dict]) -> Dict:
+    """Merge sessions into the database in one transaction (all or nothing).
+
+    Existing tables and sessions that were not exported are kept. A session that is already stored is
+    replaced together with its events and measurements. Returns counts and collisions:
+    {'inserted', 'replaced', 'total', 'collisions'}. Raises sqlite3.Error after rolling back.
+    """
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db_path), isolation_level=None)  # explicit transaction control
+    try:
+        create_schema(conn)
+        session_ids = [(s['session_id'],) for s in sessions]
+        existing = {row[0] for row in conn.execute("SELECT session_id FROM grind_sessions")}
+        replaced = sum(1 for (session_id,) in session_ids if session_id in existing)
+        collisions = find_timestamp_collisions(conn, sessions)
+
+        conn.execute("BEGIN")
+        try:
+            # Drop old rows of the sessions being replaced so no stale events/measurements survive
+            conn.executemany("DELETE FROM grind_events WHERE session_id = ?", session_ids)
+            conn.executemany("DELETE FROM grind_measurements WHERE session_id = ?", session_ids)
+
+            session_rows = [
+                (
+                    s['session_id'], s['session_timestamp'], s['profile_id'], s.get('grind_mode', 0),
+                    s['target_weight'], s.get('target_time_ms', 0), s['tolerance'],
+                    s['final_weight'], s.get('start_weight', 0.0), s['error_grams'], s.get('time_error_ms', 0),
+                    s['total_time_ms'], s['total_motor_on_time_ms'], s['pulse_count'], s.get('max_pulse_attempts', 0),
+                    s.get('termination_reason', 255), s.get('latency_to_coast_ratio', 0.0), s.get('flow_rate_threshold', 0.0),
+                    s.get('schema_version', LOG_SCHEMA_VERSION),
+                    s['result_status'], s.get('checksum', 0), s.get('session_size_bytes', 0)
+                )
+                for s in sessions
+            ]
+            placeholders = "(" + ",".join(["?"] * 22) + ")"
+            conn.executemany(f"INSERT OR REPLACE INTO grind_sessions ({_SESSION_COLUMNS}) VALUES {placeholders}", session_rows)
+
+            conn.executemany(f"INSERT OR REPLACE INTO grind_events ({_EVENT_COLUMNS}) VALUES ({','.join('?' * 16)})",
+                [(e['session_id'], e['event_sequence_id'], e['timestamp_ms'], e['phase_id'],
+                  e['phase_name'], e['pulse_attempt_number'], e['duration_ms'],
+                  e['start_weight'], e['end_weight'], e['motor_stop_target_weight'],
+                  e['pulse_duration_ms'], e['grind_latency_ms'], e['settling_duration_ms'],
+                  e['pulse_flow_rate'], e['loop_count'], e.get('event_flags', 0)) for e in events])
+
+            conn.executemany(f"INSERT OR REPLACE INTO grind_measurements ({_MEASUREMENT_COLUMNS}) VALUES ({','.join('?' * 10)})",
+                [(m['session_id'], m['sequence_id'], m['timestamp_ms'], m['weight_grams'], m['weight_delta'],
+                  m['flow_rate_g_per_s'], m['motor_is_on'], m['phase_id'], m['phase_name'],
+                  m['motor_stop_target_weight']) for m in measurements])
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+
+        total = conn.execute("SELECT COUNT(*) FROM grind_sessions").fetchone()[0]
+    finally:
+        conn.close()
+    return {'inserted': len(sessions) - replaced, 'replaced': replaced, 'total': total, 'collisions': collisions}
+
+
+def save_failed_session(session_id: int, data: bytes, directory) -> Path:
+    """Write the raw bytes of an unparsable session file to <directory>/failed_session_<id>.bin."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"failed_session_{session_id}.bin"
+    path.write_bytes(data)
+    return path
+
 
 class GrinderBLETool:
     """Unified BLE tool for all grinder operations."""
@@ -414,11 +673,8 @@ class GrinderBLETool:
             patch_path = patch_file.name
             patch_file.close()
             
-            # Use detools from the project venv (ensured by ensure_venv_requirements)
-            venv_dir = Path(__file__).parent.parent / "venv"
-            detools_cmd = str(venv_dir / "bin" / "detools")
-
-            cmd = [detools_cmd, 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
+            # Run detools as a module of the current (venv) interpreter, portable across platforms
+            cmd = [sys.executable, '-m', 'detools', 'create_patch', '-c', 'heatshrink', str(old_firmware_path), new_firmware_path, patch_path]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -648,16 +904,22 @@ class GrinderBLETool:
                 
             except Exception as e:
                 self.safe_print(f"[WARNING] Failed to process session {session_id}: {e}")
-                # Save corrupted file for debugging
-                with open(f"failed_session_{session_id}.bin", "wb") as f:
-                    f.write(file_data)
-                self.safe_print(f"[INFO] Saved corrupted session to failed_session_{session_id}.bin")
+                # Save corrupted file for debugging (next to the database, not in the current directory)
+                try:
+                    failed_path = save_failed_session(session_id, file_data, Path(__file__).parent.parent / "database")
+                    self.safe_print(f"[INFO] Saved corrupted session to {failed_path}")
+                except OSError as save_error:
+                    self.safe_print(f"[WARNING] Could not save the corrupted session file: {save_error}")
                 continue
         
         # Step 3: Store all successfully processed data
         if all_sessions:
             self.safe_print(f"\n[INFO] Storing data: {len(all_sessions)} sessions, {len(all_events)} events, {len(all_measurements)} measurements")
-            self._store_data(all_sessions, all_events, all_measurements, db_path)
+            try:
+                self._store_data(all_sessions, all_events, all_measurements, db_path)
+            except (sqlite3.Error, DatabaseSchemaError, OSError) as e:
+                self.safe_print(f"[ERROR] Could not store the data, the database contents were left unchanged: {e}")
+                return False
             self.safe_print("[OK] Data export completed successfully!")
             return True
         else:
@@ -870,94 +1132,19 @@ class GrinderBLETool:
     
     
     def _store_data(self, sessions: List[Dict], events: List[Dict], measurements: List[Dict], db_path: str):
-        if os.path.exists(db_path):
-            os.remove(db_path)
-        
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE grind_sessions (
-                    session_id INTEGER PRIMARY KEY,
-                    session_timestamp INTEGER,
-                    profile_id INTEGER,
-                    grind_mode INTEGER,
-                    target_weight REAL,
-                    target_time_ms INTEGER,
-                    tolerance REAL,
-                    final_weight REAL,
-                    start_weight REAL,
-                    error_grams REAL,
-                    time_error_ms INTEGER,
-                    total_time_ms INTEGER,
-                    total_motor_on_time_ms INTEGER,
-                    pulse_count INTEGER,
-                    max_pulse_attempts INTEGER,
-                    termination_reason INTEGER,
-                    latency_to_coast_ratio REAL,
-                    flow_rate_threshold REAL,
-                    schema_version INTEGER,
-                    result_status TEXT,
-                    checksum INTEGER,
-                    session_size_bytes INTEGER,
-                    received_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""")
+        """Merge the exported sessions into the database; an existing database is backed up first and never deleted."""
+        backup_path = backup_database(db_path)
+        if backup_path:
+            self.safe_print(f"[INFO] Backed up existing database to {backup_path.name}")
 
-            cursor.execute("""
-                CREATE TABLE grind_events (
-                    session_id INTEGER, event_sequence_id INTEGER, timestamp_ms INTEGER, 
-                    phase_id INTEGER, phase_name TEXT, pulse_attempt_number INTEGER, 
-                    duration_ms INTEGER, start_weight REAL, end_weight REAL,
-                    motor_stop_target_weight REAL, pulse_duration_ms REAL, grind_latency_ms INTEGER,
-                    settling_duration_ms INTEGER, pulse_flow_rate REAL, loop_count INTEGER,
-                    event_flags INTEGER,
-                    FOREIGN KEY (session_id) REFERENCES grind_sessions(session_id),
-                    PRIMARY KEY (session_id, event_sequence_id)
-                );""")
+        result = store_sessions(db_path, sessions, events, measurements)
+        for session_id, stored_ts, new_ts in result['collisions']:
+            self.safe_print(f"[WARNING] Session {session_id} was already stored with a different timestamp "
+                            f"({stored_ts} vs {new_ts}); it is replaced by the exported one (backup kept)")
+        self.safe_print(f"[INFO] Database now holds {result['total']} sessions "
+                        f"({result['inserted']} new, {result['replaced']} replaced)")
+        return result
 
-            cursor.execute("""
-                CREATE TABLE grind_measurements (
-                    session_id INTEGER, sequence_id INTEGER, timestamp_ms INTEGER,
-                    weight_grams REAL, weight_delta REAL, flow_rate_g_per_s REAL, motor_is_on BOOLEAN, 
-                    phase_id INTEGER, phase_name TEXT, motor_stop_target_weight REAL,
-                    FOREIGN KEY (session_id) REFERENCES grind_sessions(session_id),
-                    PRIMARY KEY (session_id, sequence_id)
-                );""")
-            
-            # Insert data
-            
-            # Build placeholders dynamically to match column count
-            _cols_sessions = """session_id, session_timestamp, profile_id, grind_mode, target_weight, target_time_ms, tolerance, final_weight, start_weight, error_grams, time_error_ms, total_time_ms, total_motor_on_time_ms, pulse_count, max_pulse_attempts, termination_reason, latency_to_coast_ratio, flow_rate_threshold, schema_version, result_status, checksum, session_size_bytes"""
-            _params_sessions = [
-                    (
-                        s['session_id'], s['session_timestamp'], s['profile_id'], s.get('grind_mode', 0),
-                        s['target_weight'], s.get('target_time_ms', 0), s['tolerance'],
-                        s['final_weight'], s.get('start_weight', 0.0), s['error_grams'], s.get('time_error_ms', 0),
-                        s['total_time_ms'], s['total_motor_on_time_ms'], s['pulse_count'], s.get('max_pulse_attempts', 0),
-                        s.get('termination_reason', 255), s.get('latency_to_coast_ratio', 0.0), s.get('flow_rate_threshold', 0.0),
-                        s.get('schema_version', LOG_SCHEMA_VERSION),
-                        s['result_status'], s.get('checksum', 0), s.get('session_size_bytes', 0)
-                    )
-                    for s in sessions
-                ]
-            if _params_sessions:
-                _ph_sessions = "(" + ",".join(["?"] * len(_params_sessions[0])) + ")"
-                cursor.executemany(f"INSERT INTO grind_sessions ({_cols_sessions}) VALUES {_ph_sessions}", _params_sessions)
-            else:
-                pass
-
-            cursor.executemany("INSERT INTO grind_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                [(e['session_id'], e['event_sequence_id'], e['timestamp_ms'], e['phase_id'], 
-                  e['phase_name'], e['pulse_attempt_number'], e['duration_ms'],
-                  e['start_weight'], e['end_weight'], e['motor_stop_target_weight'], 
-                  e['pulse_duration_ms'], e['grind_latency_ms'], e['settling_duration_ms'],
-                  e['pulse_flow_rate'], e['loop_count'], e.get('event_flags', 0)) for e in events])
-
-            cursor.executemany("INSERT INTO grind_measurements VALUES (?,?,?,?,?,?,?,?,?,?)",
-                [(m['session_id'], m['sequence_id'], m['timestamp_ms'], m['weight_grams'], m['weight_delta'], m['flow_rate_g_per_s'], m['motor_is_on'], m['phase_id'], m['phase_name'], m['motor_stop_target_weight']) for m in measurements])
-            
-            conn.commit()
-    
     # === Analyze Data (Export + Streamlit Report) ===
     async def analyze_data(self, db_path: str = None, skip_export: bool = False) -> bool:
         """Export data from grinder and launch Streamlit report."""
@@ -1392,7 +1579,8 @@ async def main():
 
     args = parser.parse_args()
     tool = GrinderBLETool()
-    
+    exit_code = 0
+
     try:
         if args.command == 'scan':
             await tool.scan_devices()
@@ -1420,13 +1608,15 @@ async def main():
                 if not firmware_path:
                     tool.safe_print("[ERROR] No firmware file found.")
                     return 1
-                await tool.upload_firmware(firmware_path, args.force_full)
+                if not await tool.upload_firmware(firmware_path, args.force_full):
+                    tool.safe_print("[ERROR] Firmware upload failed")
+                    exit_code = 1
             elif args.command == 'export':
-                await tool.export_data(args.db)
+                if not await tool.export_data(args.db):
+                    exit_code = 1
             elif args.command == 'analyse':
-                await tool.analyze_data(args.db, False)
                 # analyze_data handles its own disconnection after data export
-                return 0
+                return 0 if await tool.analyze_data(args.db, False) else 1
             elif args.command == 'connect':
                 tool.safe_print("[OK] Connected to device.")
             elif args.command == 'debug':
@@ -1434,6 +1624,8 @@ async def main():
             elif args.command == 'info':
                 info = await tool.get_system_info()
                 tool.print_system_info(info)
+                if not info:
+                    exit_code = 1
             elif args.command == 'board':
                 if not await tool.set_board_override(args.mode):
                     return 1
@@ -1458,17 +1650,24 @@ async def main():
                         print()
                 else:
                     tool.safe_print("[ERROR] Failed to retrieve diagnostic report")
+                    exit_code = 1
 
             await tool.disconnect()
             
     except KeyboardInterrupt:
         tool.safe_print("\n[INFO] Interrupted by user")
+        return 1
     finally:
         if tool.connected: await tool.disconnect()
+
+    return exit_code
 
 if __name__ == "__main__":
     try:
         sys.exit(asyncio.run(main()))
+    except KeyboardInterrupt:
+        print("\n[INFO] Interrupted by user")
+        sys.exit(1)
     except Exception as e:
         print(f"[ERROR] An unexpected error occurred: {e}")
         sys.exit(1)

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      build-firmware:
+        description: "Also build the production firmware (set to 'false' to run only the host tests)"
+        type: string
+        default: 'true'
+
+permissions:
+  contents: read
+
+# Only pull requests cancel superseded runs; running runs on main and release (workflow_call) are not cancelled
+# (GitHub may still drop an older pending run in the same group when a newer one queues)
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  host-tests:
+    name: Host tests and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/requirements-dev.txt
+
+      - name: Install test dependencies
+        run: python -m pip install -r tools/requirements-dev.txt
+
+      - name: Lint (errors only)
+        run: python -m ruff check .
+
+      - name: Byte-compile Python sources
+        run: python -m compileall -q tools
+
+      - name: Python tool tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+        run: python -m pytest
+
+      - name: Set up Node
+        if: ${{ hashFiles('tools/tests/*.test.js') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Node tests
+        if: ${{ hashFiles('tools/tests/*.test.js') != '' }}
+        run: node --test tools/tests/*.test.js
+
+      - name: Cache PlatformIO (native tests)
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-native-${{ runner.os }}-${{ hashFiles('platformio-native.ini') }}
+
+      - name: Native firmware logic tests
+        run: |
+          python -m pip install platformio
+          pio test -c platformio-native.ini -e native-test
+
+  firmware-build:
+    name: Build production firmware
+    needs: host-tests
+    if: ${{ inputs.build-firmware != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-firmware-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Build firmware
+        run: |
+          python -m pip install platformio
+          pio run -e waveshare-esp32s3-touch-amoled-164
