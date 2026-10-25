@@ -3,6 +3,7 @@
 #include <functional>
 #include <cstdint>
 #include <memory>
+#include "../controllers/grind_start_check.h"
 #include "components/blocking_overlay.h"
 #include "components/ui_operations.h"
 #include "screens/ready_screen.h"
@@ -131,6 +132,10 @@ public:
 
     // Tells the user why grinding / motor actions are unavailable (motor_available() is false)
     void show_motor_disabled_notice();
+
+    // Tells the user why a grind did not start (block != NONE): the motor dialog for MOTOR_DISABLED,
+    // otherwise a "CAN'T START" notice with the cause. OK and BACK both just dismiss it.
+    void show_start_blocked_notice(GrindStartBlock block);
 
     // Degraded mode (board UNKNOWN): asks which board this is, stores the answer as
     // the board override and restarts so detection picks it up. Reuses the confirm

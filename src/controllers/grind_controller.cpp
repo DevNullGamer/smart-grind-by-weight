@@ -110,22 +110,29 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     load_motor_latency();
 }
 
-void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
+GrindStartBlock GrindController::start_block() const {
+    // Read from the UI task; locked_out_ and the hardware fault are atomics, motor state is
+    // written at init, so a stale answer is at worst one tick late.
+    const bool motor_available = weight_sensor && grinder && motor_enabled() && grinder->is_initialized();
+    GrindStartFault fault = GrindStartFault::NONE;
+    if (weight_sensor) {
+        switch (weight_sensor->get_hardware_fault()) {
+            case WeightSensor::HardwareFault::NOT_CONNECTED: fault = GrindStartFault::NOT_CONNECTED; break;
+            case WeightSensor::HardwareFault::NO_DATA: fault = GrindStartFault::NO_DATA; break;
+            case WeightSensor::HardwareFault::INVALID_SAMPLE_RATE: fault = GrindStartFault::INVALID_SAMPLE_RATE; break;
+            case WeightSensor::HardwareFault::NONE: break;
+        }
+    }
+    return grind_start_block(motor_available, grinder && grinder->is_locked_out(), fault);
+}
+
+GrindStartBlock GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
     LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
             millis(), target, (unsigned long)time_ms, grind_mode == GrindMode::TIME ? "TIME" : "WEIGHT");
-    if (!weight_sensor || !grinder) return;
-    if (!motor_enabled() || !grinder->is_initialized()) {
-        LOG_BLE("ERROR: Cannot start grind - motor disabled (board not confirmed)\n");
-        return;
-    }
-    if (grinder->is_locked_out()) {
-        LOG_BLE("ERROR: Cannot start grind - grinder locked out (OTA update in progress)\n");
-        return;
-    }
-    if (weight_sensor->has_hardware_fault()) {
-        LOG_BLE("ERROR: Cannot start grind - load cell hardware fault detected (%d)\n",
-                static_cast<int>(weight_sensor->get_hardware_fault()));
-        return;
+    const GrindStartBlock block = start_block();
+    if (block != GrindStartBlock::NONE) {
+        LOG_BLE("[GRIND_START] Refused - %s\n", grind_start_block_reason(block));
+        return block;
     }
     
     target_weight = target;
@@ -223,6 +230,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     }
     
     switch_phase(GrindPhase::INITIALIZING, loop_data);
+    return GrindStartBlock::NONE;
 }
 
 void GrindController::user_tare_request() {

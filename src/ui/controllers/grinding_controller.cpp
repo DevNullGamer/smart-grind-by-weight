@@ -200,12 +200,6 @@ void GrindingUIController::handle_grind_button() {
             return;
         }
 
-        if (!ui_manager_->motor_available()) {
-            LOG_BLE("[GRIND_START] Refused - motor disabled (board not confirmed)\n");
-            ui_manager_->show_motor_disabled_notice();
-            return;
-        }
-
         if (ui_manager_->grind_controller && ui_manager_->profile_controller) {
             ui_manager_->grind_controller->set_grind_profile_id(ui_manager_->profile_controller->get_current_profile());
         }
@@ -215,13 +209,17 @@ void GrindingUIController::handle_grind_button() {
         error_grind_weight_ = 0.0f;
         error_grind_progress_ = 0;
 
+        GrindStartBlock start_block = GrindStartBlock::NONE;
         if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
             float target_weight = ui_manager_->profile_controller->get_current_weight();
             float target_time_seconds = ui_manager_->profile_controller->get_current_time();
             uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
-            ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
+            start_block = ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
         }
         LOG_BLE("[%lums GRIND_START] start_grind() returned\n", millis());
+        if (start_block != GrindStartBlock::NONE) {
+            ui_manager_->show_start_blocked_notice(start_block);  // The controller already logged the refusal
+        }
     } else if (ui_manager_->state_machine->is_state(UIState::GRINDING)) {
         if (ui_manager_->grind_controller) {
             ui_manager_->grind_controller->stop_grind();

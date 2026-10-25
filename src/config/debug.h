@@ -71,6 +71,16 @@
     #define DEBUG_GRINDER_DEADMAN_TEST 0
 #endif
 
+// Deadman bench check: ~6 s after boot, starts ONE continuous run on an initialized Grinder and logs
+// "[DEADMAN-TEST]" lines with the trip result (see hardware/grinder_deadman_test.cpp). Needs nothing
+// attached. Only valid together with DEBUG_GRINDER_DEADMAN_TEST; the ...-deadman-test env sets both.
+#ifndef DEBUG_GRINDER_DEADMAN_AUTORUN
+    #define DEBUG_GRINDER_DEADMAN_AUTORUN 0
+#endif
+#if DEBUG_GRINDER_DEADMAN_AUTORUN && !DEBUG_GRINDER_DEADMAN_TEST
+    #error "DEBUG_GRINDER_DEADMAN_AUTORUN is for the deadman-test env only (needs DEBUG_GRINDER_DEADMAN_TEST=1)"
+#endif
+
 // Core debug logging settings
 #define DEBUG_SERIAL_OUTPUT 1                                             // Enable serial debug output
 #define DEBUG_GRIND_CONTROLLER 0                                          // Enable detailed grind debugging

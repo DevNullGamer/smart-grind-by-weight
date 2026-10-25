@@ -330,6 +330,23 @@ void UIManager::show_motor_disabled_notice() {
         "BACK");
 }
 
+void UIManager::show_start_blocked_notice(GrindStartBlock block) {
+    if (block == GrindStartBlock::NONE) {
+        return;
+    }
+    if (block == GrindStartBlock::MOTOR_DISABLED) {
+        show_motor_disabled_notice();
+        return;
+    }
+    show_confirmation(
+        grind_start_block_title(block),
+        grind_start_block_message(block),
+        "OK",
+        lv_color_hex(THEME_COLOR_WARNING),
+        nullptr,
+        "BACK");
+}
+
 void UIManager::show_board_picker() {
     show_confirmation(
         "SELECT BOARD",
@@ -453,9 +470,10 @@ void UIManager::update_auto_actions() {
     const bool grinder_active = (grind_controller && grind_controller->is_active());
     const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
 
-    // Auto-start stays off while the motor is disabled (it would pop up the notice repeatedly)
+    // Auto-start stays off while a grind could not start (motor disabled, update running, load cell
+    // fault): a refused start would pop up the notice repeatedly
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_ &&
-        motor_available()) {
+        grind_controller && grind_controller->start_block() == GrindStartBlock::NONE) {
         auto* filter = sensor->get_raw_filter();
 
         // Extended window = settling period + trigger window

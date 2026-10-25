@@ -4,6 +4,7 @@
 #include "../hardware/grinder.h"
 #include "../logging/grind_logging.h"
 #include "grind_mode.h"
+#include "grind_start_check.h"
 #include "grind_session.h"
 #include "grind_strategy.h"
 #include "weight_grind_strategy.h"
@@ -207,7 +208,10 @@ private:
 
 public:
     void init(WeightSensor* lc, Grinder* gr, Preferences* prefs);
-    void start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode);
+    // Why a grind cannot start right now (NONE = it can). Cheap and side-effect free; safe to poll.
+    GrindStartBlock start_block() const;
+    // Starts a grind, or refuses (and logs why) and returns the reason. NONE = started.
+    GrindStartBlock start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode);
     void user_tare_request();
     void return_to_idle(); // Called by UI to acknowledge completion/timeout
     void stop_grind();

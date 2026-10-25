@@ -25,6 +25,9 @@
 #if DEBUG_BLE_ENABLE_STRESS
 #include "system/ble_enable_stress.h"
 #endif
+#if DEBUG_GRINDER_DEADMAN_AUTORUN
+#include "hardware/grinder_deadman_test.h"
+#endif
 
 HardwareManager hardware_manager;
 StateMachine state_machine;
@@ -190,6 +193,10 @@ void setup() {
 
 #if DEBUG_BLE_ENABLE_STRESS
     ble_enable_stress_start();
+#endif
+
+#if DEBUG_GRINDER_DEADMAN_AUTORUN
+    grinder_deadman_test_start(hardware_manager.get_grinder());
 #endif
 
     boot_health_setup_done();  // the confirmation timer of a freshly installed image starts counting here

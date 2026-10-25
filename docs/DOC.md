@@ -671,6 +671,7 @@ The latency value is automatically calibrated via **Auto-Tune Motor Response** (
 - Mechanical instability detection with hysteresis and persistence
 - 60-second grind timeout protection with user acknowledgment requirement
 - Safety stops that always switch the motor off first: `Err: sensor`, `Err: tare`, `Err: no flow` (weight mode only) and `Err: motor` (hardware motor timer, 62 s, also in time mode); not yet run on hardware; see [TROUBLESHOOTING.md](TROUBLESHOOTING.md#grind-stopped-with-an-err-message) and the Safety batch 1 section in [DESIGN-NOTES.md](DESIGN-NOTES.md)
+- A grind is refused up front, with a "CAN'T START" notice, when the load cell reports not connected, no data or wrong sample rate at boot, or while a firmware update runs; a disabled motor keeps its own dialog. Start on Cup is held back in the same cases (decision logic host-tested only; notice not hardware-verified)
 - Weight mode: after the tare the grind continues after 10 s, final and pulse settling after 4 s, with the current reading (purge settling keeps its 10 s limit; time mode has no such fallback; not yet run on hardware)
 - Motor pulses are exact (a 100 ms pulse lasts 100 ms), up to 4000 ms
 

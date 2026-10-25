@@ -18,6 +18,7 @@ void run_pull_logic_tests();
 void run_pull_ui_text_tests();
 void run_sensor_health_tests();
 void run_grind_safety_tests();
+void run_grind_start_check_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -40,5 +41,6 @@ int main() {
     run_pull_ui_text_tests();
     run_sensor_health_tests();
     run_grind_safety_tests();
+    run_grind_start_check_tests();
     return UNITY_END();
 }
