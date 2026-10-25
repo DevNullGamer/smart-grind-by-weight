@@ -101,7 +101,8 @@ def test_env_constants():
 def test_platformio_has_single_production_env():
     ini = (TOOLS_DIR.parent / "platformio.ini").read_text(encoding="utf-8")
     assert f"[env:{ENV}]" in ini
-    assert "-v2]" not in ini
+    # The old per-board V2 production env must stay gone; debug envs may end in -v2 (e.g. rmt-selftest-v2).
+    assert f"[env:{V2_ENV}]" not in ini
     assert "BOARD_DEFAULT_VARIANT" not in ini
 
 
