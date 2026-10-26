@@ -690,6 +690,18 @@ void MenuScreen::hide() {
     LOG_BLE("[%lums MENU] Menu screen hidden successfully\n", millis());
 }
 
+bool MenuScreen::is_info_page_current() const {
+    return visible && menu && info_page && lv_menu_get_cur_main_page(menu) == info_page;
+}
+
+bool MenuScreen::is_diagnostics_page_current() const {
+    return visible && menu && diagnostics_page && lv_menu_get_cur_main_page(menu) == diagnostics_page;
+}
+
+bool MenuScreen::is_ble_page_current() const {
+    return visible && menu && bluetooth_page && lv_menu_get_cur_main_page(menu) == bluetooth_page;
+}
+
 void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap) {
     if (!visible) return;
 
@@ -705,7 +717,7 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
 
     char uptime_text[48];
     snprintf(uptime_text, sizeof(uptime_text), "%02lu:%02lu:%02lu", hours, minutes, seconds);
-    lv_label_set_text(uptime_label, uptime_text);
+    set_label_text_if_changed(uptime_label, uptime_text);
 
     set_label_text_int(memory_label, free_heap / 1024, "kB");
 }
@@ -725,7 +737,7 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
 
         char std_dev_g_text[32];
         snprintf(std_dev_g_text, sizeof(std_dev_g_text), "%.4f", std_dev_g);
-        lv_label_set_text(diag_std_dev_g_label, std_dev_g_text);
+        set_label_text_if_changed(diag_std_dev_g_label, std_dev_g_text);
 
         set_label_text_int(diag_std_dev_adc_label, std_dev_adc);
 
@@ -733,12 +745,15 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
         bool noise_acceptable = weight_sensor->noise_level_diagnostic();
 
         // Update noise level indicator
+        // The colour follows the text, so it is only set when the text changes
         if (noise_acceptable) {
-            lv_label_set_text(diag_noise_level_label, "OK");
-            lv_obj_set_style_text_color(diag_noise_level_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+            if (set_label_text_if_changed(diag_noise_level_label, "OK")) {
+                lv_obj_set_style_text_color(diag_noise_level_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+            }
         } else {
-            lv_label_set_text(diag_noise_level_label, "Too High");
-            lv_obj_set_style_text_color(diag_noise_level_label, lv_color_hex(THEME_COLOR_ERROR), 0);
+            if (set_label_text_if_changed(diag_noise_level_label, "Too High")) {
+                lv_obj_set_style_text_color(diag_noise_level_label, lv_color_hex(THEME_COLOR_ERROR), 0);
+            }
         }
     }
 
@@ -746,16 +761,16 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
     float cal_factor = weight_sensor->get_calibration_factor();
     char cal_factor_text[32];
     snprintf(cal_factor_text, sizeof(cal_factor_text), "%.2f", cal_factor);
-    lv_label_set_text(diag_calibration_factor_label, cal_factor_text);
+    set_label_text_if_changed(diag_calibration_factor_label, cal_factor_text);
 
     // Update motor latency
     if (grind_controller) {
         float motor_latency = grind_controller->get_motor_response_latency();
         char latency_text[32];
         snprintf(latency_text, sizeof(latency_text), "%.0f ms", motor_latency);
-        lv_label_set_text(diag_motor_latency_label, latency_text);
+        set_label_text_if_changed(diag_motor_latency_label, latency_text);
     } else {
-        lv_label_set_text(diag_motor_latency_label, "-- ms");
+        set_label_text_if_changed(diag_motor_latency_label, "-- ms");
     }
 
     // Get highest priority diagnostic
@@ -763,21 +778,23 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
 
     // Update status label
     if (diagnostic == DiagnosticCode::NONE) {
-        lv_label_set_text(diag_status_label, "OK");
-        lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+        if (set_label_text_if_changed(diag_status_label, "OK")) {
+            lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+        }
         lv_obj_set_hidden(diag_info_label, true);
     } else {
-        lv_label_set_text(diag_status_label, LV_SYMBOL_WARNING " Warning");
-        lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+        if (set_label_text_if_changed(diag_status_label, LV_SYMBOL_WARNING " Warning")) {
+            lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+        }
 
         // Show appropriate warning message
         if (diagnostic == DiagnosticCode::LOAD_CELL_NOT_CALIBRATED) {
-            lv_label_set_text(diag_info_label, "Loadcell not calibrated");
+            set_label_text_if_changed(diag_info_label, "Loadcell not calibrated");
             lv_obj_set_hidden(diag_info_label, false);
         } else {
             // For future noise/mechanical warnings, show in info label
             const char* message = diagnostics_controller->get_diagnostic_message(diagnostic);
-            lv_label_set_text(diag_info_label, message);
+            set_label_text_if_changed(diag_info_label, message);
             lv_obj_set_hidden(diag_info_label, false);
         }
     }
@@ -796,9 +813,9 @@ void MenuScreen::update_ble_status() {
     // Update status text
     if (bluetooth_manager->is_enabled()) {
         if (bluetooth_manager->is_connected()) {
-            lv_label_set_text(ble_status_label, "Connected");
+            set_label_text_if_changed(ble_status_label, "Connected");
         } else {
-            lv_label_set_text(ble_status_label, "Advertising");
+            set_label_text_if_changed(ble_status_label, "Advertising");
         }
         lv_obj_set_hidden(ble_status_label, false);
         
@@ -807,7 +824,7 @@ void MenuScreen::update_ble_status() {
         unsigned long remaining_min = remaining_ms / (60 * 1000);
         char timer_text[64];
         snprintf(timer_text, sizeof(timer_text), "Auto-disable in: %lu min", remaining_min);
-        lv_label_set_text(ble_timer_label, timer_text);
+        set_label_text_if_changed(ble_timer_label, timer_text);
         lv_obj_set_hidden(ble_timer_label, false);
     } else {
         // When nothing to display hide the status labels
@@ -1156,7 +1173,7 @@ void MenuScreen::update_scale_weight(float weight) {
     }
     char buffer[24];
     snprintf(buffer, sizeof(buffer), SYS_WEIGHT_DISPLAY_FORMAT, weight);
-    lv_label_set_text(scale_weight_label, buffer);
+    set_label_text_if_changed(scale_weight_label, buffer);
 }
 
 void MenuScreen::update_grind_mode_toggles() {

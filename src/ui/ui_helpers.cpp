@@ -1,6 +1,7 @@
 #include "ui_helpers.h"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_font_t* font) {
     lv_obj_set_style_radius(object, THEME_CORNER_RADIUS_PX, 0);
@@ -32,6 +33,14 @@ lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color,
     return button;  
 }
 
+bool set_label_text_if_changed(lv_obj_t* label, const char* text) {
+    if (!label || !text) return false;
+    const char* current = lv_label_get_text(label);
+    if (current && strcmp(current, text) == 0) return false;
+    lv_label_set_text(label, text);
+    return true;
+}
+
 void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit) {
     if (!label) return;
     char buf[24];
@@ -42,7 +51,7 @@ void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit) {
         snprintf(buf, sizeof(buf), "%ld", value);
     }
 
-    lv_label_set_text(label, buf);
+    set_label_text_if_changed(label, buf);
 }
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit) {
@@ -55,7 +64,7 @@ void set_label_text_float(lv_obj_t* label, float value, const char* unit) {
         snprintf(buf, sizeof(buf), "%.2f", value);
     }
 
-    lv_label_set_text(label, buf);
+    set_label_text_if_changed(label, buf);
 }
 
 lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label){

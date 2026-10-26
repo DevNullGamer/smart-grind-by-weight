@@ -31,11 +31,6 @@ lv_obj_t* create_block(lv_obj_t* parent) {
     return block;
 }
 
-// lv_label_set_text always invalidates; this page refreshes once a second, so skip unchanged text
-void set_text_if_changed(lv_obj_t* label, const char* text) {
-    if (label && strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
-}
-
 // Wraps the button text inside the button (a long "Install v1.5.0-rc.3" breaks into two centred lines)
 void wrap_button_text(lv_obj_t* button) {
     lv_obj_t* label = lv_obj_get_child(button, 0);
@@ -232,7 +227,7 @@ void MenuScreen::update_wifi_page() {
     const bool connected = state == WiFiState::CONNECTED;
 
     char text[WIFI_STATUS_TEXT_BUF];
-    set_text_if_changed(wifi_status_label, wifi_status_text(state, wifi_manager.retry_in_ms(), text, sizeof(text)));
+    set_label_text_if_changed(wifi_status_label, wifi_status_text(state, wifi_manager.retry_in_ms(), text, sizeof(text)));
     uint32_t color = THEME_COLOR_TEXT_SECONDARY;
     if (connected) {
         color = THEME_COLOR_SUCCESS;
@@ -241,26 +236,26 @@ void MenuScreen::update_wifi_page() {
     }
     lv_obj_set_style_text_color(wifi_status_label, lv_color_hex(color), 0);
 
-    set_text_if_changed(wifi_network_label, wifi_has_credentials ? wifi_ssid_display : "--");
+    set_label_text_if_changed(wifi_network_label, wifi_has_credentials ? wifi_ssid_display : "--");
 
     if (connected) {
         char ip[16];
         wifi_manager.get_ip(ip, sizeof(ip));
-        set_text_if_changed(wifi_ip_label, ip);
-        set_text_if_changed(wifi_signal_label, wifi_signal_text(wifi_manager.rssi(), text, sizeof(text)));
+        set_label_text_if_changed(wifi_ip_label, ip);
+        set_label_text_if_changed(wifi_signal_label, wifi_signal_text(wifi_manager.rssi(), text, sizeof(text)));
     } else {
-        set_text_if_changed(wifi_ip_label, "--");
-        set_text_if_changed(wifi_signal_label, "--");
+        set_label_text_if_changed(wifi_ip_label, "--");
+        set_label_text_if_changed(wifi_signal_label, "--");
     }
 
     char name[WIFI_HOSTNAME_MAX_LEN + 8];
     snprintf(name, sizeof(name), "%s.local", wifi_manager.hostname());
-    set_text_if_changed(wifi_name_label, name);
+    set_label_text_if_changed(wifi_name_label, name);
 
     const bool listening = wifi_has_credentials && update_server.running();
     if (listening) {
         char listen_text[96];
-        set_text_if_changed(wifi_listen_label, update_listening_text(wifi_manager.hostname(), listen_text, sizeof(listen_text)));
+        set_label_text_if_changed(wifi_listen_label, update_listening_text(wifi_manager.hostname(), listen_text, sizeof(listen_text)));
     }
     set_visible(wifi_listen_label ? lv_obj_get_parent(wifi_listen_label) : nullptr, listening);
 
@@ -302,17 +297,17 @@ void MenuScreen::update_wifi_firmware() {
     uint32_t tone = THEME_COLOR_TEXT_SECONDARY;
     if (view.latest_tone == PullTone::GOOD) tone = THEME_COLOR_SUCCESS;
     if (view.latest_tone == PullTone::WARN) tone = THEME_COLOR_WARNING;
-    set_text_if_changed(wifi_fw_latest_label, view.latest);
+    set_label_text_if_changed(wifi_fw_latest_label, view.latest);
     lv_obj_set_style_text_color(wifi_fw_latest_label, lv_color_hex(tone), 0);
 
-    set_text_if_changed(lv_obj_get_child(wifi_check_button, 0), view.check_label);
+    set_label_text_if_changed(lv_obj_get_child(wifi_check_button, 0), view.check_label);
     set_enabled(wifi_check_button, view.check_enabled);
     set_enabled(wifi_beta_toggle, view.beta_enabled);
 
     set_visible(wifi_install_button, view.show_install);
-    if (view.show_install) set_text_if_changed(lv_obj_get_child(wifi_install_button, 0), view.install_label);
+    if (view.show_install) set_label_text_if_changed(lv_obj_get_child(wifi_install_button, 0), view.install_label);
 
-    set_text_if_changed(wifi_fw_notice_label, view.notice);
+    set_label_text_if_changed(wifi_fw_notice_label, view.notice);
     // The label sits in its own padded container (create_description_label): hide that, not just the text
     set_visible(lv_obj_get_parent(wifi_fw_notice_label), view.notice[0] != '\0');
 }

@@ -153,6 +153,10 @@ public:
     // Re-reads the stored SSID / credentials flag from NVS (page entry and after Forget), then update_wifi_page()
     void reload_wifi_page();
     bool is_wifi_page_current() const;
+    // True while the menu is visible and that page is the one on screen (per-frame updates run only then)
+    bool is_info_page_current() const;
+    bool is_diagnostics_page_current() const;
+    bool is_ble_page_current() const;
     // Shows why a tap on Check / Install was refused until it expires (PullFailure::NONE clears it)
     void set_wifi_pull_notice(PullFailure why);
     // True if credentials were stored/cleared since reload_wifi_page() last ran

@@ -44,6 +44,9 @@ void StatusIndicatorController::update() {
     if (ui_manager_ && ui_manager_->state_machine && ui_manager_->state_machine->is_state(UIState::CONFIRM)) {
         if (ble_status_icon_) lv_obj_set_hidden(ble_status_icon_, true);
         if (warning_icon_) lv_obj_set_hidden(warning_icon_, true);
+        // Hidden behind the dialog: make the next regular update re-apply the real state
+        ble_icon_state_ = BleIconState::UNKNOWN;
+        warning_icon_state_ = WarningIconState::UNKNOWN;
         return;
     }
     update_ble_status_icon();
@@ -56,14 +59,23 @@ void StatusIndicatorController::update_ble_status_icon() {
     }
 
     auto* bluetooth = ui_manager_->bluetooth_manager;
+    BleIconState state = BleIconState::HIDDEN;
     if (bluetooth && bluetooth->is_enabled()) {
+        state = bluetooth->is_connected() ? BleIconState::SUCCESS : BleIconState::ACCENT;
+    }
+    if (state == ble_icon_state_) {
+        return;
+    }
+    ble_icon_state_ = state;
+
+    if (state == BleIconState::HIDDEN) {
+        lv_obj_set_hidden(ble_status_icon_, true);
+    } else {
         lv_obj_set_hidden(ble_status_icon_, false);
         lv_obj_set_style_text_color(ble_status_icon_,
-                                    bluetooth->is_connected() ? lv_color_hex(THEME_COLOR_SUCCESS)
-                                                              : lv_color_hex(THEME_COLOR_ACCENT),
+                                    lv_color_hex(state == BleIconState::SUCCESS ? THEME_COLOR_SUCCESS
+                                                                                : THEME_COLOR_ACCENT),
                                     0);
-    } else {
-        lv_obj_set_hidden(ble_status_icon_, true);
     }
 }
 
@@ -73,14 +85,14 @@ void StatusIndicatorController::update_warning_icon() {
     }
 
     // Check if there are any diagnostic warnings
-    if (ui_manager_->diagnostics_controller_) {
-        DiagnosticCode diagnostic = ui_manager_->diagnostics_controller_->get_highest_priority_warning();
-        if (diagnostic != DiagnosticCode::NONE) {
-            lv_obj_set_hidden(warning_icon_, false);
-        } else {
-            lv_obj_set_hidden(warning_icon_, true);
-        }
-    } else {
-        lv_obj_set_hidden(warning_icon_, true);
+    WarningIconState state = WarningIconState::HIDDEN;
+    if (ui_manager_->diagnostics_controller_ &&
+        ui_manager_->diagnostics_controller_->get_highest_priority_warning() != DiagnosticCode::NONE) {
+        state = WarningIconState::SHOWN;
     }
+    if (state == warning_icon_state_) {
+        return;
+    }
+    warning_icon_state_ = state;
+    lv_obj_set_hidden(warning_icon_, state == WarningIconState::HIDDEN);
 }

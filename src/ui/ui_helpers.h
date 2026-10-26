@@ -10,6 +10,10 @@ lv_obj_t* create_button(lv_obj_t* parent, const char* text,
                        int32_t width = 260, int32_t height = 80, 
                        const lv_font_t* font = &lv_font_montserrat_28);
 
+// lv_label_set_text reallocates and invalidates on every call. Per-frame code must set label
+// text through this helper. Returns true if the text changed (null-safe).
+bool set_label_text_if_changed(lv_obj_t* label, const char* text);
+
 void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit = nullptr);
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit = nullptr);

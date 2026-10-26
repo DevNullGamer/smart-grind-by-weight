@@ -80,13 +80,20 @@ void MenuUIController::update() {
         return;
     }
 
+    // Each page is refreshed only while it is on screen; explicit callers (toggle handlers,
+    // show(), diagnostics reset, autotune completion) still refresh their page directly.
+    auto& menu_screen = ui_manager_->menu_screen;
     WeightSensor* sensor = ui_manager_->hardware_manager->get_weight_sensor();
-    unsigned long uptime_ms = millis();
-    size_t free_heap = ESP.getFreeHeap();
 
-    ui_manager_->menu_screen.update_info(sensor, uptime_ms, free_heap);
-    ui_manager_->menu_screen.update_diagnostics(sensor);
-    ui_manager_->menu_screen.update_ble_status();
+    if (menu_screen.is_info_page_current()) {
+        menu_screen.update_info(sensor, millis(), ESP.getFreeHeap());
+    }
+    if (menu_screen.is_diagnostics_page_current()) {
+        menu_screen.update_diagnostics(sensor);
+    }
+    if (menu_screen.is_ble_page_current()) {
+        menu_screen.update_ble_status();
+    }
     update_wifi_page();
 
     if (ui_manager_->menu_screen.is_scale_page_active()) {
