@@ -19,7 +19,7 @@ namespace {
 // Transparent full-width column that groups the widgets shown/hidden together
 lv_obj_t* create_block(lv_obj_t* parent) {
     lv_obj_t* block = lv_obj_create(parent);
-    lv_obj_set_size(block, 280, LV_SIZE_CONTENT);
+    lv_obj_set_size(block, THEME_CONTENT_WIDTH_PX, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(block, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(block, 0, 0);
     lv_obj_set_style_pad_all(block, 0, 0);
@@ -36,7 +36,7 @@ void wrap_button_text(lv_obj_t* button) {
     lv_obj_t* label = lv_obj_get_child(button, 0);
     if (!label) return;
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(label, 220);  // 260 px button minus 2 x 20 px padding
+    lv_obj_set_width(label, THEME_CONTENT_INNER_WIDTH_PX - 2 * 20);  // button width minus 2 x 20 px padding
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 }
 

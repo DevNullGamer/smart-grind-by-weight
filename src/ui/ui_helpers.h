@@ -3,11 +3,11 @@
 #include "../config/constants.h"
 
 // Function declarations
-void style_as_button(lv_obj_t* object, int32_t width = 260, int32_t height = 80, const lv_font_t* font = &lv_font_montserrat_28);
+void style_as_button(lv_obj_t* object, int32_t width = THEME_CONTENT_INNER_WIDTH_PX, int32_t height = 80, const lv_font_t* font = &lv_font_montserrat_28);
 
 lv_obj_t* create_button(lv_obj_t* parent, const char* text,
                        lv_color_t bg_color = lv_color_hex(THEME_COLOR_NEUTRAL),
-                       int32_t width = 260, int32_t height = 80, 
+                       int32_t width = THEME_CONTENT_INNER_WIDTH_PX, int32_t height = 80, 
                        const lv_font_t* font = &lv_font_montserrat_28);
 
 // lv_label_set_text reallocates and invalidates on every call. Per-frame code must set label

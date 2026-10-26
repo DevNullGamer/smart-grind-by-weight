@@ -33,6 +33,12 @@
 //------------------------------------------------------------------------------
 // UI ELEMENT DIMENSIONS
 //------------------------------------------------------------------------------
+// Content widths derived from the display width
+#include "hardware.h"
+#define THEME_SIDE_MARGIN_PX 10                                               // Margin between content and each screen edge
+#define THEME_CONTENT_WIDTH_PX HW_DISPLAY_WIDTH_PX                            // Full-width containers (280 px)
+#define THEME_CONTENT_INNER_WIDTH_PX (HW_DISPLAY_WIDTH_PX - 2 * THEME_SIDE_MARGIN_PX) // Full-width buttons and text blocks (260 px)
+
 // Button specifications
 #define THEME_BUTTON_WIDTH_PX 120                                             // Standard button width
 

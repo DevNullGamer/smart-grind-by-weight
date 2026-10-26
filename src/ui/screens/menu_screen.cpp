@@ -386,7 +386,7 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     lv_obj_set_style_text_color(swipe_desc_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_bottom(swipe_desc_label, 10, 0);
     lv_label_set_long_mode(swipe_desc_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(swipe_desc_label, 260);
+    lv_obj_set_width(swipe_desc_label, THEME_CONTENT_INNER_WIDTH_PX);
 
     // Swipe toggle using existing pattern
     create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
@@ -513,7 +513,7 @@ void MenuScreen::create_scale_page(lv_obj_t* parent) {
     lv_obj_set_style_border_width(spacer, 0, 0);
     lv_obj_set_flex_grow(spacer, 1);
 
-    scale_tare_button = create_button(parent, "TARE", lv_color_hex(THEME_COLOR_PRIMARY), 260, 80, &lv_font_montserrat_28);
+    scale_tare_button = create_button(parent, "TARE", lv_color_hex(THEME_COLOR_PRIMARY), THEME_CONTENT_INNER_WIDTH_PX, 80, &lv_font_montserrat_28);
     using ET = EventBridgeLVGL::EventType;
     if (scale_tare_button) {
         lv_obj_add_event_cb(scale_tare_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
@@ -621,7 +621,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     lv_obj_set_style_margin_top(diag_info_label, 10, 0);
     lv_obj_set_style_margin_bottom(diag_info_label, 10, 0);
     lv_label_set_long_mode(diag_info_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(diag_info_label, 260);
+    lv_obj_set_width(diag_info_label, THEME_CONTENT_INNER_WIDTH_PX);
     lv_obj_set_hidden(diag_info_label, true); // Hidden by default
 
     diag_reset_button = create_button(parent, "Reset Diagnostics", lv_color_hex(THEME_COLOR_WARNING));
@@ -642,7 +642,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     lv_obj_set_style_text_color(cal_info, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_top(cal_info, 10, 0);
     lv_label_set_long_mode(cal_info, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(cal_info, 260);
+    lv_obj_set_width(cal_info, THEME_CONTENT_INNER_WIDTH_PX);
 
     // Motor Response separator
     create_separator(parent, "Motor Response");
@@ -1103,7 +1103,7 @@ lv_obj_t* MenuScreen::create_toggle_row(lv_obj_t* parent, const char* text, lv_o
 
 lv_obj_t* MenuScreen::create_slider_row(lv_obj_t* parent, const char* text, lv_obj_t** label, lv_obj_t** slider, lv_color_t slider_color, uint32_t min, uint32_t max) {
     lv_obj_t* row_container = lv_obj_create(parent);
-    style_as_button(row_container, 260, LV_SIZE_CONTENT);
+    style_as_button(row_container, THEME_CONTENT_INNER_WIDTH_PX, LV_SIZE_CONTENT);
     lv_obj_set_style_margin_bottom(row_container, 10, 0);
     // Set layout
 
@@ -1147,7 +1147,7 @@ lv_obj_t* MenuScreen::create_description_label(lv_obj_t* parent, const char* tex
     lv_obj_set_style_pad_right(container, 14, 0);
     lv_obj_set_style_margin_top(container, 12, 0);
     lv_obj_set_style_margin_bottom(container, 12, 0);
-    lv_obj_set_size(container, 280, LV_SIZE_CONTENT);
+    lv_obj_set_size(container, THEME_CONTENT_WIDTH_PX, LV_SIZE_CONTENT);
     lv_obj_set_scrollable(container, false);
 
     // Create label inside container

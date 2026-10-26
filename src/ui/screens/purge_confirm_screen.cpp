@@ -60,7 +60,7 @@ void PurgeConfirmScreen::create() {
     lv_checkbox_set_text(checkbox, "Always keep");
     lv_obj_set_style_text_font(checkbox, &lv_font_montserrat_32, 0);  // Larger font
     lv_obj_set_style_text_color(checkbox, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
-    lv_obj_set_width(checkbox, 260);  // Set max width to prevent overflow
+    lv_obj_set_width(checkbox, THEME_CONTENT_INNER_WIDTH_PX);  // Set max width to prevent overflow
 
     // Scale up the checkbox indicator to 2x size
     lv_obj_set_style_transform_scale(checkbox, 200, LV_PART_INDICATOR);  // 200 = 2.0x scale

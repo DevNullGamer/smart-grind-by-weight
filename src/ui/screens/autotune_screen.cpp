@@ -25,7 +25,7 @@ void AutoTuneScreen::create() {
 
     // === Console Screen ===
     console_container = lv_obj_create(screen);
-    lv_obj_set_size(console_container, 280, 340);
+    lv_obj_set_size(console_container, THEME_CONTENT_WIDTH_PX, 340);
     lv_obj_set_style_bg_opa(console_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(console_container, 0, 0);
     lv_obj_set_style_pad_all(console_container, 0, 0);
@@ -34,7 +34,7 @@ void AutoTuneScreen::create() {
     lv_obj_align_to(console_container, title_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 15);
 
     console_textarea = lv_textarea_create(console_container);
-    lv_obj_set_size(console_textarea, 280, 340);
+    lv_obj_set_size(console_textarea, THEME_CONTENT_WIDTH_PX, 340);
     lv_textarea_set_text(console_textarea, "");
     lv_obj_set_style_text_font(console_textarea, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(console_textarea, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
@@ -47,7 +47,7 @@ void AutoTuneScreen::create() {
 
     // === Result Screen ===
     result_container = lv_obj_create(screen);
-    lv_obj_set_size(result_container, 280, LV_SIZE_CONTENT);
+    lv_obj_set_size(result_container, THEME_CONTENT_WIDTH_PX, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(result_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(result_container, 0, 0);
     lv_obj_set_style_pad_all(result_container, 0, 0);
@@ -60,7 +60,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_text_font(message_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(message_label, 280);
+    lv_obj_set_width(message_label, THEME_CONTENT_WIDTH_PX);
     lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
 
     final_latency_label = lv_label_create(result_container);
@@ -79,7 +79,7 @@ void AutoTuneScreen::create() {
                                         LV_SYMBOL_CLOSE, LV_SYMBOL_OK,
                                         lv_color_hex(0x888888), lv_color_hex(THEME_COLOR_SUCCESS),
                                         80, &lv_font_montserrat_32);
-    lv_obj_set_width(button_row, 280);
+    lv_obj_set_width(button_row, THEME_CONTENT_WIDTH_PX);
     lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_obj_set_scrollable(button_row, false);
 
