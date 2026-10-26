@@ -128,6 +128,10 @@ void GrindingScreen::reset_chart_data() {
 }
 
 void GrindingScreen::set_mode(GrindMode mode) {
+    // Called on every progress event; nothing to do while the mode is unchanged
+    if (mode == current_mode) {
+        return;
+    }
     current_mode = mode;
     bool time_enabled = (mode == GrindMode::TIME);
     arc_screen.set_time_mode(time_enabled);

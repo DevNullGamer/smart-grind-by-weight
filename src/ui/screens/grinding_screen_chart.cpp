@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include <lvgl.h>
+#include <cstring>
+#include "../ui_helpers.h"
 
 void GrindingScreenChart::create() {
     screen = lv_obj_create(lv_screen_active());
@@ -43,10 +45,16 @@ void GrindingScreenChart::create() {
     predicted_grind_time_ms = 0;
     predicted_chart_points = 0;
     predicted_time_override_ms = 0;
-    max_y_value = target_weight_value + 0.2f;
+    // Same headroom update_target_weight() applies. GrindingScreen::set_mode() no longer calls it
+    // on every event, so the initial axis must already match what that call used to set.
+    max_y_value = target_weight_value + 1.2f;
     last_data_point_time_ms = 0;
     time_mode = false;
     target_time_seconds = 0.0f;
+    current_weight_value = 0.0f;
+    showing_tare = false;
+    has_text_override = false;
+    text_override[0] = '\0';
     
     // Set chart update mode (point count is finalized after series creation)
     lv_chart_set_update_mode(chart, LV_CHART_UPDATE_MODE_SHIFT); // Slide data left when full
@@ -116,6 +124,53 @@ void GrindingScreenChart::create() {
 void GrindingScreenChart::show() {
     lv_obj_set_hidden(screen, false);
     visible = true;
+    // Texts stored while hidden are applied now (a hidden layout does no LVGL text work)
+    render_weight_spans();
+}
+
+// Render both weight spans from the stored state. Idempotent: a span is rewritten only when its
+// text differs, so repeated calls with unchanged state do no LVGL work. Skipped while hidden.
+void GrindingScreenChart::render_weight_spans() {
+    if (!visible || !weight_spangroup) {
+        return;
+    }
+
+    lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
+    lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
+    if (!current_span || !separator_span) {
+        return;
+    }
+
+    char current_text[16];
+    if (showing_tare) {
+        snprintf(current_text, sizeof(current_text), "TARE");
+    } else {
+        snprintf(current_text, sizeof(current_text), SYS_WEIGHT_DISPLAY_FORMAT, current_weight_value);
+    }
+
+    char separator_text[48];
+    if (has_text_override) {
+        snprintf(separator_text, sizeof(separator_text), "%s", text_override);
+    } else if (time_mode) {
+        snprintf(separator_text, sizeof(separator_text), "\nTime: %.1fs", target_time_seconds);
+    } else {
+        snprintf(separator_text, sizeof(separator_text), " / " SYS_WEIGHT_DISPLAY_FORMAT, target_weight_value);
+    }
+
+    bool changed = false;
+    const char* shown_current = lv_span_get_text(current_span);
+    if (!shown_current || strcmp(shown_current, current_text) != 0) {
+        lv_span_set_text(current_span, current_text);
+        changed = true;
+    }
+    const char* shown_separator = lv_span_get_text(separator_span);
+    if (!shown_separator || strcmp(shown_separator, separator_text) != 0) {
+        lv_span_set_text(separator_span, separator_text);
+        changed = true;
+    }
+    if (changed) {
+        lv_spangroup_refresh(weight_spangroup);
+    }
 }
 
 void GrindingScreenChart::hide() {
@@ -124,114 +179,65 @@ void GrindingScreenChart::hide() {
 }
 
 void GrindingScreenChart::update_profile_name(const char* name) {
-    lv_label_set_text(profile_label, name);
+    set_label_text_if_changed(profile_label, name);
 }
 
 void GrindingScreenChart::update_target_weight(float weight) {
     target_weight_value = weight;
     max_y_value = target_weight_value + 1.2f;
     update_chart_point_configuration();
-    
+
     if (!time_mode) {
-        // Update the weight display spans for current/target format
-        char current_text[16], target_text[16];
-        snprintf(current_text, sizeof(current_text), "0.0g");
-        snprintf(target_text, sizeof(target_text), " / " SYS_WEIGHT_DISPLAY_FORMAT, weight);
-
-        // Update spans
-        lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
-        lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
-
-        if (current_span && separator_span) {
-            lv_span_set_text(current_span, current_text);
-            lv_span_set_text(separator_span, target_text);
-            lv_spangroup_refresh(weight_spangroup);
-        }
+        // Weight mode shows "0.0g / <target>" until the next weight arrives
+        current_weight_value = 0.0f;
+        showing_tare = false;
+        has_text_override = false;
+        render_weight_spans();
     }
-    
+
     // Update chart configuration
     lv_chart_set_point_count(chart, predicted_chart_points);
     lv_chart_set_axis_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, (int32_t)(max_y_value * 10)); // Weight axis
     lv_chart_set_axis_range(chart, LV_CHART_AXIS_SECONDARY_Y, 0, 25); // Flow rate axis: 0-2.5 g/s * 10
-    
-    lv_chart_refresh(chart);
+
+    if (visible) {
+        lv_chart_refresh(chart);
+    }
 }
 
 void GrindingScreenChart::update_target_weight_text(const char* text) {
-    lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
-    lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
-
-    if (current_span && separator_span) {
-        const char* target_text = text ? text : "";
-        char formatted_text[48];
-        if (target_text[0] && target_text[0] != ' ' && target_text[0] != '/' && target_text[0] != '\n') {
-            snprintf(formatted_text, sizeof(formatted_text), "\n%s", target_text);
-        } else {
-            snprintf(formatted_text, sizeof(formatted_text), "%s", target_text);
-        }
-        lv_span_set_text(separator_span, formatted_text);
-        lv_spangroup_refresh(weight_spangroup);
+    const char* target_text = text ? text : "";
+    if (target_text[0] && target_text[0] != ' ' && target_text[0] != '/' && target_text[0] != '\n') {
+        snprintf(text_override, sizeof(text_override), "\n%s", target_text);
+    } else {
+        snprintf(text_override, sizeof(text_override), "%s", target_text);
     }
+    has_text_override = true;
+    render_weight_spans();
 }
 
 void GrindingScreenChart::update_target_time(float seconds) {
     target_time_seconds = seconds;
-    lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
-    lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
-
-    if (current_span && separator_span) {
-        // Keep the current weight span untouched; show time on a new line without slash
-        char target_text[48];
-        snprintf(target_text, sizeof(target_text), "\nTime: %.1fs", seconds);
-        lv_span_set_text(separator_span, target_text);
-        lv_spangroup_refresh(weight_spangroup);
-    }
+    has_text_override = false;
+    // Keep the current weight untouched; time is shown on a new line without slash
+    render_weight_spans();
 
     uint32_t predicted_ms = (seconds > 0.0f) ? static_cast<uint32_t>(seconds * 1000.0f) : 0;
     set_chart_time_prediction(predicted_ms);
 }
 
+// The error/status override is deliberately not cleared here: it stays until the next
+// target/tare/reset call, so the per-frame weight refresh in GRIND_TIMEOUT cannot flip the text.
 void GrindingScreenChart::update_current_weight(float weight) {
-    char current_text[16], target_text[16];
-    snprintf(current_text, sizeof(current_text), SYS_WEIGHT_DISPLAY_FORMAT, weight);
-    snprintf(target_text, sizeof(target_text), " / " SYS_WEIGHT_DISPLAY_FORMAT, target_weight_value);
-    
-    // Update spans
-    lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
-    lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
-    
-    if (current_span && separator_span) {
-        lv_span_set_text(current_span, current_text);
-        if (time_mode) {
-            char time_text[48];
-            snprintf(time_text, sizeof(time_text), "\nTime: %.1fs", target_time_seconds);
-            lv_span_set_text(separator_span, time_text);
-        } else {
-            lv_span_set_text(separator_span, target_text);
-        }
-        lv_spangroup_refresh(weight_spangroup);
-    }
+    current_weight_value = weight;
+    showing_tare = false;
+    render_weight_spans();
 }
 
 void GrindingScreenChart::update_tare_display() {
-    char target_text[16];
-    snprintf(target_text, sizeof(target_text), " / " SYS_WEIGHT_DISPLAY_FORMAT, target_weight_value);
-    
-    // Update spans for tare display
-    lv_span_t* current_span = lv_spangroup_get_child(weight_spangroup, 0);
-    lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
-    
-    if (current_span && separator_span) {
-        lv_span_set_text(current_span, "TARE");
-        if (time_mode) {
-            char time_text[48];
-            snprintf(time_text, sizeof(time_text), "\nTime: %.1fs", target_time_seconds);
-            lv_span_set_text(separator_span, time_text);
-        } else {
-            lv_span_set_text(separator_span, target_text);
-        }
-        lv_spangroup_refresh(weight_spangroup);
-    }
+    showing_tare = true;
+    has_text_override = false;
+    render_weight_spans();
 }
 
 void GrindingScreenChart::update_progress(int percent) {
@@ -257,7 +263,10 @@ void GrindingScreenChart::add_chart_data_point(float current_weight, float flow_
     lv_chart_set_next_value(chart, weight_series, weight_value);
     lv_chart_set_next_value(chart, flow_rate_series, flow_rate_value);
     
-    lv_chart_refresh(chart);
+    // Data keeps accumulating while hidden; only a visible chart needs the redraw request
+    if (visible) {
+        lv_chart_refresh(chart);
+    }
 }
 
 void GrindingScreenChart::set_chart_time_prediction(uint32_t predicted_time_ms) {
@@ -268,6 +277,7 @@ void GrindingScreenChart::set_chart_time_prediction(uint32_t predicted_time_ms) 
 void GrindingScreenChart::reset_chart_data() {
     chart_start_time_ms = 0;
     last_data_point_time_ms = 0;
+    has_text_override = false;  // A new grind starts without a leftover error text
 
     if (!chart) {
         return;
@@ -284,6 +294,9 @@ void GrindingScreenChart::reset_chart_data() {
 }
 
 void GrindingScreenChart::set_time_mode(bool enabled) {
+    if (time_mode == enabled) {
+        return;
+    }
     time_mode = enabled;
     if (time_mode) {
         update_target_time(target_time_seconds);

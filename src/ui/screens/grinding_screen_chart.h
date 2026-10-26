@@ -28,7 +28,14 @@ private:
     uint32_t last_data_point_time_ms;
     float target_time_seconds;
 
+    // Stored state the weight spans are rendered from (see render_weight_spans)
+    float current_weight_value = 0.0f;
+    bool showing_tare = false;
+    bool has_text_override = false;     // Error/status text replaces the target part
+    char text_override[48] = "";
+
     void update_chart_point_configuration();
+    void render_weight_spans();
 
 public:
     void create() override;

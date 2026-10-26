@@ -13,6 +13,15 @@ private:
     bool visible;
     bool time_mode;
 
+    // Stored label state: updates arriving while this layout is hidden are kept here and
+    // applied in show(); unchanged values never touch LVGL.
+    char profile_text[48] = "DOUBLE";
+    char target_text[48] = "Target: 18.0g";
+    char weight_text[16] = "0.0g";
+    int last_progress = 0;
+
+    void store_text(char* dest, size_t capacity, lv_obj_t* label, const char* text);
+
 public:
     void create() override;
     void show() override;

@@ -1,6 +1,7 @@
 #include "grinding_screen_arc.h"
 #include <Arduino.h>
 #include "../../config/constants.h"
+#include "../ui_helpers.h"
 
 void GrindingScreenArc::create() {
     screen = lv_obj_create(lv_screen_active());
@@ -61,6 +62,10 @@ void GrindingScreenArc::create() {
 }
 
 void GrindingScreenArc::show() {
+    // Apply what arrived while hidden before the layout becomes visible
+    set_label_text_if_changed(profile_label, profile_text);
+    set_label_text_if_changed(target_label, target_text);
+    set_label_text_if_changed(weight_label, weight_text);
     lv_obj_set_hidden(screen, false);
     visible = true;
 }
@@ -70,44 +75,62 @@ void GrindingScreenArc::hide() {
     visible = false;
 }
 
+// Remember the text and push it to the label only while this layout is visible
+void GrindingScreenArc::store_text(char* dest, size_t capacity, lv_obj_t* label, const char* text) {
+    if (!text) {
+        return;
+    }
+    snprintf(dest, capacity, "%s", text);
+    if (visible) {
+        set_label_text_if_changed(label, dest);
+    }
+}
+
 void GrindingScreenArc::update_profile_name(const char* name) {
-    lv_label_set_text(profile_label, name);
+    store_text(profile_text, sizeof(profile_text), profile_label, name);
 }
 
 void GrindingScreenArc::update_target_weight(float weight) {
     if (time_mode) {
         return;
     }
-    char target_text[32];
-    snprintf(target_text, sizeof(target_text), "Target: " SYS_WEIGHT_DISPLAY_FORMAT, weight);
-    lv_label_set_text(target_label, target_text);
+    char text[32];
+    snprintf(text, sizeof(text), "Target: " SYS_WEIGHT_DISPLAY_FORMAT, weight);
+    store_text(target_text, sizeof(target_text), target_label, text);
 }
 
 void GrindingScreenArc::update_target_weight_text(const char* text) {
-    lv_label_set_text(target_label, text);
+    store_text(target_text, sizeof(target_text), target_label, text);
 }
 
 void GrindingScreenArc::update_target_time(float seconds) {
-    char target_text[32];
-    snprintf(target_text, sizeof(target_text), "Time: %.1fs", seconds);
-    lv_label_set_text(target_label, target_text);
+    char text[32];
+    snprintf(text, sizeof(text), "Time: %.1fs", seconds);
+    store_text(target_text, sizeof(target_text), target_label, text);
 }
 
 void GrindingScreenArc::update_current_weight(float weight) {
-    char weight_text[16];
-    snprintf(weight_text, sizeof(weight_text), SYS_WEIGHT_DISPLAY_FORMAT, weight);
-    lv_label_set_text(weight_label, weight_text);
+    char text[16];
+    snprintf(text, sizeof(text), SYS_WEIGHT_DISPLAY_FORMAT, weight);
+    store_text(weight_text, sizeof(weight_text), weight_label, text);
 }
 
 void GrindingScreenArc::update_tare_display() {
-    lv_label_set_text(weight_label, "TARE");
-    lv_arc_set_value(progress_arc, 0);  // Reset arc to 0 during taring
+    store_text(weight_text, sizeof(weight_text), weight_label, "TARE");
+    update_progress(0);  // Reset arc to 0 during taring
 }
 
 void GrindingScreenArc::update_progress(int percent) {
+    if (percent == last_progress) {
+        return;
+    }
+    last_progress = percent;
     lv_arc_set_value(progress_arc, percent);
 }
 
 void GrindingScreenArc::set_time_mode(bool enabled) {
+    if (time_mode == enabled) {
+        return;
+    }
     time_mode = enabled;
 }
