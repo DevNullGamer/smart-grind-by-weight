@@ -7,6 +7,12 @@
 #include <driver/spi_master.h>
 #include <string.h>
 
+// The panel needs byte-swapped RGB565. LVGL does the swap in lv_refr.c only while LV_COLOR_16_SWAP is set;
+// flush_cb sends px_map unmodified. Without it red and blue are swapped on screen. Keep it in include/lv_conf.h.
+#if !defined(LV_COLOR_16_SWAP) || !LV_COLOR_16_SWAP
+#error "LV_COLOR_16_SWAP must be 1 in include/lv_conf.h: display_manager sends LVGL's RGB565 buffer unmodified, so the byte swap must come from LVGL (otherwise red and blue are swapped)"
+#endif
+
 DisplayManager* g_display_manager = nullptr;
 
 namespace {
