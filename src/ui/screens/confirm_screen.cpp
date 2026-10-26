@@ -3,7 +3,7 @@
 #include "../ui_helpers.h"
 
 void ConfirmScreen::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
@@ -44,7 +44,7 @@ void ConfirmScreen::create() {
     lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, LV_PCT(100));
-    lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
 
     lv_obj_update_layout(message_container);
     lv_obj_scroll_to_y(message_container, 0, LV_ANIM_OFF);  // Scroll to top

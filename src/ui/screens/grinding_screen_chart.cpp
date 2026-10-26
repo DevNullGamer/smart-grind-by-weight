@@ -2,10 +2,9 @@
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include <lvgl.h>
-#include <widgets/span/lv_span.h>
 
 void GrindingScreenChart::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0); // Keep transparent
@@ -89,10 +88,8 @@ void GrindingScreenChart::create() {
     weight_spangroup = lv_spangroup_create(screen);
     lv_obj_set_width(weight_spangroup, LV_PCT(100));
     lv_obj_set_style_text_align(weight_spangroup, LV_TEXT_ALIGN_CENTER, 0);
-    lv_spangroup_set_align(weight_spangroup, LV_TEXT_ALIGN_CENTER);
     lv_spangroup_set_overflow(weight_spangroup, LV_SPAN_OVERFLOW_CLIP);
     lv_spangroup_set_indent(weight_spangroup, 0);
-    lv_spangroup_set_mode(weight_spangroup, LV_SPAN_MODE_BREAK);
     
     // Create initial spans using correct API
     lv_span_t* current_span = lv_spangroup_add_span(weight_spangroup);
@@ -108,7 +105,7 @@ void GrindingScreenChart::create() {
     lv_spangroup_refresh(weight_spangroup);
     
     // MODIFIED: Ensure all child widgets pass click events to the parent screen
-    for (uint32_t i = 0; i < lv_obj_get_child_cnt(screen); i++) {
+    for (uint32_t i = 0; i < lv_obj_get_child_count(screen); i++) {
         lv_obj_clear_flag(lv_obj_get_child(screen, i), LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -251,10 +248,10 @@ void GrindingScreenChart::add_chart_data_point(float current_weight, float flow_
     last_data_point_time_ms = current_time_ms;
     
     // Scale weight and flow rate by 10 to handle decimals in LVGL chart
-    lv_coord_t weight_value = (lv_coord_t)(current_weight * 10);
+    int32_t weight_value = (int32_t)(current_weight * 10);
     // Clamp flow rate to 0-2.5 g/s range then scale by 10
     float clamped_flow_rate = (flow_rate < 0.0f) ? 0.0f : ((flow_rate > 2.5f) ? 2.5f : flow_rate);
-    lv_coord_t flow_rate_value = (lv_coord_t)(clamped_flow_rate * 10);
+    int32_t flow_rate_value = (int32_t)(clamped_flow_rate * 10);
     
     // Add data points to series (LVGL will handle sliding window due to SHIFT mode)
     lv_chart_set_next_value(chart, weight_series, weight_value);

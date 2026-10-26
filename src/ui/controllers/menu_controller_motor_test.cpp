@@ -151,7 +151,7 @@ void MenuUIController::show_motor_test_result(MotorTestOutcome outcome, uint32_t
 
 void MenuUIController::stop_motor_timer() {
     if (motor_timer_) {
-        lv_timer_del(motor_timer_);
+        lv_timer_delete(motor_timer_);
         motor_timer_ = nullptr;
     }
 }

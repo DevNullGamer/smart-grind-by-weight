@@ -77,7 +77,7 @@ void UIManager::create_ui() {
 #else
     lv_style_set_bg_color(&style_screen, lv_color_hex(THEME_COLOR_BACKGROUND));
 #endif
-    lv_obj_add_style(lv_scr_act(), &style_screen, 0);
+    lv_obj_add_style(lv_screen_active(), &style_screen, 0);
 
     // Create all screens
     ready_screen.create();
@@ -483,7 +483,7 @@ void UIManager::set_background_active(bool active) {
 #endif
     lv_color_t bg_color = active ? lv_color_hex(THEME_COLOR_GRINDER_ACTIVE) : inactive_color;
     lv_style_set_bg_color(&style_bg, bg_color);
-    lv_obj_add_style(lv_scr_act(), &style_bg, 0);
+    lv_obj_add_style(lv_screen_active(), &style_bg, 0);
 #endif
 }
 

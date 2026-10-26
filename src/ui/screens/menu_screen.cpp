@@ -29,7 +29,7 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     hardware_manager = hw_mgr;
     diagnostics_controller = diag_ctrl;
 
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
@@ -76,9 +76,9 @@ void MenuScreen::create_menu_ui() {
     lv_obj_set_layout(header, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_coord_t title_base_height = lv_font_get_line_height(&lv_font_montserrat_36);
-    lv_coord_t title_target_height = (title_base_height * 3) / 2; // ~50% taller
-    lv_coord_t title_padding = (title_target_height - title_base_height) / 2;
+    int32_t title_base_height = lv_font_get_line_height(&lv_font_montserrat_36);
+    int32_t title_target_height = (title_base_height * 3) / 2; // ~50% taller
+    int32_t title_padding = (title_target_height - title_base_height) / 2;
     lv_obj_set_style_min_height(header, title_target_height, 0);
     lv_obj_set_style_pad_top(header, title_padding, 0);
     lv_obj_set_style_pad_bottom(header, title_padding, 0);
@@ -381,7 +381,7 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     lv_obj_set_style_text_font(swipe_desc_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(swipe_desc_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_bottom(swipe_desc_label, 10, 0);
-    lv_label_set_long_mode(swipe_desc_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(swipe_desc_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(swipe_desc_label, 260);
 
     // Swipe toggle using existing pattern
@@ -616,7 +616,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     lv_obj_set_style_text_color(diag_info_label, lv_color_hex(THEME_COLOR_WARNING), 0);
     lv_obj_set_style_margin_top(diag_info_label, 10, 0);
     lv_obj_set_style_margin_bottom(diag_info_label, 10, 0);
-    lv_label_set_long_mode(diag_info_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(diag_info_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(diag_info_label, 260);
     lv_obj_add_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN); // Hidden by default
 
@@ -637,7 +637,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     lv_obj_set_style_text_font(cal_info, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(cal_info, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_top(cal_info, 10, 0);
-    lv_label_set_long_mode(cal_info, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(cal_info, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(cal_info, 260);
 
     // Motor Response separator
@@ -786,7 +786,7 @@ void MenuScreen::update_ble_status() {
     if (bluetooth_manager->is_enabled()) {
         lv_obj_add_state(ble_toggle, LV_STATE_CHECKED);
     } else {
-        lv_obj_clear_state(ble_toggle, LV_STATE_CHECKED);
+        lv_obj_remove_state(ble_toggle, LV_STATE_CHECKED);
     }
     
     // Update status text
@@ -1016,7 +1016,7 @@ void MenuScreen::update_bluetooth_startup_toggle() {
     if (startup_enabled) {
         lv_obj_add_state(ble_startup_toggle, LV_STATE_CHECKED);
     } else {
-        lv_obj_clear_state(ble_startup_toggle, LV_STATE_CHECKED);
+        lv_obj_remove_state(ble_startup_toggle, LV_STATE_CHECKED);
     }
 }
 
@@ -1035,7 +1035,7 @@ void MenuScreen::update_logging_toggle() {
     if (logging_enabled) {
         lv_obj_add_state(logging_toggle, LV_STATE_CHECKED);
     } else {
-        lv_obj_clear_state(logging_toggle, LV_STATE_CHECKED);
+        lv_obj_remove_state(logging_toggle, LV_STATE_CHECKED);
     }
 }
 
@@ -1134,7 +1134,7 @@ lv_obj_t* MenuScreen::create_description_label(lv_obj_t* parent, const char* tex
     lv_label_set_text(label, text);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(label, LV_PCT(100));
 
     return label;
@@ -1184,7 +1184,7 @@ void MenuScreen::update_grind_mode_toggles() {
         if (swipe_enabled) {
             lv_obj_add_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
         } else {
-            lv_obj_clear_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
+            lv_obj_remove_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
         }
     }
 
@@ -1199,7 +1199,7 @@ void MenuScreen::update_grind_mode_toggles() {
         if (auto_start_enabled) {
             lv_obj_add_state(auto_start_toggle, LV_STATE_CHECKED);
         } else {
-            lv_obj_clear_state(auto_start_toggle, LV_STATE_CHECKED);
+            lv_obj_remove_state(auto_start_toggle, LV_STATE_CHECKED);
         }
     }
 
@@ -1207,7 +1207,7 @@ void MenuScreen::update_grind_mode_toggles() {
         if (auto_return_enabled) {
             lv_obj_add_state(auto_return_toggle, LV_STATE_CHECKED);
         } else {
-            lv_obj_clear_state(auto_return_toggle, LV_STATE_CHECKED);
+            lv_obj_remove_state(auto_return_toggle, LV_STATE_CHECKED);
         }
     }
 

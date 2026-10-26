@@ -119,7 +119,7 @@ void ReadyUIController::register_events() {
         if (lv_event_get_code(e) != LV_EVENT_GESTURE) {
             return;
         }
-        lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_get_act());
+        lv_dir_t dir = lv_indev_get_gesture_dir(lv_indev_active());
         if (dir != LV_DIR_TOP && dir != LV_DIR_BOTTOM) {
             return;
         }
@@ -135,12 +135,12 @@ void ReadyUIController::register_events() {
     if (ready_screen_obj) {
         lv_obj_add_event_cb(ready_screen_obj, gesture_handler, LV_EVENT_GESTURE, ui_manager_);
     }
-    lv_obj_add_event_cb(lv_scr_act(), gesture_handler, LV_EVENT_GESTURE, ui_manager_);
+    lv_obj_add_event_cb(lv_screen_active(), gesture_handler, LV_EVENT_GESTURE, ui_manager_);
 
     EventBridgeLVGL::register_handler(EventBridgeLVGL::EventType::TAB_CHANGE,
                                       [this](lv_event_t* event) {
                                           lv_obj_t* tabview_obj = static_cast<lv_obj_t*>(lv_event_get_target(event));
-                                          uint32_t tab_id = lv_tabview_get_tab_act(tabview_obj);
+                                          uint32_t tab_id = lv_tabview_get_tab_active(tabview_obj);
                                           handle_tab_change(static_cast<int>(tab_id));
                                       });
 

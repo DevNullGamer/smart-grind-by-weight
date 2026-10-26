@@ -22,7 +22,7 @@ void GrindingUIController::build_controls() {
         return;
     }
 
-    grind_button_ = lv_btn_create(lv_scr_act());
+    grind_button_ = lv_button_create(lv_screen_active());
     lv_obj_set_size(grind_button_, 100, 100);
     lv_obj_align(grind_button_, LV_ALIGN_BOTTOM_MID, -60, -10);
     lv_obj_set_style_radius(grind_button_, LV_RADIUS_CIRCLE, 0);
@@ -30,12 +30,12 @@ void GrindingUIController::build_controls() {
     lv_obj_set_style_border_width(grind_button_, 0, 0);
     lv_obj_set_style_shadow_width(grind_button_, 0, 0);
 
-    grind_icon_ = lv_img_create(grind_button_);
-    lv_img_set_src(grind_icon_, LV_SYMBOL_PLAY);
+    grind_icon_ = lv_image_create(grind_button_);
+    lv_image_set_src(grind_icon_, LV_SYMBOL_PLAY);
     lv_obj_center(grind_icon_);
     lv_obj_set_style_text_font(grind_icon_, &lv_font_montserrat_24, 0);
 
-    pulse_button_ = lv_btn_create(lv_scr_act());
+    pulse_button_ = lv_button_create(lv_screen_active());
     lv_obj_set_size(pulse_button_, 100, 100);
     lv_obj_align(pulse_button_, LV_ALIGN_BOTTOM_MID, 60, -10);
     lv_obj_set_style_radius(pulse_button_, LV_RADIUS_CIRCLE, 0);
@@ -43,8 +43,8 @@ void GrindingUIController::build_controls() {
     lv_obj_set_style_border_width(pulse_button_, 0, 0);
     lv_obj_set_style_shadow_width(pulse_button_, 0, 0);
 
-    pulse_icon_ = lv_img_create(pulse_button_);
-    lv_img_set_src(pulse_icon_, LV_SYMBOL_PLUS);
+    pulse_icon_ = lv_image_create(pulse_button_);
+    lv_image_set_src(pulse_icon_, LV_SYMBOL_PLUS);
     lv_obj_center(pulse_icon_);
     lv_obj_set_style_text_font(pulse_icon_, &lv_font_montserrat_32, 0);
 
@@ -110,11 +110,11 @@ void GrindingUIController::on_state_changed(UIState new_state) {
     }
 
     if (new_state != UIState::GRIND_COMPLETE && grind_complete_timer_) {
-        lv_timer_del(grind_complete_timer_);
+        lv_timer_delete(grind_complete_timer_);
         grind_complete_timer_ = nullptr;
     }
     if (new_state != UIState::GRIND_TIMEOUT && grind_timeout_timer_) {
-        lv_timer_del(grind_timeout_timer_);
+        lv_timer_delete(grind_timeout_timer_);
         grind_timeout_timer_ = nullptr;
     }
 
@@ -302,26 +302,26 @@ void GrindingUIController::update_grind_button_icon() {
 
     if (ui_manager_->state_machine->is_state(UIState::PURGE_CONFIRM)) {
         // During purge confirm, show STOP icon (user can cancel the grind)
-        lv_img_set_src(grind_icon_, LV_SYMBOL_STOP);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_STOP);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_ERROR), 0);
     } else if (ui_manager_->state_machine->is_state(UIState::GRINDING)) {
-        lv_img_set_src(grind_icon_, LV_SYMBOL_STOP);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_STOP);
         lv_obj_set_style_bg_color(grind_button_,
                                   ui_manager_->current_mode == GrindMode::TIME
                                       ? lv_color_hex(THEME_COLOR_ACCENT)
                                       : lv_color_hex(THEME_COLOR_PRIMARY),
                                   0);
     } else if (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE)) {
-        lv_img_set_src(grind_icon_, LV_SYMBOL_OK);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_OK);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_SUCCESS), 0);
     } else if (ui_manager_->state_machine->is_state(UIState::GRIND_TIMEOUT)) {
-        lv_img_set_src(grind_icon_, LV_SYMBOL_CLOSE);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_CLOSE);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_WARNING), 0);
     } else if (ui_manager_->state_machine->is_state(UIState::READY) && ui_manager_->current_tab == 3) {
-        lv_img_set_src(grind_icon_, LV_SYMBOL_SETTINGS);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_SETTINGS);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
     } else {
-        lv_img_set_src(grind_icon_, LV_SYMBOL_PLAY);
+        lv_image_set_src(grind_icon_, LV_SYMBOL_PLAY);
         lv_obj_set_style_bg_color(grind_button_,
                                   ui_manager_->current_mode == GrindMode::TIME
                                       ? lv_color_hex(THEME_COLOR_ACCENT)
@@ -352,19 +352,19 @@ void GrindingUIController::update_button_layout() {
 
             if (in_purge_confirm) {
                 // Purge confirm: pulse button acts as CONTINUE (always enabled)
-                lv_img_set_src(pulse_icon_, LV_SYMBOL_OK);
+                lv_image_set_src(pulse_icon_, LV_SYMBOL_OK);
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_SUCCESS), 0);
-                lv_obj_clear_state(pulse_button_, LV_STATE_DISABLED);
+                lv_obj_remove_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_COVER, 0);
             } else if (ui_manager_->grind_controller && ui_manager_->grind_controller->can_pulse()) {
                 // Time mode pulse: enable/disable based on can_pulse()
-                lv_img_set_src(pulse_icon_, LV_SYMBOL_PLUS);
+                lv_image_set_src(pulse_icon_, LV_SYMBOL_PLUS);
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_ACCENT), 0);
-                lv_obj_clear_state(pulse_button_, LV_STATE_DISABLED);
+                lv_obj_remove_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_COVER, 0);
             } else {
                 // Time mode pulse: disabled
-                lv_img_set_src(pulse_icon_, LV_SYMBOL_PLUS);
+                lv_image_set_src(pulse_icon_, LV_SYMBOL_PLUS);
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_ACCENT), 0);
                 lv_obj_add_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_50, LV_STATE_DISABLED);
@@ -399,7 +399,7 @@ void GrindingUIController::reset_grind_complete_timer() {
     }
 
     if (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) && grind_complete_timer_) {
-        lv_timer_del(grind_complete_timer_);
+        lv_timer_delete(grind_complete_timer_);
         grind_complete_timer_ = nullptr;
         start_grind_complete_timer();
     }
@@ -536,7 +536,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 inactive_color;
 
             lv_style_set_bg_color(&style_bg, bg_color);
-            lv_obj_add_style(lv_scr_act(), &style_bg, 0);
+            lv_obj_add_style(lv_screen_active(), &style_bg, 0);
 
             LOG_UI_DEBUG("[UIManager] Background: %s\n", event_data.background_active ? "ACTIVE" : "INACTIVE");
         }
@@ -554,7 +554,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             static lv_style_t style_bg;
             lv_style_init(&style_bg);
             lv_style_set_bg_color(&style_bg, lv_color_hex(THEME_COLOR_GRINDER_ACTIVE));
-            lv_obj_add_style(lv_scr_act(), &style_bg, 0);
+            lv_obj_add_style(lv_screen_active(), &style_bg, 0);
         }
 #endif
             break;
@@ -647,7 +647,7 @@ void GrindingUIController::enter_menu_state() {
 
 void GrindingUIController::start_grind_complete_timer() {
     if (grind_complete_timer_) {
-        lv_timer_del(grind_complete_timer_);
+        lv_timer_delete(grind_complete_timer_);
     }
     grind_complete_timer_ = lv_timer_create(grind_complete_timer_cb, 60000, this);
     lv_timer_set_repeat_count(grind_complete_timer_, 1);
@@ -655,7 +655,7 @@ void GrindingUIController::start_grind_complete_timer() {
 
 void GrindingUIController::start_grind_timeout_timer() {
     if (grind_timeout_timer_) {
-        lv_timer_del(grind_timeout_timer_);
+        lv_timer_delete(grind_timeout_timer_);
     }
     grind_timeout_timer_ = lv_timer_create(grind_timeout_timer_cb, 60000, this);
     lv_timer_set_repeat_count(grind_timeout_timer_, 1);
@@ -663,11 +663,11 @@ void GrindingUIController::start_grind_timeout_timer() {
 
 void GrindingUIController::cancel_timers() {
     if (grind_complete_timer_) {
-        lv_timer_del(grind_complete_timer_);
+        lv_timer_delete(grind_complete_timer_);
         grind_complete_timer_ = nullptr;
     }
     if (grind_timeout_timer_) {
-        lv_timer_del(grind_timeout_timer_);
+        lv_timer_delete(grind_timeout_timer_);
         grind_timeout_timer_ = nullptr;
     }
 }

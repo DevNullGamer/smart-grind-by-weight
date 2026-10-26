@@ -5,7 +5,7 @@
 #include <cstring>
 
 void AutoTuneScreen::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
@@ -61,7 +61,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, 280);
-    lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_align(message_label, LV_ALIGN_TOP_MID, 0, -60);
 
     final_latency_label = lv_label_create(result_container);

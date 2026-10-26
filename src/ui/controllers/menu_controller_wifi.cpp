@@ -42,7 +42,7 @@ void MenuUIController::handle_wifi_push_toggle() {
     const bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
     if (!wifi_manager.set_push_enabled(enabled)) {
         // Not stored: show the real state again
-        if (enabled) lv_obj_clear_state(toggle, LV_STATE_CHECKED); else lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        if (enabled) lv_obj_remove_state(toggle, LV_STATE_CHECKED); else lv_obj_add_state(toggle, LV_STATE_CHECKED);
         LOG_BLE("[UI] WiFi receive: could not store the setting\n");
         return;
     }
@@ -87,7 +87,7 @@ void MenuUIController::handle_wifi_beta_toggle() {
 
     const bool beta = lv_obj_has_state(toggle, LV_STATE_CHECKED);
     auto revert = [toggle, beta]() {
-        if (beta) lv_obj_clear_state(toggle, LV_STATE_CHECKED); else lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        if (beta) lv_obj_remove_state(toggle, LV_STATE_CHECKED); else lv_obj_add_state(toggle, LV_STATE_CHECKED);
     };
     if (!pull_can_start_check(update_pull.state())) {  // a job is running: it keeps the channel it started with
         revert();

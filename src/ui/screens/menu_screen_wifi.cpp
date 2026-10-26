@@ -36,7 +36,7 @@ void set_text_if_changed(lv_obj_t* label, const char* text) {
 void wrap_button_text(lv_obj_t* button) {
     lv_obj_t* label = lv_obj_get_child(button, 0);
     if (!label) return;
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(label, 220);  // 260 px button minus 2 x 20 px padding
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 }
@@ -44,7 +44,7 @@ void wrap_button_text(lv_obj_t* button) {
 void set_enabled(lv_obj_t* obj, bool enabled) {
     if (!obj) return;
     if (enabled) {
-        lv_obj_clear_state(obj, LV_STATE_DISABLED);
+        lv_obj_remove_state(obj, LV_STATE_DISABLED);
     } else {
         lv_obj_add_state(obj, LV_STATE_DISABLED);
     }
@@ -164,10 +164,10 @@ void MenuScreen::apply_wifi_update_toggles() {
         if (on) {
             lv_obj_add_state(toggle, LV_STATE_CHECKED);
         } else {
-            lv_obj_clear_state(toggle, LV_STATE_CHECKED);
+            lv_obj_remove_state(toggle, LV_STATE_CHECKED);
         }
         if (wifi_has_credentials) {
-            lv_obj_clear_state(toggle, LV_STATE_DISABLED);
+            lv_obj_remove_state(toggle, LV_STATE_DISABLED);
         } else {
             lv_obj_add_state(toggle, LV_STATE_DISABLED);
         }
@@ -208,7 +208,7 @@ void MenuScreen::reload_wifi_page() {
         if (wifi_manager.beta_channel()) {
             lv_obj_add_state(wifi_beta_toggle, LV_STATE_CHECKED);
         } else {
-            lv_obj_clear_state(wifi_beta_toggle, LV_STATE_CHECKED);
+            lv_obj_remove_state(wifi_beta_toggle, LV_STATE_CHECKED);
         }
     }
     update_wifi_page();

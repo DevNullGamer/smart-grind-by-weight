@@ -4,7 +4,7 @@
 #include "../../config/build_info.h"
 
 void OtaUpdateFailedScreen::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(screen, lv_color_hex(THEME_COLOR_BACKGROUND), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
@@ -23,9 +23,9 @@ void OtaUpdateFailedScreen::create() {
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_36, 0);
     lv_obj_set_style_text_color(title_label, lv_color_hex(THEME_COLOR_WARNING), 0);
     lv_obj_set_width(title_label, LV_PCT(90));
-    lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(title_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_WRAP);
 
     // Main message
     message_label = lv_label_create(screen);
@@ -34,7 +34,7 @@ void OtaUpdateFailedScreen::create() {
     lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, LV_PCT(90));
-    lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
 
     // Details label (build numbers)
     details_label = lv_label_create(screen);
@@ -42,10 +42,10 @@ void OtaUpdateFailedScreen::create() {
     lv_obj_set_style_text_color(details_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_text_align(details_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(details_label, LV_PCT(90));
-    lv_label_set_long_mode(details_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(details_label, LV_LABEL_LONG_MODE_WRAP);
 
     // OK button
-    ok_button = lv_btn_create(screen);
+    ok_button = lv_button_create(screen);
     lv_obj_set_size(ok_button, OTA_WARNING_BUTTON_WIDTH, OTA_WARNING_BUTTON_HEIGHT);
     lv_obj_set_style_bg_color(ok_button, lv_color_hex(THEME_COLOR_PRIMARY), 0);
     lv_obj_set_style_border_width(ok_button, 0, 0);

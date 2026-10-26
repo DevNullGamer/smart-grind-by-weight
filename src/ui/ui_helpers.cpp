@@ -21,7 +21,7 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
 }
 
 lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color, int32_t width, int32_t height, const lv_font_t* font){ 
-    lv_obj_t* button = lv_btn_create(parent);
+    lv_obj_t* button = lv_button_create(parent);
     style_as_button(button, width, height, font);
     lv_obj_set_style_bg_color(button, bg_color, 0);
     
@@ -161,10 +161,10 @@ struct RadioButtonGroupData {
 // Internal event handler for radio button clicks
 static void radio_button_event_handler(lv_event_t* e) {
     lv_obj_t* clicked_button = (lv_obj_t*)lv_event_get_target(e);
-    if (!clicked_button || !lv_obj_is_valid(clicked_button)) return;
+    if (!clicked_button || !lv_obj_is_in_widget_tree(clicked_button)) return;
 
     lv_obj_t* group = lv_obj_get_parent(clicked_button);
-    if (!group || !lv_obj_is_valid(group)) return;
+    if (!group || !lv_obj_is_in_widget_tree(group)) return;
 
     RadioButtonGroupData* data = (RadioButtonGroupData*)lv_obj_get_user_data(group);
     if (!data || !data->buttons) return;
@@ -185,7 +185,7 @@ static void radio_button_event_handler(lv_event_t* e) {
 
     // Update visual states
     for (int i = 0; i < data->button_count; i++) {
-        if (data->buttons[i] && lv_obj_is_valid(data->buttons[i])) {
+        if (data->buttons[i] && lv_obj_is_in_widget_tree(data->buttons[i])) {
             if (i == clicked_index) {
                 lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_PRIMARY), 0);
             } else {
@@ -304,7 +304,7 @@ void radio_button_group_set_selection(lv_obj_t* group, int selected_index) {
 
     // Update visual states
     for (int i = 0; i < data->button_count; i++) {
-        if (data->buttons[i] && lv_obj_is_valid(data->buttons[i])) {
+        if (data->buttons[i] && lv_obj_is_in_widget_tree(data->buttons[i])) {
             if (i == selected_index) {
                 lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_PRIMARY), 0);
             } else {

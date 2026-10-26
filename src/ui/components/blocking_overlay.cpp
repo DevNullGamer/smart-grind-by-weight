@@ -10,7 +10,7 @@ BlockingOperationOverlay* BlockingOperationOverlay::g_instance = nullptr;
 
 void BlockingOperationOverlay::init() {
     // Create overlay (initially hidden)
-    overlay = lv_obj_create(lv_scr_act());
+    overlay = lv_obj_create(lv_screen_active());
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
     lv_obj_set_style_bg_color(overlay, lv_color_hex(THEME_COLOR_BACKGROUND), 0);
     lv_obj_set_style_bg_opa(overlay, THEME_OPACITY_OVERLAY, 0);
@@ -19,7 +19,7 @@ void BlockingOperationOverlay::init() {
     lv_obj_center(overlay);
     
     // Ensure overlay is always on top by moving to foreground
-    lv_obj_move_foreground(overlay);
+    lv_obj_move_to_index(overlay, -1);
 
     lv_obj_t* content = lv_obj_create(overlay);
     lv_obj_set_style_bg_opa(content, LV_OPA_TRANSP, 0);
@@ -67,7 +67,7 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
     // Set appropriate message
     const char* message = get_operation_message(op_type, custom_message);
     lv_label_set_text(label, message);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(label, 240);
     
     set_stop_visible(false);
@@ -80,13 +80,13 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     
     // Ensure overlay is on top when shown
-    lv_obj_move_foreground(overlay);
+    lv_obj_move_to_index(overlay, -1);
     
     is_visible = true;
     
     // Start operation after small delay to ensure overlay is visible
     if (operation_timer) {
-        lv_timer_del(operation_timer);
+        lv_timer_delete(operation_timer);
     }
     
     operation_timer = lv_timer_create(operation_timer_cb, 100, nullptr);
@@ -100,7 +100,7 @@ void BlockingOperationOverlay::hide_and_complete() {
     
     // Clean up timer
     if (operation_timer) {
-        lv_timer_del(operation_timer);
+        lv_timer_delete(operation_timer);
         operation_timer = nullptr;
     }
     
@@ -155,7 +155,7 @@ void BlockingOperationOverlay::show(const char* message) {
     
     // Show overlay
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(overlay);
+    lv_obj_move_to_index(overlay, -1);
     is_visible = true;
 }
 
@@ -169,14 +169,14 @@ void BlockingOperationOverlay::hide() {
 
 void BlockingOperationOverlay::show_with_stop(const char* message, OperationCallback on_stop) {
     lv_label_set_text(label, message);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(label, 240);
 
     stop_callback = std::move(on_stop);
     set_stop_visible(true);
 
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(overlay);
+    lv_obj_move_to_index(overlay, -1);
     is_visible = true;
 }
 

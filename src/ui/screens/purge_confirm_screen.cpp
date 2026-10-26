@@ -3,7 +3,7 @@
 #include "../ui_helpers.h"
 
 void PurgeConfirmScreen::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     // Set width to 100% and height to exclude bottom 120px button area
     // This prevents the screen from blocking touch events to the buttons
     lv_obj_set_width(screen, LV_PCT(100));
@@ -50,7 +50,7 @@ void PurgeConfirmScreen::create() {
     lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, LV_PCT(90));
-    lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
 
     lv_obj_update_layout(message_container);
     lv_obj_scroll_to_y(message_container, 0, LV_ANIM_OFF);
@@ -75,10 +75,10 @@ void PurgeConfirmScreen::create() {
 void PurgeConfirmScreen::show() {
     if (checkbox) {
         // Always default to unchecked to prevent accidental preference changes
-        lv_obj_clear_state(checkbox, LV_STATE_CHECKED);
+        lv_obj_remove_state(checkbox, LV_STATE_CHECKED);
     }
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(screen);  // Bring to front, above all other UI elements
+    lv_obj_move_to_index(screen, -1);  // Bring to front, above all other UI elements
     visible = true;
 }
 

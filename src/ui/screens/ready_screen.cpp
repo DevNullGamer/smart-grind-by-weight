@@ -5,7 +5,7 @@
 #include "../ui_helpers.h"
 
 void ReadyScreen::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
@@ -21,7 +21,7 @@ void ReadyScreen::create() {
     lv_obj_add_flag(tabview, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     // Hide tab buttons for swipe-only interface
-    lv_obj_t* tab_btns = lv_tabview_get_tab_btns(tabview);
+    lv_obj_t* tab_btns = lv_tabview_get_tab_bar(tabview);
     lv_obj_add_flag(tab_btns, LV_OBJ_FLAG_HIDDEN);
 
     // Transparent background
@@ -103,7 +103,7 @@ void ReadyScreen::update_profile_values(const float values[3], GrindMode mode) {
 
 void ReadyScreen::set_active_tab(int tab) {
     if (tab >= 0 && tab < 4) {
-        lv_tabview_set_act(tabview, tab, LV_ANIM_OFF);
+        lv_tabview_set_active(tabview, tab, LV_ANIM_OFF);
     }
 }
 

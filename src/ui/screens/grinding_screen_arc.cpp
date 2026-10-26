@@ -3,7 +3,7 @@
 #include "../../config/constants.h"
 
 void GrindingScreenArc::create() {
-    screen = lv_obj_create(lv_scr_act());
+    screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0); // Keep transparent
@@ -28,7 +28,7 @@ void GrindingScreenArc::create() {
     lv_label_set_text(target_label, "Target: 18.0g");
     lv_obj_set_style_text_font(target_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(target_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_label_set_long_mode(target_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_long_mode(target_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(target_label, 200);
     lv_obj_set_style_text_align(target_label, LV_TEXT_ALIGN_CENTER, 0);
 
@@ -51,7 +51,7 @@ void GrindingScreenArc::create() {
     lv_obj_center(weight_label);
     
     // MODIFIED: Ensure all child widgets pass click events to the parent screen
-    for (uint32_t i = 0; i < lv_obj_get_child_cnt(screen); i++) {
+    for (uint32_t i = 0; i < lv_obj_get_child_count(screen); i++) {
         lv_obj_clear_flag(lv_obj_get_child(screen, i), LV_OBJ_FLAG_CLICKABLE);
     }
 
