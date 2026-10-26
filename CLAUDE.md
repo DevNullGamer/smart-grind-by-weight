@@ -65,34 +65,35 @@ python3 tools/grinder.py analyze
 - Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs.
 - After exact pulses, saved latency is stale: re-run autotune.
 
-**LVGL (pinned 9.6.0; details in `docs/DESIGN-NOTES.md` "LVGL pin and config"):** bump = change the pin in `platformio.ini`, regenerate `include/lv_conf.h` from that version's template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. The display byte swap depends on `LV_COLOR_16_SWAP 1`; do not remove it.
+**LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness" in `docs/DESIGN-NOTES.md`):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
+- Anything updated per frame uses `set_label_text_if_changed`; no unguarded `lv_label_set_text` or style setters per frame.
+- `UIManager::init` needs an initialised display; if the display fails the UI stays off (update() no-op).
 
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
 **Grind Phases:**
 - Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
 - `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
-- `PURGE_CONFIRM` - Pauses after chute operation (in Purge mode) to allow user to discard grinds before continuing to main grind
+- `PURGE_CONFIRM` - Purge mode pause so the user can discard grinds before the main grind
 - **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
 
 **Grinder Purge/Prime:**
 - **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
 - **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
 - **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
-- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`
-- **Purge popup**: "Keep purge grinds from now on" checkbox switches mode from Purge → Prime in preferences
-- **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
+- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
+- **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
+- **No logging** during PURGE_CONFIRM
 - **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amount_g` (float: 0.1-2.5, default=1.0)
 
 **Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
 
 **Grind Settings:** Configurable through Menu → Grind Settings page
-- **Mode Selection**: Radio buttons for Weight/Time mode selection
-- **Swipe Gestures Toggle**: Enable/disable vertical swipe gestures for mode switching (default: disabled)
+- **Mode Selection**: Weight/Time radio buttons
+- **Swipe Gestures Toggle**: vertical swipe mode switching (default: disabled)
 - **Automation**: Start on Cup and Return on Removal toggles
-- **Purging**: Radio buttons (Prime/Purge) and Amount slider (0.1g-2.5g)
-- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time), `grinder_mode` (0=Prime, 1=Purge), `grinder_amount_g` (float)
-- **Behavior**: Swipe gestures only work when enabled; direct mode selection always works
+- **Purging**: Keep/Remove radio buttons and Amount slider (0.1g-2.5g)
+- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time); purge prefs above. Swipe works only when enabled
 
 **Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
 - `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color

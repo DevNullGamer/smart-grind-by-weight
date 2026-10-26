@@ -372,3 +372,68 @@ Goal: a faulty sensor, a stuck phase, a lost motor command or an interrupted upd
 - **Fonts**: built-in 14 (default), 24, 28, 32, 36 are enabled; 56 and 60 are custom, declared in `include/lv_font_custom.h` (`LV_FONT_USE_CUSTOM_INCLUDE`). Unused widgets, themes, demos and examples are off; the compiler's dependency `#error`s decide what must stay.
 - **API names**: the v8 names and the 9.6-deprecated `lv_obj_add_flag`/`remove_flag` were migrated (`lv_screen_active`, `lv_button_create`, `lv_obj_set_hidden(o, true)`, `lv_obj_set_clickable(o, false)` and so on; the per-flag setters do what the flag functions did internally). `-DLV_DISABLE_API_MAPPING` is in the shared `build_flags`, so a v8 name is now a compile error.
 - **lv_menu**: deprecated since 9.6 (removed in v10). Not replaced; `menu_screen.cpp` and `menu_screen_wifi.cpp` wrap their code in `LV_DEPRECATIONS_IGNORE_BEGIN/END` so only that file-level suppression exists. A replacement belongs to chg006 item 23 (MenuScreen split).
+
+## UI robustness (chg005)
+
+Items 20, 21 and 24 of chg005 (item 19 is "LVGL pin and config" above). Branch `feat/ui-robustness`. No motor logic changed.
+
+### Measurements (baseline = LVGL pin only, build #313; now = final main env build)
+
+| | Baseline | Now |
+|---|---|---|
+| Compiler warnings (`warning:` lines) | 1384 | 3, none from the UI code or LVGL (`autotune_controller.cpp` -Wswitch `RESULT_LOGGED`, `update_server.cpp` unused `marker_stored`, Arduino `WebServer` deprecation) |
+| Firmware size (`firmware.bin`) | 2,454,992 B | 2,417,851 B |
+| Free heap after WiFi begin (V2 bench board, no WiFi credentials) | 201,396 B | 209,196 B (+7.8 KB, from deleting the dead queues) |
+| UIRender heartbeat, READY screen | about 436 cycles / 10 s, 22-23 ms | about 451 cycles / 10 s (unchanged) |
+
+- The BLE-icon redraw gain of step 20.1 was NOT measured: Bluetooth was off in both captures (the baseline note saying "BLE on" is wrong). The expected effect is only on the READY screen with Bluetooth enabled, or on the System Info page; to measure, enable Bluetooth (Menu > Bluetooth) and read `[TASK_HEARTBEAT_UIRender]`.
+- The grinding-screen and menu-page savings (steps 20.1/20.2) were verified by code review only, not by a measurement.
+
+### Per-frame text rule (20.1)
+
+`lv_label_set_text` and `lv_obj_set_style_*` always invalidate the object (and a dirty area is widened to full width before flushing). `set_label_text_if_changed()` (`ui_helpers`) compares with `lv_label_get_text` first and is the only way per-frame code sets label text. `StatusIndicatorController` keeps the last icon state and touches LVGL only on change. `MenuUIController::update()` refreshes the Info, Diagnostics and Bluetooth pages only while that page is current (`is_*_page_current()`), and reads `ESP.getFreeHeap()` only for Info. Explicit callers (toggles, `show()`, diagnostics reset) still refresh immediately.
+
+### Grinding screen text state (20.2)
+
+- `GrindingScreen::set_mode` and the two layouts' `set_time_mode` return early when the mode is unchanged (`PROGRESS_UPDATED` arrives up to 50 Hz).
+- Chart: the weight spangroup is rendered by `render_weight_spans()` from stored state (current weight, tare flag, target weight/time, optional override text from `update_target_weight_text`). It compares both strings with the span texts and calls `lv_span_set_text`/`lv_spangroup_refresh` only on change, and does nothing while the layout is hidden. The override is cleared by the next `update_target_weight/time`, `update_tare_display` or `reset_chart_data`. This removed a per-frame flip-flop of the separator span in GRIND_TIMEOUT (current-weight text and error text wrote the same span).
+- Arc: stores its texts and progress, compares before setting, and applies the stored state in `show()`.
+- A hidden layout therefore stores state and does no LVGL work; toggling the layout mid-grind shows the current weight, target and profile at once. `add_chart_data_point` keeps appending in both visibility states but calls `lv_chart_refresh` only when the chart is visible.
+
+### Dead code removed (21.1)
+
+- Queues: `ui_to_grind_queue` (never used) and `file_io_queue` (20 x about 368 B, never sent to), the `TaskQueues` struct, creation/cleanup, `SYS_QUEUE_*`. chg003 item 6 must create its own command queue.
+- `FileIORequest`, `FileIOOperationType`, `process_file_io_operations` and everything behind them, the `io_queue` argument of `FileIOTask::init`, unused `start_task/stop_task/task_wrapper`. `FileIOTask::task_impl` still drains `process_queued_flash_operations()` and `process_queued_log_messages()` every cycle (this is what logs grind sessions) and runs the 30 s filesystem health check.
+- `src/system/task_scheduler.{h,cpp}` (referenced nowhere).
+- `TaskManager::record_task_timing` bound fixed (it allowed index 5 on a 5-entry array).
+
+### Item 24 findings
+
+Real and fixed:
+- `UIManager::init` had no display guard: `DisplayManager::init()` returns before `lv_init()` on panel failure, yet `create_ui()` ran. Now `init` returns first if the display is not initialised. Consequence on the device: the UI stays uninitialised, `update()` is a no-op, no `OtaDataExportController` exists, a WiFi push is refused while Confirm is on (the Accept prompt can never attach), and the grinder cannot be started (no screen to start it from). BLE and the tasks keep running. With Confirm off a push is still accepted (existing policy). Fault-injected on COM15, not committed.
+- Auto-Tune result layout: `show_failure_screen` moved three labels and the later success screen kept that geometry. `apply_result_layout()` now restores the `create()` alignments and colours for the console and success screens.
+- `set_label_text_float` printed `12.34g g`; pure `ui_format.{h,cpp}` (host-tested, `test_native/test_ui_format.cpp`, 10 cases) now gives `12.34g`; the int form keeps `134 kB`.
+- Typos in the Grind Settings description ("do do", "grinded"). Docs said "Keep purge grinds from now on"; the popup checkbox reads "Always keep" and the settings radios read Keep/Remove (= Prime/Purge). Docs were corrected, the UI was not relabelled.
+- Debug background indicator (`-mock` env only) existed three times; the `PULSE_STARTED` copy re-initialised a live style. All sites now call `UIManager::set_background_active` (one static style).
+- Uninitialised members got default initialisers; dead members removed (`UIManager::calibration_weight`, `MenuScreen::info_label`, unused chart timing members).
+- 24.4: `THEME_CONTENT_WIDTH_PX` and `THEME_CONTENT_INNER_WIDTH_PX` (width minus 2 side margins) in `theme.h` replace the literals 280/260 in the UI files; the unused font sources `lv_font_montserrat_50/52/54/58.c` were deleted (not referenced, firmware size unchanged).
+
+### Known leftovers
+
+- Task timing slot 4 is printed as `TASK_HEARTBEAT_FileIO` but is the Bluetooth task (FileIO has its own `FILE_IO_HEARTBEAT`). Pre-existing.
+- `system.h` still has a comment "Legacy task scheduler intervals" although the scheduler is gone.
+- `menu_screen.cpp` slider width literal `220` was not moved to the theme.
+- `GrindingScreenChart::reset_chart_data` does not re-render; it relies on the call order in `enter_grinding_state`. Changing that order would show stale text.
+- Menu page values fill one frame after a page opens (cosmetic, from the page-current gating).
+- `ota_update_failed_screen.cpp` has a duplicated `set_long_mode` line (pre-existing).
+
+### Not run on hardware
+
+Builds, native tests (313) and pytest ran; the following were reviewed in code only and need a look on the device:
+- Grinding screens (arc and chart; `-mock` env): weight and time-mode grind, layout toggle mid-grind, completion screen, timeout text, boot with saved TIME mode.
+- Time-mode pulse background colour (yellow, `-mock`).
+- System Info "Instant" label without the double g; corrected Grind Settings text.
+- Tune Pulses failure followed by success (result layout restored).
+- Mock grind increments the session count in Logs & Data (proves FileIO still drains the log queues).
+- Colours (red primary, blue accent), fonts and icons after the `lv_conf.h` regeneration; Motor Test overlay with STOP, grind/pulse/cancel button visibility, READY tab swipe, menu scrolling.
+- Menu pages, Calibration and Auto-Tune after the 24.4 width constants (no visual change expected).

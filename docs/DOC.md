@@ -349,7 +349,7 @@ Access **Menu → Grind Settings** to configure:
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
   - **Purge mode** (default): Prompts you to discard stale grinds before continuing
   - **Amount slider**: Configure purge/prime amount (0.1g-2.5g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
-  - **"Keep purge grinds from now on" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
+  - **"Always keep" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
 
   *Explanation:* The time between motor start and grinds hitting the cup (grind latency) is used to predict the coast time (how long grinds will keep coming after the motor is disengaged). Purging clears stale coffee and saturates the grinder with fresh grounds, ensuring accurate latency detection. If you prefer to keep all coffee without manual intervention, select Prime mode.
 
@@ -463,7 +463,7 @@ During Grinding:
 \-- Purge Confirmation (appears in Purge mode after grinder saturation)
     |-- "Grinder Purged" title
     |-- Instruction message
-    |-- "Keep purge grinds from now on" checkbox
+    |-- "Always keep" checkbox
     \-- CONTINUE button
 ```
 
