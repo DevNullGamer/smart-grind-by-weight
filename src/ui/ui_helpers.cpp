@@ -1,4 +1,5 @@
 #include "ui_helpers.h"
+#include "ui_format.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,27 +45,13 @@ bool set_label_text_if_changed(lv_obj_t* label, const char* text) {
 void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit) {
     if (!label) return;
     char buf[24];
-
-    if (unit) {
-        snprintf(buf, sizeof(buf), "%ld %s", value, unit);
-    } else {
-        snprintf(buf, sizeof(buf), "%ld", value);
-    }
-
-    set_label_text_if_changed(label, buf);
+    set_label_text_if_changed(label, format_int_with_unit(buf, sizeof(buf), value, unit));
 }
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit) {
     if (!label) return;
     char buf[24];
-    
-    if (unit) {
-        snprintf(buf, sizeof(buf), "%.2fg %s", value, unit);
-    } else {
-        snprintf(buf, sizeof(buf), "%.2f", value);
-    }
-
-    set_label_text_if_changed(label, buf);
+    set_label_text_if_changed(label, format_float_with_unit(buf, sizeof(buf), value, 2, unit));
 }
 
 lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label){

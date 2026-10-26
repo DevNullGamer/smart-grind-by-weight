@@ -518,26 +518,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
         case UIGrindEvent::BACKGROUND_CHANGE:
 #if DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR
         {
-            static lv_style_t style_bg;
-            static bool style_initialized = false;
-
-            if (!style_initialized) {
-                lv_style_init(&style_bg);
-                style_initialized = true;
-            }
-
-#if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
-            lv_color_t inactive_color = lv_color_hex(THEME_COLOR_BACKGROUND_MOCK);
-#else
-            lv_color_t inactive_color = lv_color_hex(THEME_COLOR_BACKGROUND);
-#endif
-            lv_color_t bg_color = event_data.background_active ?
-                lv_color_hex(THEME_COLOR_GRINDER_ACTIVE) :
-                inactive_color;
-
-            lv_style_set_bg_color(&style_bg, bg_color);
-            lv_obj_add_style(lv_screen_active(), &style_bg, 0);
-
+            ui_manager_->set_background_active(event_data.background_active);
             LOG_UI_DEBUG("[UIManager] Background: %s\n", event_data.background_active ? "ACTIVE" : "INACTIVE");
         }
 #endif
@@ -550,12 +531,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             LOG_BLE("[UIManager] Pulse #%d started (%.1fms)\n",
                     event_data.pulse_count, (float)event_data.pulse_duration_ms);
 #if DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR
-        {
-            static lv_style_t style_bg;
-            lv_style_init(&style_bg);
-            lv_style_set_bg_color(&style_bg, lv_color_hex(THEME_COLOR_GRINDER_ACTIVE));
-            lv_obj_add_style(lv_screen_active(), &style_bg, 0);
-        }
+        ui_manager_->set_background_active(true);
 #endif
             break;
         case UIGrindEvent::PULSE_COMPLETED:

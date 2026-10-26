@@ -345,7 +345,7 @@ Access **Menu → Grind Settings** to configure:
 - **Time Mode**: Directly toggle between Weight and Time modes regardless of swipe setting
 - **Start on Cup**: Start the active profile automatically when the scale gains ≈50 g within ~6 s (after a short post-boot warmup)
 - **Return on Removal**: Leave the completion screen as soon as that cup weight drops back off the scale
-- **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
+- **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding. On screen the buttons are labelled Keep (= Prime mode) and Remove (= Purge mode).
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
   - **Purge mode** (default): Prompts you to discard stale grinds before continuing
   - **Amount slider**: Configure purge/prime amount (0.1g-2.5g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.

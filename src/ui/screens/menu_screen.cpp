@@ -400,7 +400,7 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     // Grinder Purging section
     create_separator(parent, "Purging");
-    create_description_label(parent, "Decide what do do with the grinded coffee after the grinder is primed.");
+    create_description_label(parent, "Decide what to do with the ground coffee after the grinder is primed.");
 
     // Radio button group for grinder purge mode (Keep/Remove)
     const char* grinder_purge_modes[] = {"Keep", "Remove"};

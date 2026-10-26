@@ -20,6 +20,7 @@ void run_sensor_health_tests();
 void run_grind_safety_tests();
 void run_grind_start_check_tests();
 void run_motor_test_check_tests();
+void run_ui_format_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -44,5 +45,6 @@ int main() {
     run_grind_safety_tests();
     run_grind_start_check_tests();
     run_motor_test_check_tests();
+    run_ui_format_tests();
     return UNITY_END();
 }

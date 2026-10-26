@@ -25,7 +25,6 @@ void OtaUpdateFailedScreen::create() {
     lv_obj_set_width(title_label, LV_PCT(90));
     lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_long_mode(title_label, LV_LABEL_LONG_MODE_WRAP);
 
     // Main message
     message_label = lv_label_create(screen);
