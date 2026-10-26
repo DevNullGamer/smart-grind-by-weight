@@ -12,7 +12,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
     lv_obj_set_style_pad_ver(screen, 6, 0);
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(screen, false);
     lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
 
     // Title label (shared across all screens)
@@ -29,7 +29,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_bg_opa(console_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(console_container, 0, 0);
     lv_obj_set_style_pad_all(console_container, 0, 0);
-    lv_obj_clear_flag(console_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(console_container, false);
     lv_obj_set_scrollbar_mode(console_container, LV_SCROLLBAR_MODE_OFF);
     lv_obj_align_to(console_container, title_label, LV_ALIGN_OUT_BOTTOM_MID, 0, 15);
 
@@ -43,7 +43,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_border_color(console_textarea, lv_color_hex(0x333333), 0);
     lv_obj_set_style_pad_all(console_textarea, 8, 0);
     lv_textarea_set_cursor_click_pos(console_textarea, false);
-    lv_obj_add_flag(console_textarea, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_set_event_bubble(console_textarea, true);
 
     // === Result Screen ===
     result_container = lv_obj_create(screen);
@@ -51,7 +51,7 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_bg_opa(result_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(result_container, 0, 0);
     lv_obj_set_style_pad_all(result_container, 0, 0);
-    lv_obj_clear_flag(result_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(result_container, false);
     lv_obj_set_scrollbar_mode(result_container, LV_SCROLLBAR_MODE_OFF);
     lv_obj_align(result_container, LV_ALIGN_CENTER, 0, 0);
 
@@ -84,20 +84,20 @@ void AutoTuneScreen::create() {
                                         80, &lv_font_montserrat_32);
     lv_obj_set_width(button_row, 280);
     lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -10);
-    lv_obj_clear_flag(button_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(button_row, false);
 
     visible = false;
     current_state = AutoTuneScreenState::CONSOLE;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void AutoTuneScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void AutoTuneScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 
@@ -108,13 +108,13 @@ void AutoTuneScreen::show_console_screen() {
     lv_textarea_set_text(console_textarea, "");
 
     // Show console elements
-    lv_obj_clear_flag(console_container, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(button_row, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(ok_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(console_container, false);
+    lv_obj_set_hidden(button_row, false);
+    lv_obj_set_hidden(cancel_button, false);
+    lv_obj_set_hidden(ok_button, true);
 
     // Hide result screen
-    lv_obj_add_flag(result_container, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(result_container, true);
 
     lv_label_set_text(title_label, "Pulse Tune");
 }
@@ -123,13 +123,13 @@ void AutoTuneScreen::show_success_screen(float new_latency_ms, float previous_la
     current_state = AutoTuneScreenState::RESULT;
 
     // Hide console screen
-    lv_obj_add_flag(console_container, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(console_container, true);
 
     // Show result elements
-    lv_obj_clear_flag(result_container, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(button_row, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ok_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(result_container, false);
+    lv_obj_set_hidden(button_row, false);
+    lv_obj_set_hidden(cancel_button, true);
+    lv_obj_set_hidden(ok_button, false);
 
     lv_label_set_text(title_label, "Tune\nComplete!");
     lv_label_set_text(message_label, "New Motor Latency:");
@@ -149,13 +149,13 @@ void AutoTuneScreen::show_failure_screen(const char* error_message) {
     current_state = AutoTuneScreenState::RESULT;
 
     // Hide console screen
-    lv_obj_add_flag(console_container, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(console_container, true);
 
     // Show result elements
-    lv_obj_clear_flag(result_container, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(button_row, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ok_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(result_container, false);
+    lv_obj_set_hidden(button_row, false);
+    lv_obj_set_hidden(cancel_button, true);
+    lv_obj_set_hidden(ok_button, false);
 
     lv_label_set_text(title_label, "Tune\nFailed");
 

@@ -58,7 +58,7 @@ void OtaUpdateFailedScreen::create() {
     lv_obj_center(ok_button_label);
 
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void OtaUpdateFailedScreen::show(const char* expected_build) {
@@ -85,11 +85,11 @@ void OtaUpdateFailedScreen::show(const char* expected_build) {
     
     lv_label_set_text(details_label, details_text);
 
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void OtaUpdateFailedScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }

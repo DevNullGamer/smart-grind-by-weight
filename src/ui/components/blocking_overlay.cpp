@@ -50,11 +50,11 @@ void BlockingOperationOverlay::init() {
     stop_button = create_button(overlay, "STOP", lv_color_hex(THEME_COLOR_ERROR), 200, 70, &lv_font_montserrat_28);
     lv_obj_align(stop_button, LV_ALIGN_BOTTOM_MID, 0, -40);
     lv_obj_add_event_cb(stop_button, stop_button_cb, LV_EVENT_CLICKED, this);
-    lv_obj_add_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(stop_button, true);
     stop_callback = nullptr;
 
     // Hide initially
-    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, true);
     is_visible = false;
     operation_timer = nullptr;
 }
@@ -77,7 +77,7 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
     operation_callback = operation_func;
     
     // Show overlay
-    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, false);
     
     // Ensure overlay is on top when shown
     lv_obj_move_to_index(overlay, -1);
@@ -95,7 +95,7 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
 
 void BlockingOperationOverlay::hide_and_complete() {
     // Hide overlay
-    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, true);
     is_visible = false;
     
     // Clean up timer
@@ -154,7 +154,7 @@ void BlockingOperationOverlay::show(const char* message) {
     lv_label_set_text(label, message);
     
     // Show overlay
-    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, false);
     lv_obj_move_to_index(overlay, -1);
     is_visible = true;
 }
@@ -163,7 +163,7 @@ void BlockingOperationOverlay::hide() {
     set_stop_visible(false);
 
     // Hide overlay
-    lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, true);
     is_visible = false;
 }
 
@@ -175,7 +175,7 @@ void BlockingOperationOverlay::show_with_stop(const char* message, OperationCall
     stop_callback = std::move(on_stop);
     set_stop_visible(true);
 
-    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(overlay, false);
     lv_obj_move_to_index(overlay, -1);
     is_visible = true;
 }
@@ -186,9 +186,9 @@ void BlockingOperationOverlay::set_message(const char* message) {
 
 void BlockingOperationOverlay::set_stop_visible(bool visible) {
     if (visible) {
-        lv_obj_clear_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(stop_button, false);
     } else {
-        lv_obj_add_flag(stop_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(stop_button, true);
         stop_callback = nullptr;
     }
 }

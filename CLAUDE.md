@@ -65,6 +65,8 @@ python3 tools/grinder.py analyze
 - Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs.
 - After exact pulses, saved latency is stale: re-run autotune.
 
+**LVGL (pinned 9.6.0; details in `docs/DESIGN-NOTES.md` "LVGL pin and config"):** bump = change the pin in `platformio.ini`, regenerate `include/lv_conf.h` from that version's template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. The display byte swap depends on `LV_COLOR_16_SWAP 1`; do not remove it.
+
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
 **Grind Phases:**

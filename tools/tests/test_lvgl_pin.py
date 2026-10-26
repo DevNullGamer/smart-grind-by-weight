@@ -132,6 +132,23 @@ def test_lv_conf_project_settings():
     assert defines.get("LV_COLOR_16_SWAP_DISABLE_WARNING") == "1"
 
 
+def test_old_lvgl_api_map_is_disabled():
+    flags = _env_section(MAIN_ENV)
+    assert re.search(r"^\s*-DLV_DISABLE_API_MAPPING\b", flags, re.M), "v8 names must stay a compile error"
+
+
+def test_sources_use_per_flag_setters():
+    """lv_obj_add_flag/remove_flag/clear_flag are deprecated since LVGL 9.6; use lv_obj_set_hidden() etc."""
+    pattern = re.compile(r"\blv_obj_(add|remove|clear)_flag\b")
+    offenders = [
+        str(p.relative_to(ROOT))
+        for p in (ROOT / "src").rglob("*")
+        if p.suffix in (".cpp", ".h") and "font" not in p.relative_to(ROOT / "src").parts
+        and pattern.search(p.read_text(encoding="utf-8", errors="ignore"))
+    ]
+    assert not offenders, offenders
+
+
 def test_display_manager_guards_colour_swap():
     source = (ROOT / "src" / "hardware" / "display_manager.cpp").read_text(encoding="utf-8")
     assert re.search(r"#if !defined\(LV_COLOR_16_SWAP\) \|\| !LV_COLOR_16_SWAP\s*#error", source)

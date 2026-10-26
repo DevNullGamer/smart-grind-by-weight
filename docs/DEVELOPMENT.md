@@ -230,6 +230,7 @@ LVGL allocates widgets, styles and draw buffers from PSRAM so internal RAM stays
 - The allocator lives in `src/ui/lvgl_psram_alloc.cpp`. It tries PSRAM first and falls back to internal RAM if PSRAM is full or unavailable.
 - `lv_mem_monitor` is not supported by this allocator; use the boot log instead.
 - At boot, `[HEAP]` lines report free internal RAM and the largest free block before UI init, after UI init and after BLE enable. If BLE fails to start or the device becomes unstable, check these first.
+- LVGL is pinned to an exact version in `platformio.ini`. To bump it: change the pin, regenerate `include/lv_conf.h` from the `lv_conf_template.h` of that version and re-apply the `sgbw:` deviations, diff the effective config (`gcc -E -dM`) old vs new, run `python3 -m pytest tools/tests/test_lvgl_pin.py`, build, and check the screen. Details: `docs/DESIGN-NOTES.md` "LVGL pin and config".
 
 ---
 

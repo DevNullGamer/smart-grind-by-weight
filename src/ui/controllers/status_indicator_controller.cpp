@@ -22,8 +22,8 @@ void StatusIndicatorController::build() {
     lv_obj_set_style_text_font(ble_status_icon_, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(ble_status_icon_, lv_color_hex(THEME_COLOR_ACCENT), 0);
     lv_obj_align(ble_status_icon_, LV_ALIGN_TOP_RIGHT, -10, 10);
-    lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_hidden(ble_status_icon_, true);
+    lv_obj_set_clickable(ble_status_icon_, false);
 
     // Create warning icon (left of BLE icon)
     warning_icon_ = lv_label_create(lv_screen_active());
@@ -31,8 +31,8 @@ void StatusIndicatorController::build() {
     lv_obj_set_style_text_font(warning_icon_, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(warning_icon_, lv_color_hex(THEME_COLOR_WARNING), 0);
     lv_obj_align(warning_icon_, LV_ALIGN_TOP_RIGHT, -45, 10);
-    lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(warning_icon_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_hidden(warning_icon_, true);
+    lv_obj_set_clickable(warning_icon_, false);
 
     update_ble_status_icon();
     update_warning_icon();
@@ -42,8 +42,8 @@ void StatusIndicatorController::update() {
     // The icons sit on the active screen above every dialog and would overlap the
     // 36 pt title of a confirm dialog, so keep them hidden while one is shown
     if (ui_manager_ && ui_manager_->state_machine && ui_manager_->state_machine->is_state(UIState::CONFIRM)) {
-        if (ble_status_icon_) lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
-        if (warning_icon_) lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
+        if (ble_status_icon_) lv_obj_set_hidden(ble_status_icon_, true);
+        if (warning_icon_) lv_obj_set_hidden(warning_icon_, true);
         return;
     }
     update_ble_status_icon();
@@ -57,13 +57,13 @@ void StatusIndicatorController::update_ble_status_icon() {
 
     auto* bluetooth = ui_manager_->bluetooth_manager;
     if (bluetooth && bluetooth->is_enabled()) {
-        lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ble_status_icon_, false);
         lv_obj_set_style_text_color(ble_status_icon_,
                                     bluetooth->is_connected() ? lv_color_hex(THEME_COLOR_SUCCESS)
                                                               : lv_color_hex(THEME_COLOR_ACCENT),
                                     0);
     } else {
-        lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ble_status_icon_, true);
     }
 }
 
@@ -76,11 +76,11 @@ void StatusIndicatorController::update_warning_icon() {
     if (ui_manager_->diagnostics_controller_) {
         DiagnosticCode diagnostic = ui_manager_->diagnostics_controller_->get_highest_priority_warning();
         if (diagnostic != DiagnosticCode::NONE) {
-            lv_obj_clear_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(warning_icon_, false);
         } else {
-            lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(warning_icon_, true);
         }
     } else {
-        lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(warning_icon_, true);
     }
 }

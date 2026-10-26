@@ -11,18 +11,18 @@ void ReadyScreen::create() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_gesture_bubble(screen, true);
 
     // Create tabview
     tabview = lv_tabview_create(screen);
     lv_obj_set_size(tabview, LV_PCT(100), LV_PCT(100));
     lv_obj_align(tabview, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(tabview, LV_OBJ_FLAG_SCROLL_CHAIN_VER);
-    lv_obj_add_flag(tabview, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_scroll_chain_ver(tabview, true);
+    lv_obj_set_gesture_bubble(tabview, true);
 
     // Hide tab buttons for swipe-only interface
     lv_obj_t* tab_btns = lv_tabview_get_tab_bar(tabview);
-    lv_obj_add_flag(tab_btns, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(tab_btns, true);
 
     // Transparent background
     lv_obj_set_style_bg_opa(tabview, LV_OPA_TRANSP, 0);
@@ -59,12 +59,12 @@ void ReadyScreen::create_profile_page(lv_obj_t* parent, int profile_index, const
     lv_obj_t* name_label;
     (void)create_profile_label(parent, &name_label, &weight_labels[profile_index]);
     lv_label_set_text(name_label, profile_name);
-    lv_obj_add_flag(name_label, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(name_label, true);
     
     char weight_text[16];
     snprintf(weight_text, sizeof(weight_text), SYS_WEIGHT_DISPLAY_FORMAT, weight);
     lv_label_set_text(weight_labels[profile_index], weight_text);
-    lv_obj_add_flag(weight_labels[profile_index], LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(weight_labels[profile_index], true);
 }
 
 void ReadyScreen::create_menu_page(lv_obj_t* parent) {
@@ -82,12 +82,12 @@ void ReadyScreen::create_menu_page(lv_obj_t* parent) {
 }
 
 void ReadyScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void ReadyScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 

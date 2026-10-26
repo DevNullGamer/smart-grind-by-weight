@@ -11,6 +11,10 @@
 #include "../components/blocking_overlay.h"
 #include "../../hardware/board_detect.h"
 
+// lv_menu is deprecated since LVGL 9.6 (removed in v10); replacing it is tracked separately
+// (chg006 item 23). All deprecation warnings are suppressed in this file, not only lv_menu ones.
+LV_DEPRECATIONS_IGNORE_BEGIN
+
 static void back_event_handler(lv_event_t * e)
 {
     lv_obj_t * obj = lv_event_get_target_obj(e);
@@ -49,7 +53,7 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     grind_freshness_hours_label = nullptr;
     board_status_label = nullptr;
     board_override_radio_group = nullptr;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 
     // Create menu UI immediately at boot for instant access
     create_menu_ui();
@@ -111,7 +115,7 @@ void MenuScreen::create_menu_ui() {
     lv_obj_set_size(spacer, lv_obj_get_width(back_chevron), lv_obj_get_height(back_chevron));
     lv_obj_set_style_bg_opa(spacer, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(spacer, 0, 0);
-    lv_obj_clear_flag(spacer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(spacer, false);
 
     // Create main page last
     lv_obj_t* main_page = lv_menu_page_create(menu, "Menu");
@@ -162,10 +166,10 @@ void MenuScreen::create_menu_ui() {
 
     lv_menu_set_load_page_event(menu, scale_item, scale_page);
 
-    lv_obj_add_flag(scale_item, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(cal_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(autotune_button, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(motor_test_button, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(scale_item, true);
+    lv_obj_set_clickable(cal_button, true);
+    lv_obj_set_clickable(autotune_button, true);
+    lv_obj_set_clickable(motor_test_button, true);
 
     using ET = EventBridgeLVGL::EventType;
     if (cal_button) {
@@ -289,14 +293,14 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     lv_label_set_text(ble_status_label, "Bluetooth: Disabled");
     lv_obj_set_style_text_font(ble_status_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(ble_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_obj_clear_flag(ble_status_label, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(ble_status_label, false);
 
     // BLE Timer label
     ble_timer_label = lv_label_create(parent);
     lv_label_set_text(ble_timer_label, "");
     lv_obj_set_style_text_font(ble_timer_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(ble_timer_label, lv_color_hex(THEME_COLOR_WARNING), 0);
-    lv_obj_clear_flag(ble_timer_label, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(ble_timer_label, false);
 
     // Register events for the toggles (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
@@ -618,7 +622,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     lv_obj_set_style_margin_bottom(diag_info_label, 10, 0);
     lv_label_set_long_mode(diag_info_label, LV_LABEL_LONG_MODE_WRAP);
     lv_obj_set_width(diag_info_label, 260);
-    lv_obj_add_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN); // Hidden by default
+    lv_obj_set_hidden(diag_info_label, true); // Hidden by default
 
     diag_reset_button = create_button(parent, "Reset Diagnostics", lv_color_hex(THEME_COLOR_WARNING));
     lv_obj_set_style_margin_bottom(diag_reset_button, 10, 0);
@@ -657,7 +661,7 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
 void MenuScreen::show() {
     LOG_BLE("[%lums MENU] Showing menu screen\n", millis());
 
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
     update_ble_status();
     update_brightness_sliders();
@@ -680,7 +684,7 @@ void MenuScreen::hide() {
 
     // Keep the menu in memory for instant access next time
     // Just hide the screen instead of deleting the menu
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
     sync_wifi_provisioning_window();  // closes the BLE provisioning window
     LOG_BLE("[%lums MENU] Menu screen hidden successfully\n", millis());
@@ -761,7 +765,7 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
     if (diagnostic == DiagnosticCode::NONE) {
         lv_label_set_text(diag_status_label, "OK");
         lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
-        lv_obj_add_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(diag_info_label, true);
     } else {
         lv_label_set_text(diag_status_label, LV_SYMBOL_WARNING " Warning");
         lv_obj_set_style_text_color(diag_status_label, lv_color_hex(THEME_COLOR_WARNING), 0);
@@ -769,12 +773,12 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
         // Show appropriate warning message
         if (diagnostic == DiagnosticCode::LOAD_CELL_NOT_CALIBRATED) {
             lv_label_set_text(diag_info_label, "Loadcell not calibrated");
-            lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(diag_info_label, false);
         } else {
             // For future noise/mechanical warnings, show in info label
             const char* message = diagnostics_controller->get_diagnostic_message(diagnostic);
             lv_label_set_text(diag_info_label, message);
-            lv_obj_clear_flag(diag_info_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(diag_info_label, false);
         }
     }
 }
@@ -796,7 +800,7 @@ void MenuScreen::update_ble_status() {
         } else {
             lv_label_set_text(ble_status_label, "Advertising");
         }
-        lv_obj_clear_flag(ble_status_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ble_status_label, false);
         
         // Show remaining time
         unsigned long remaining_ms = bluetooth_manager->get_bluetooth_timeout_remaining_ms();
@@ -804,11 +808,11 @@ void MenuScreen::update_ble_status() {
         char timer_text[64];
         snprintf(timer_text, sizeof(timer_text), "Auto-disable in: %lu min", remaining_min);
         lv_label_set_text(ble_timer_label, timer_text);
-        lv_obj_clear_flag(ble_timer_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ble_timer_label, false);
     } else {
         // When nothing to display hide the status labels
-        lv_obj_add_flag(ble_status_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ble_timer_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ble_status_label, true);
+        lv_obj_set_hidden(ble_timer_label, true);
     }
 }
 
@@ -969,7 +973,7 @@ lv_obj_t* MenuScreen::create_separator(lv_obj_t* parent, const char* text) {
     lv_obj_set_layout(separator_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(separator_container, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(separator_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(separator_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(separator_container, false);
 
     // Create left line
     lv_obj_t* left_line = lv_obj_create(separator_container);
@@ -1127,7 +1131,7 @@ lv_obj_t* MenuScreen::create_description_label(lv_obj_t* parent, const char* tex
     lv_obj_set_style_margin_top(container, 12, 0);
     lv_obj_set_style_margin_bottom(container, 12, 0);
     lv_obj_set_size(container, 280, LV_SIZE_CONTENT);
-    lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(container, false);
 
     // Create label inside container
     lv_obj_t* label = lv_label_create(container);
@@ -1267,3 +1271,5 @@ void MenuScreen::update_board_page() {
         radio_button_group_set_selection(board_override_radio_group, static_cast<int>(board_override_load()));
     }
 }
+
+LV_DEPRECATIONS_IGNORE_END

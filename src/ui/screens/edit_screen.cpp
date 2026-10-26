@@ -27,16 +27,16 @@ void EditScreen::create() {
 
     visible = false;
     mode = GrindMode::WEIGHT;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void EditScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void EditScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 

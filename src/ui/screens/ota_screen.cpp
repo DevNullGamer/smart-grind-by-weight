@@ -11,8 +11,8 @@ void OTAScreen::create() {
     lv_obj_set_style_pad_all(screen, 20, 0);
 
     // Disable touch input for the entire screen to lock it during operations
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ignore_layout(screen, true);
+    lv_obj_set_clickable(screen, false);
 
     // Use flex layout for centering
     lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
@@ -36,7 +36,7 @@ void OTAScreen::create() {
     lv_obj_set_style_arc_color(progress_arc, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_arc_width(progress_arc, 12, LV_PART_MAIN);
     lv_obj_remove_style(progress_arc, nullptr, LV_PART_KNOB);
-    lv_obj_clear_flag(progress_arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(progress_arc, false);
 
     // Percentage label (inside arc)
     percentage_label = lv_label_create(progress_arc);
@@ -54,16 +54,16 @@ void OTAScreen::create() {
     lv_obj_set_width(status_label, LV_PCT(100));
     
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void OTAScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void OTAScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 

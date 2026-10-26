@@ -48,7 +48,7 @@ void GrindingUIController::build_controls() {
     lv_obj_center(pulse_icon_);
     lv_obj_set_style_text_font(pulse_icon_, &lv_font_montserrat_32, 0);
 
-    lv_obj_add_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(pulse_button_, true);
 }
 
 void GrindingUIController::register_events() {
@@ -348,7 +348,7 @@ void GrindingUIController::update_button_layout() {
         lv_obj_align(grind_button_, LV_ALIGN_BOTTOM_MID, -60, -10);
         if (pulse_button_) {
             lv_obj_align(pulse_button_, LV_ALIGN_BOTTOM_MID, 60, -10);
-            lv_obj_clear_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(pulse_button_, false);
 
             if (in_purge_confirm) {
                 // Purge confirm: pulse button acts as CONTINUE (always enabled)
@@ -374,7 +374,7 @@ void GrindingUIController::update_button_layout() {
         // Single button layout: centered at 0
         lv_obj_align(grind_button_, LV_ALIGN_BOTTOM_MID, 0, -10);
         if (pulse_button_) {
-            lv_obj_add_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(pulse_button_, true);
         }
     }
 }
@@ -580,19 +580,19 @@ void GrindingUIController::enter_ready_state() {
         return;
     }
 
-    lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(grind_button_, false);
     if (pulse_button_) {
-        lv_obj_add_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(pulse_button_, true);
     }
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
 }
 
 void GrindingUIController::enter_edit_state() {
     if (grind_button_) {
-        lv_obj_add_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(grind_button_, true);
     }
     if (pulse_button_) {
-        lv_obj_add_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(pulse_button_, true);
     }
 }
 
@@ -608,13 +608,13 @@ void GrindingUIController::enter_grinding_state() {
     }
     ui_manager_->grinding_screen.update_progress(0);
     if (grind_button_) {
-        lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(grind_button_, false);
     }
 }
 
 void GrindingUIController::enter_grind_complete_state() {
     if (grind_button_) {
-        lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(grind_button_, false);
     }
     ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
@@ -624,7 +624,7 @@ void GrindingUIController::enter_grind_complete_state() {
 
 void GrindingUIController::enter_grind_timeout_state() {
     if (grind_button_) {
-        lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(grind_button_, false);
     }
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_profile_name("ERROR");
@@ -638,10 +638,10 @@ void GrindingUIController::enter_grind_timeout_state() {
 
 void GrindingUIController::enter_menu_state() {
     if (grind_button_) {
-        lv_obj_add_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(grind_button_, true);
     }
     if (pulse_button_) {
-        lv_obj_add_flag(pulse_button_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(pulse_button_, true);
     }
 }
 

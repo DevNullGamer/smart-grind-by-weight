@@ -40,7 +40,7 @@ void PurgeConfirmScreen::create() {
     lv_obj_set_layout(message_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(message_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(message_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_add_flag(message_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(message_container, true);
     lv_obj_set_scroll_dir(message_container, LV_DIR_VER);
 
     // Message label
@@ -69,7 +69,7 @@ void PurgeConfirmScreen::create() {
     // positioned by GrindingUIController::update_button_layout() when in PURGE_CONFIRM phase
 
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void PurgeConfirmScreen::show() {
@@ -77,13 +77,13 @@ void PurgeConfirmScreen::show() {
         // Always default to unchecked to prevent accidental preference changes
         lv_obj_remove_state(checkbox, LV_STATE_CHECKED);
     }
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     lv_obj_move_to_index(screen, -1);  // Bring to front, above all other UI elements
     visible = true;
 }
 
 void PurgeConfirmScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 

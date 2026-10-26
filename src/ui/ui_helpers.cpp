@@ -17,7 +17,7 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
         lv_obj_set_style_height(object, height, 0);
     }
     
-    lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(object, false);
 }
 
 lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color, int32_t width, int32_t height, const lv_font_t* font){ 
@@ -114,7 +114,7 @@ lv_obj_t* create_data_label(lv_obj_t* parent, const char* name, lv_obj_t** value
     lv_obj_set_style_pad_right(container, 14, 0);
     lv_obj_set_style_margin_all(container, 0, 0);
     lv_obj_set_size(container, 280, LV_SIZE_CONTENT);
-    lv_obj_clear_flag(container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(container, false);
 
     lv_obj_set_layout(container, LV_LAYOUT_FLEX);
     if (stacked) {

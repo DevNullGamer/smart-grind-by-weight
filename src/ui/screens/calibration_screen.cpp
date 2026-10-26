@@ -55,7 +55,7 @@ void CalibrationScreen::create() {
     lv_obj_set_style_text_color(noise_status_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(noise_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(noise_status_label, LV_ALIGN_CENTER, 0, 60);
-    lv_obj_add_flag(noise_status_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(noise_status_label, true);
 
     noise_metric_label = lv_label_create(screen);
     lv_label_set_text(noise_metric_label, "Std Dev: --");
@@ -63,31 +63,31 @@ void CalibrationScreen::create() {
     lv_obj_set_style_text_color(noise_metric_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_text_align(noise_metric_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(noise_metric_label, LV_ALIGN_CENTER, 0, 105);
-    lv_obj_add_flag(noise_metric_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(noise_metric_label, true);
 
     lv_obj_t* bottom_button_row = create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(THEME_COLOR_PRIMARY), lv_color_hex(THEME_COLOR_PRIMARY), 100, &lv_font_montserrat_32);
     lv_obj_align(bottom_button_row, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(minus_btn, true);
+    lv_obj_set_hidden(plus_btn, true);
 
     // Hidden weight input (keeping for compatibility but not used in UI)
     weight_input = lv_textarea_create(screen);
     lv_obj_set_size(weight_input, 1, 1);
-    lv_obj_add_flag(weight_input, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(weight_input, true);
 
     current_step = CAL_STEP_EMPTY;
     calibration_weight = 20.0f; // Default calibration weight
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void CalibrationScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void CalibrationScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 
@@ -99,10 +99,10 @@ void CalibrationScreen::set_step(CalibrationStep step) {
             lv_label_set_text(title_label, "CALIBRATION");
             lv_label_set_text(instruction_label, "Remove all weight\nPress OK when empty");
             lv_obj_set_style_pad_hor(top_button_row, 0, 0);
-            lv_obj_clear_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(weight_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(cancel_button, false);
+            lv_obj_set_hidden(plus_btn, true);
+            lv_obj_set_hidden(minus_btn, true);
+            lv_obj_set_hidden(weight_label, false);
             set_noise_ui_visible(false);
             set_ok_button_text(LV_SYMBOL_OK);
             set_cancel_button_text(LV_SYMBOL_CLOSE);
@@ -113,10 +113,10 @@ void CalibrationScreen::set_step(CalibrationStep step) {
             lv_label_set_text(title_label, "CALIBRATION");
             lv_label_set_text(instruction_label,
                               "Place known weight\nAdjust weight value\n with +/- buttons");
-            lv_obj_clear_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(weight_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(cancel_button, false);
+            lv_obj_set_hidden(plus_btn, false);
+            lv_obj_set_hidden(minus_btn, false);
+            lv_obj_set_hidden(weight_label, false);
             set_noise_ui_visible(false);
             set_ok_button_text(LV_SYMBOL_OK);
             set_cancel_button_text(LV_SYMBOL_CLOSE);
@@ -129,10 +129,10 @@ void CalibrationScreen::set_step(CalibrationStep step) {
             lv_label_set_text(instruction_label,
                               "Let vibrations settle.\nDon't touch the\ngrinder or scale.\nThis takes ~5-10s.");
             lv_obj_set_style_pad_hor(top_button_row, 10, 0);
-            lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(weight_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(cancel_button, true);
+            lv_obj_set_hidden(plus_btn, true);
+            lv_obj_set_hidden(minus_btn, true);
+            lv_obj_set_hidden(weight_label, true);
             set_ok_button_text(LV_SYMBOL_OK);
             set_ok_button_enabled(false);
             set_noise_ui_visible(true);
@@ -144,10 +144,10 @@ void CalibrationScreen::set_step(CalibrationStep step) {
             lv_label_set_text(title_label, "CALIBRATION");
             lv_label_set_text(instruction_label, "Calibration complete!");
             lv_obj_set_style_pad_hor(top_button_row, 10, 0);
-            lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(weight_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(cancel_button, true);
+            lv_obj_set_hidden(plus_btn, true);
+            lv_obj_set_hidden(minus_btn, true);
+            lv_obj_set_hidden(weight_label, false);
             set_noise_ui_visible(false);
             set_ok_button_text(LV_SYMBOL_OK);
             set_ok_button_enabled(true);
@@ -215,9 +215,9 @@ void CalibrationScreen::set_noise_ui_visible(bool visible) {
     for (lv_obj_t* element : elements) {
         if (!element) continue;
         if (visible) {
-            lv_obj_clear_flag(element, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(element, false);
         } else {
-            lv_obj_add_flag(element, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(element, true);
         }
     }
 }
@@ -228,9 +228,9 @@ void CalibrationScreen::set_ok_button_enabled(bool enabled) {
     }
 
     if (enabled) {
-        lv_obj_clear_flag(ok_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ok_button, false);
     } else {
-        lv_obj_add_flag(ok_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(ok_button, true);
     }
 }
 

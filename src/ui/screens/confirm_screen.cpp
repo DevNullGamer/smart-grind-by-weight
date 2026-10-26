@@ -35,7 +35,7 @@ void ConfirmScreen::create() {
     lv_obj_set_layout(message_container, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(message_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(message_container, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_add_flag(message_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(message_container, true);
     lv_obj_set_scroll_dir(message_container, LV_DIR_VER);
 
     // Create the actual message label inside the container
@@ -54,7 +54,7 @@ void ConfirmScreen::create() {
     cancel_button_label = lv_obj_get_child(cancel_button, -1);
     
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void ConfirmScreen::show(const char* title, const char* message, 
@@ -75,21 +75,21 @@ void ConfirmScreen::show(const char* title, const char* message,
     // hidden button leaves the flex row, so the confirm button takes the full width)
     if (cancel_text) {
         lv_label_set_text(cancel_button_label, cancel_text);
-        lv_obj_clear_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(cancel_button, false);
     } else {
-        lv_obj_add_flag(cancel_button, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(cancel_button, true);
     }
     
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void ConfirmScreen::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void ConfirmScreen::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }

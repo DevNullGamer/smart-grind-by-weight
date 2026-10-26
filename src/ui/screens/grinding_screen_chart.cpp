@@ -10,7 +10,7 @@ void GrindingScreenChart::create() {
     lv_obj_set_style_bg_opa(screen, LV_OPA_TRANSP, 0); // Keep transparent
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_CLICKABLE); // Make the parent screen container clickable
+    lv_obj_set_clickable(screen, true); // Make the parent screen container clickable
 
     // Use flex layout for centering
     lv_obj_set_layout(screen, LV_LAYOUT_FLEX);
@@ -106,20 +106,20 @@ void GrindingScreenChart::create() {
     
     // MODIFIED: Ensure all child widgets pass click events to the parent screen
     for (uint32_t i = 0; i < lv_obj_get_child_count(screen); i++) {
-        lv_obj_clear_flag(lv_obj_get_child(screen, i), LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(lv_obj_get_child(screen, i), false);
     }
 
     visible = false;
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
 }
 
 void GrindingScreenChart::show() {
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, false);
     visible = true;
 }
 
 void GrindingScreenChart::hide() {
-    lv_obj_add_flag(screen, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(screen, true);
     visible = false;
 }
 

@@ -10,6 +10,10 @@
 #include "../../network/wifi_manager.h"
 #include "../event_bridge_lvgl.h"
 
+// lv_menu is deprecated since LVGL 9.6 (removed in v10); replacing it is tracked separately
+// (chg006 item 23). All deprecation warnings are suppressed in this file, not only lv_menu ones.
+LV_DEPRECATIONS_IGNORE_BEGIN
+
 namespace {
 
 // Transparent full-width column that groups the widgets shown/hidden together
@@ -23,7 +27,7 @@ lv_obj_t* create_block(lv_obj_t* parent) {
     lv_obj_set_layout(block, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(block, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_clear_flag(block, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(block, false);
     return block;
 }
 
@@ -53,9 +57,9 @@ void set_enabled(lv_obj_t* obj, bool enabled) {
 void set_visible(lv_obj_t* obj, bool show) {
     if (!obj) return;
     if (show) {
-        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(obj, false);
     } else {
-        lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(obj, true);
     }
 }
 
@@ -312,3 +316,5 @@ void MenuScreen::update_wifi_firmware() {
     // The label sits in its own padded container (create_description_label): hide that, not just the text
     set_visible(lv_obj_get_parent(wifi_fw_notice_label), view.notice[0] != '\0');
 }
+
+LV_DEPRECATIONS_IGNORE_END
