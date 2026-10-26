@@ -62,20 +62,17 @@ void AutoTuneScreen::create() {
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, 280);
     lv_label_set_long_mode(message_label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_align(message_label, LV_ALIGN_TOP_MID, 0, -60);
 
     final_latency_label = lv_label_create(result_container);
     lv_label_set_text(final_latency_label, "110 ms");
     lv_obj_set_style_text_font(final_latency_label, &lv_font_montserrat_56, 0);
-    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
-    lv_obj_align(final_latency_label, LV_ALIGN_CENTER, 0, 0);
 
     previous_latency_label = lv_label_create(result_container);
     lv_label_set_text(previous_latency_label, "Previous Value: 150 ms");
     lv_obj_set_style_text_font(previous_latency_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(previous_latency_label, lv_color_hex(0x888888), 0);
     lv_obj_set_style_text_align(previous_latency_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(previous_latency_label, LV_ALIGN_TOP_MID, 0, 80);
+    apply_result_layout();
 
     // Buttons
     button_row = create_dual_button_row(screen, &cancel_button, &ok_button,
@@ -101,8 +98,18 @@ void AutoTuneScreen::hide() {
     visible = false;
 }
 
+// The layout and colour of the success screen. show_failure_screen() moves and recolours the result
+// labels, so every other result/console entry point restores this.
+void AutoTuneScreen::apply_result_layout() {
+    lv_obj_align(message_label, LV_ALIGN_TOP_MID, 0, -60);
+    lv_obj_align(final_latency_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+    lv_obj_align(previous_latency_label, LV_ALIGN_TOP_MID, 0, 80);
+}
+
 void AutoTuneScreen::show_console_screen() {
     current_state = AutoTuneScreenState::CONSOLE;
+    apply_result_layout();
 
     // Clear console
     lv_textarea_set_text(console_textarea, "");
@@ -142,7 +149,7 @@ void AutoTuneScreen::show_success_screen(float new_latency_ms, float previous_la
     snprintf(previous_text, sizeof(previous_text), "Previous Value: %.0f ms", previous_latency_ms);
     lv_label_set_text(previous_latency_label, previous_text);
 
-    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+    apply_result_layout();
 }
 
 void AutoTuneScreen::show_failure_screen(const char* error_message) {

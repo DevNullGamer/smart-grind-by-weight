@@ -10,26 +10,28 @@ enum class AutoTuneScreenState {
 
 class AutoTuneScreen {
 private:
-    lv_obj_t* screen;
-    lv_obj_t* title_label;
+    lv_obj_t* screen = nullptr;
+    lv_obj_t* title_label = nullptr;
 
     // Console screen elements
-    lv_obj_t* console_container;
-    lv_obj_t* console_textarea;
+    lv_obj_t* console_container = nullptr;
+    lv_obj_t* console_textarea = nullptr;
 
     // Result screen elements
-    lv_obj_t* result_container;
-    lv_obj_t* final_latency_label;
-    lv_obj_t* previous_latency_label;
-    lv_obj_t* message_label;
+    lv_obj_t* result_container = nullptr;
+    lv_obj_t* final_latency_label = nullptr;
+    lv_obj_t* previous_latency_label = nullptr;
+    lv_obj_t* message_label = nullptr;
 
     // Buttons
-    lv_obj_t* button_row;
-    lv_obj_t* cancel_button;
-    lv_obj_t* ok_button;
+    lv_obj_t* button_row = nullptr;
+    lv_obj_t* cancel_button = nullptr;
+    lv_obj_t* ok_button = nullptr;
 
-    bool visible;
-    AutoTuneScreenState current_state;
+    bool visible = false;
+    AutoTuneScreenState current_state = AutoTuneScreenState::CONSOLE;
+
+    void apply_result_layout();
 
 public:
     void create();

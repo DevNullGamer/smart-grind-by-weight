@@ -41,14 +41,11 @@ void GrindingScreenChart::create() {
     
     // Initialize data tracking
     target_weight_value = 18.0f;
-    chart_start_time_ms = 0;
-    predicted_grind_time_ms = 0;
     predicted_chart_points = 0;
     predicted_time_override_ms = 0;
     // Same headroom update_target_weight() applies. GrindingScreen::set_mode() no longer calls it
     // on every event, so the initial axis must already match what that call used to set.
     max_y_value = target_weight_value + 1.2f;
-    last_data_point_time_ms = 0;
     time_mode = false;
     target_time_seconds = 0.0f;
     current_weight_value = 0.0f;
@@ -245,14 +242,7 @@ void GrindingScreenChart::update_progress(int percent) {
     // This method is kept for compatibility but chart updates happen via add_chart_data_point
 }
 
-void GrindingScreenChart::add_chart_data_point(float current_weight, float flow_rate, uint32_t current_time_ms) {
-    if (chart_start_time_ms == 0) {
-        chart_start_time_ms = current_time_ms;
-        last_data_point_time_ms = current_time_ms;
-    }
-    
-    last_data_point_time_ms = current_time_ms;
-    
+void GrindingScreenChart::add_chart_data_point(float current_weight, float flow_rate, uint32_t /*current_time_ms*/) {
     // Scale weight and flow rate by 10 to handle decimals in LVGL chart
     int32_t weight_value = (int32_t)(current_weight * 10);
     // Clamp flow rate to 0-2.5 g/s range then scale by 10
@@ -275,8 +265,6 @@ void GrindingScreenChart::set_chart_time_prediction(uint32_t predicted_time_ms) 
 }
 
 void GrindingScreenChart::reset_chart_data() {
-    chart_start_time_ms = 0;
-    last_data_point_time_ms = 0;
     has_text_override = false;  // A new grind starts without a leftover error text
 
     if (!chart) {
@@ -344,5 +332,4 @@ void GrindingScreenChart::update_chart_point_configuration() {
     }
 
     predicted_chart_points = current_count;
-    predicted_grind_time_ms = static_cast<uint32_t>(current_count) * DATA_POINT_INTERVAL_MS;
 }

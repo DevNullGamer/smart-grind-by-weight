@@ -5,28 +5,25 @@
 
 class GrindingScreenChart : public IGrindingScreen {
 private:
-    lv_obj_t* screen;
-    lv_obj_t* profile_label;
-    lv_obj_t* weight_spangroup;
-    lv_obj_t* chart;
-    lv_chart_series_t* weight_series;
-    lv_chart_series_t* flow_rate_series;
-    bool visible;
-    bool time_mode;
+    lv_obj_t* screen = nullptr;
+    lv_obj_t* profile_label = nullptr;
+    lv_obj_t* weight_spangroup = nullptr;
+    lv_obj_t* chart = nullptr;
+    lv_chart_series_t* weight_series = nullptr;
+    lv_chart_series_t* flow_rate_series = nullptr;
+    bool visible = false;
+    bool time_mode = false;
     
     // Chart data management
     static const uint16_t MIN_CHART_POINTS = 32;
     static const uint16_t MAX_CHART_POINTS = 1000;
     static constexpr float REFERENCE_FLOW_RATE_GPS = 1.6f;  // Reference flow rate for time prediction
     static const uint32_t DATA_POINT_INTERVAL_MS = SYS_TASK_GRIND_CONTROL_INTERVAL_MS; // Match grind control loop (50Hz)
-    uint32_t chart_start_time_ms;
-    uint32_t predicted_grind_time_ms;
-    uint16_t predicted_chart_points;
-    uint32_t predicted_time_override_ms;
-    float target_weight_value;
-    float max_y_value;
-    uint32_t last_data_point_time_ms;
-    float target_time_seconds;
+    uint16_t predicted_chart_points = 0;
+    uint32_t predicted_time_override_ms = 0;
+    float target_weight_value = 0.0f;
+    float max_y_value = 0.0f;
+    float target_time_seconds = 0.0f;
 
     // Stored state the weight spans are rendered from (see render_weight_spans)
     float current_weight_value = 0.0f;

@@ -15,6 +15,13 @@ UIManager::~UIManager() = default;
 
 void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm, 
                      ProfileController* pc, GrindController* gc, BluetoothManager* bluetooth) {
+    // Without a display there is nothing to draw on: LVGL calls would crash. Stay uninitialised
+    // (update() is a no-op, no controllers or instance exist) and let the rest of the firmware run.
+    if (!hw_mgr || !hw_mgr->get_display() || !hw_mgr->get_display()->is_initialized()) {
+        LOG_BLE("[UI] ERROR: display not initialised, UI disabled\n");
+        return;
+    }
+
     hardware_manager = hw_mgr;
     state_machine = sm;
     profile_controller = pc;
@@ -26,7 +33,6 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     
     edit_target = 0.0f;
     original_target = 0.0f;
-    calibration_weight = USER_CALIBRATION_REFERENCE_WEIGHT_G;
     current_tab = profile_controller->get_current_profile();
     current_mode = profile_controller->get_grind_mode();
     jog_timer = nullptr;

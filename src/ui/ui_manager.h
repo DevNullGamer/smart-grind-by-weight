@@ -68,23 +68,22 @@ class UIManager {
     friend class WifiUpdateUIController;
 
 private:
-    HardwareManager* hardware_manager;
-    StateMachine* state_machine;
-    ProfileController* profile_controller;
-    GrindController* grind_controller;
-    BluetoothManager* bluetooth_manager;
+    HardwareManager* hardware_manager = nullptr;
+    StateMachine* state_machine = nullptr;
+    ProfileController* profile_controller = nullptr;
+    GrindController* grind_controller = nullptr;
+    BluetoothManager* bluetooth_manager = nullptr;
     
-    lv_timer_t* jog_timer;
+    lv_timer_t* jog_timer = nullptr;
 
-    float edit_target;
-    float original_target;
-    float calibration_weight;
-    int current_tab;
-    GrindMode current_mode;
-    bool initialized;
-    unsigned long jog_start_time;
-    int jog_stage;
-    int jog_direction;
+    float edit_target = 0.0f;
+    float original_target = 0.0f;
+    int current_tab = 0;
+    GrindMode current_mode = GrindMode::WEIGHT;
+    bool initialized = false;
+    unsigned long jog_start_time = 0;
+    int jog_stage = 1;
+    int jog_direction = 0;
 
     // Static instance pointer for grind event callback
     static UIManager* instance;

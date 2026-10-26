@@ -5,13 +5,13 @@
 
 class GrindingScreenArc : public IGrindingScreen {
 private:
-    lv_obj_t* screen;
-    lv_obj_t* profile_label;
-    lv_obj_t* target_label;
-    lv_obj_t* weight_label;
-    lv_obj_t* progress_arc;
-    bool visible;
-    bool time_mode;
+    lv_obj_t* screen = nullptr;
+    lv_obj_t* profile_label = nullptr;
+    lv_obj_t* target_label = nullptr;
+    lv_obj_t* weight_label = nullptr;
+    lv_obj_t* progress_arc = nullptr;
+    bool visible = false;
+    bool time_mode = false;
 
     // Stored label state: updates arriving while this layout is hidden are kept here and
     // applied in show(); unchanged values never touch LVGL.

@@ -12,68 +12,67 @@ class GrindingScreen;  // Forward declaration
 
 class MenuScreen {
 private:
-    lv_obj_t* screen;
-    lv_obj_t* menu;
-    lv_obj_t* info_page;
-    lv_obj_t* bluetooth_page;
-    lv_obj_t* display_page;
-    lv_obj_t* grind_mode_page;
-    lv_obj_t* data_page;
-    lv_obj_t* stats_page;
-    lv_obj_t* diagnostics_page;
-    lv_obj_t* scale_page;
-    lv_obj_t* board_page;
+    lv_obj_t* screen = nullptr;
+    lv_obj_t* menu = nullptr;
+    lv_obj_t* info_page = nullptr;
+    lv_obj_t* bluetooth_page = nullptr;
+    lv_obj_t* display_page = nullptr;
+    lv_obj_t* grind_mode_page = nullptr;
+    lv_obj_t* data_page = nullptr;
+    lv_obj_t* stats_page = nullptr;
+    lv_obj_t* diagnostics_page = nullptr;
+    lv_obj_t* scale_page = nullptr;
+    lv_obj_t* board_page = nullptr;
     lv_obj_t* wifi_page = nullptr;
 
     // Info tab elements
-    lv_obj_t* info_label;
-    lv_obj_t* uptime_label;
-    lv_obj_t* memory_label;
-    lv_obj_t* instant_label;
-    lv_obj_t* samples_label;
-    lv_obj_t* raw_label;
-    lv_obj_t* sessions_label;
-    lv_obj_t* events_label;
-    lv_obj_t* measurements_label;
-    lv_obj_t* refresh_stats_button;
+    lv_obj_t* uptime_label = nullptr;
+    lv_obj_t* memory_label = nullptr;
+    lv_obj_t* instant_label = nullptr;
+    lv_obj_t* samples_label = nullptr;
+    lv_obj_t* raw_label = nullptr;
+    lv_obj_t* sessions_label = nullptr;
+    lv_obj_t* events_label = nullptr;
+    lv_obj_t* measurements_label = nullptr;
+    lv_obj_t* refresh_stats_button = nullptr;
 
     // Lifetime statistics labels
-    lv_obj_t* stat_total_grinds_label;
-    lv_obj_t* stat_shots_label;
-    lv_obj_t* stat_motor_runtime_label;
-    lv_obj_t* stat_device_uptime_label;
-    lv_obj_t* stat_total_weight_label;
-    lv_obj_t* stat_mode_grinds_label;
-    lv_obj_t* stat_avg_accuracy_label;
-    lv_obj_t* stat_total_pulses_label;
+    lv_obj_t* stat_total_grinds_label = nullptr;
+    lv_obj_t* stat_shots_label = nullptr;
+    lv_obj_t* stat_motor_runtime_label = nullptr;
+    lv_obj_t* stat_device_uptime_label = nullptr;
+    lv_obj_t* stat_total_weight_label = nullptr;
+    lv_obj_t* stat_mode_grinds_label = nullptr;
+    lv_obj_t* stat_avg_accuracy_label = nullptr;
+    lv_obj_t* stat_total_pulses_label = nullptr;
     
     // Menu toggle elements
-    lv_obj_t* ble_toggle;
-    lv_obj_t* ble_startup_toggle;
-    lv_obj_t* ble_status_label;
-    lv_obj_t* ble_timer_label;
-    lv_obj_t* logging_toggle;
-    lv_obj_t* brightness_normal_slider;
-    lv_obj_t* brightness_screensaver_slider;
-    lv_obj_t* brightness_normal_label;
-    lv_obj_t* brightness_screensaver_label;
-    lv_obj_t* purge_button;
-    lv_obj_t* reset_button;
+    lv_obj_t* ble_toggle = nullptr;
+    lv_obj_t* ble_startup_toggle = nullptr;
+    lv_obj_t* ble_status_label = nullptr;
+    lv_obj_t* ble_timer_label = nullptr;
+    lv_obj_t* logging_toggle = nullptr;
+    lv_obj_t* brightness_normal_slider = nullptr;
+    lv_obj_t* brightness_screensaver_slider = nullptr;
+    lv_obj_t* brightness_normal_label = nullptr;
+    lv_obj_t* brightness_screensaver_label = nullptr;
+    lv_obj_t* purge_button = nullptr;
+    lv_obj_t* reset_button = nullptr;
     
     // Grind mode tab elements
-    lv_obj_t* grind_mode_radio_group;
-    lv_obj_t* grind_mode_swipe_toggle;
-    lv_obj_t* auto_start_toggle;
-    lv_obj_t* auto_return_toggle;
-    lv_obj_t* grinder_purge_mode_radio_group;
-    lv_obj_t* grinder_purge_amount_slider;
-    lv_obj_t* grinder_purge_amount_label;
-    lv_obj_t* grind_freshness_hours_slider;
-    lv_obj_t* grind_freshness_hours_label;
+    lv_obj_t* grind_mode_radio_group = nullptr;
+    lv_obj_t* grind_mode_swipe_toggle = nullptr;
+    lv_obj_t* auto_start_toggle = nullptr;
+    lv_obj_t* auto_return_toggle = nullptr;
+    lv_obj_t* grinder_purge_mode_radio_group = nullptr;
+    lv_obj_t* grinder_purge_amount_slider = nullptr;
+    lv_obj_t* grinder_purge_amount_label = nullptr;
+    lv_obj_t* grind_freshness_hours_slider = nullptr;
+    lv_obj_t* grind_freshness_hours_label = nullptr;
 
     // Hardware board page elements
-    lv_obj_t* board_status_label;
-    lv_obj_t* board_override_radio_group;
+    lv_obj_t* board_status_label = nullptr;
+    lv_obj_t* board_override_radio_group = nullptr;
 
     // WiFi page elements (menu_screen_wifi.cpp)
     lv_obj_t* wifi_status_label = nullptr;
@@ -103,32 +102,32 @@ private:
     bool wifi_page_active = false;                     // provisioning window opened by this page
 
     // Tools entries / scale page elements
-    lv_obj_t* scale_item;
-    lv_obj_t* cal_button;
-    lv_obj_t* motor_test_button;
-    lv_obj_t* autotune_button;
-    lv_obj_t* scale_weight_label;
-    lv_obj_t* scale_tare_button;
+    lv_obj_t* scale_item = nullptr;
+    lv_obj_t* cal_button = nullptr;
+    lv_obj_t* motor_test_button = nullptr;
+    lv_obj_t* autotune_button = nullptr;
+    lv_obj_t* scale_weight_label = nullptr;
+    lv_obj_t* scale_tare_button = nullptr;
 
     // Diagnostics tab elements
-    lv_obj_t* diag_status_label;
-    lv_obj_t* diag_calibration_factor_label;
-    lv_obj_t* diag_std_dev_g_label;
-    lv_obj_t* diag_std_dev_adc_label;
-    lv_obj_t* diag_noise_level_label;
-    lv_obj_t* diag_motor_latency_label;
-    lv_obj_t* diag_info_label;
-    lv_obj_t* diag_reset_button;
+    lv_obj_t* diag_status_label = nullptr;
+    lv_obj_t* diag_calibration_factor_label = nullptr;
+    lv_obj_t* diag_std_dev_g_label = nullptr;
+    lv_obj_t* diag_std_dev_adc_label = nullptr;
+    lv_obj_t* diag_noise_level_label = nullptr;
+    lv_obj_t* diag_motor_latency_label = nullptr;
+    lv_obj_t* diag_info_label = nullptr;
+    lv_obj_t* diag_reset_button = nullptr;
 
     // Common elements
-    bool visible;
-    bool scale_active;
+    bool visible = false;
+    bool scale_active = false;
     
-    BluetoothManager* bluetooth_manager;
-    GrindController* grind_controller;
-    GrindingScreen* grinding_screen;
-    class HardwareManager* hardware_manager; // Forward declaration to access preferences
-    DiagnosticsController* diagnostics_controller;
+    BluetoothManager* bluetooth_manager = nullptr;
+    GrindController* grind_controller = nullptr;
+    GrindingScreen* grinding_screen = nullptr;
+    class HardwareManager* hardware_manager = nullptr; // Forward declaration to access preferences
+    DiagnosticsController* diagnostics_controller = nullptr;
 
 public:
     static constexpr float kPurgeSliderScale = 10.0f; // Slider uses 0.1g increments
