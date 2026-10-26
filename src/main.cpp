@@ -174,8 +174,8 @@ void setup() {
     
     LOG_BLE("✅ TaskManager initialized successfully\n");
     
-    // Initialize remaining task modules that depend on TaskManager queues
-    file_io_task.init(task_manager.get_file_io_queue());
+    // Initialize remaining task modules
+    file_io_task.init();
     
     LOG_BLE("✅ All task modules initialized\n");
 

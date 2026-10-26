@@ -1,25 +1,17 @@
 #include "file_io_task.h"
-#include "../logging/grind_logging.h"
+#include "../controllers/grind_controller.h"
 #include "../config/constants.h"
 #include <Arduino.h>
 #include <LittleFS.h>
-#include <Preferences.h>
 
 // Global instance
 FileIOTask file_io_task;
 
-// Static instance pointer for task callback
-FileIOTask* FileIOTask::instance = nullptr;
-
 FileIOTask::FileIOTask() {
-    task_handle = nullptr;
     task_running = false;
-    file_io_queue = nullptr;
     
     // Initialize file I/O state
     filesystem_available = false;
-    total_operations_processed = 0;
-    failed_operations_count = 0;
     last_filesystem_check_time = 0;
     
     // Initialize performance metrics
@@ -28,27 +20,9 @@ FileIOTask::FileIOTask() {
     cycle_time_min_ms = UINT32_MAX;
     cycle_time_max_ms = 0;
     last_heartbeat_time = 0;
-    
-    // Initialize operation statistics
-    flash_operations_processed = 0;
-    log_messages_processed = 0;
-    preference_operations_processed = 0;
-    data_export_operations_processed = 0;
-    
-    instance = this;
 }
 
-FileIOTask::~FileIOTask() {
-    stop_task();
-    
-    if (instance == this) {
-        instance = nullptr;
-    }
-}
-
-void FileIOTask::init(QueueHandle_t io_queue) {
-    file_io_queue = io_queue;
-    
+void FileIOTask::init() {
     // Check initial filesystem availability
     filesystem_available = LittleFS.begin(true);
     if (filesystem_available) {
@@ -56,71 +30,6 @@ void FileIOTask::init(QueueHandle_t io_queue) {
     } else {
         LOG_BLE("FileIOTask: LittleFS filesystem unavailable\n");
     }
-    
-    LOG_BLE("FileIOTask: Initialized with file I/O queue\n");
-}
-
-bool FileIOTask::start_task() {
-    if (task_running) {
-        LOG_BLE("WARNING: FileIOTask already running\n");
-        return false;
-    }
-    
-    if (!file_io_queue) {
-        LOG_BLE("ERROR: File I/O queue not initialized\n");
-        return false;
-    }
-    
-    LOG_BLE("FileIOTask: Starting task on Core 1...\n");
-    task_running = true;
-    
-    BaseType_t result = xTaskCreatePinnedToCore(
-        task_wrapper,
-        "FileIO",
-        SYS_TASK_FILE_IO_STACK_SIZE,
-        nullptr,
-        SYS_TASK_PRIORITY_FILE_IO,
-        &task_handle,
-        1  // Pin to Core 1
-    );
-    
-    if (result != pdPASS) {
-        LOG_BLE("ERROR: Failed to create FileIOTask!\n");
-        task_running = false;
-        task_handle = nullptr;
-        return false;
-    }
-    
-    LOG_BLE("✅ FileIOTask created successfully (Core 1, Priority %d, %dHz)\n", 
-            SYS_TASK_PRIORITY_FILE_IO, 1000 / SYS_TASK_FILE_IO_INTERVAL_MS);
-    return true;
-}
-
-void FileIOTask::stop_task() {
-    if (!task_running) {
-        return;
-    }
-    
-    LOG_BLE("FileIOTask: Stopping task...\n");
-    task_running = false;
-    
-    // Wait for task to complete (with timeout)
-    if (task_handle) {
-        uint32_t timeout_start = millis();
-        while (eTaskGetState(task_handle) != eDeleted && millis() - timeout_start < 1000) {
-            delay(10);
-        }
-        task_handle = nullptr;
-    }
-    
-    LOG_BLE("FileIOTask: Task stopped\n");
-}
-
-void FileIOTask::task_wrapper(void* parameter) {
-    if (instance) {
-        instance->task_impl();
-    }
-    vTaskDelete(nullptr);
 }
 
 void FileIOTask::task_impl() {
@@ -130,8 +39,7 @@ void FileIOTask::task_impl() {
     LOG_BLE("FileIOTask started on Core %d at %dHz\n", 
             xPortGetCoreID(), 1000 / SYS_TASK_FILE_IO_INTERVAL_MS);
     
-    // When invoked via TaskManager wrapper, start_task() isn't used.
-    // Ensure the internal run flag is set so the loop executes.
+    // Set the run flag so the loop executes.
     task_running = true;
     
     // Reset performance metrics
@@ -141,15 +49,12 @@ void FileIOTask::task_impl() {
     while (task_running) {
         uint32_t cycle_start_time = millis();
         
-        // Process file I/O operations from queue
-        process_file_io_operations();
-
-        // Also drain legacy GrindController queues here so flash operations
-        // (start/end session) run on Core 1 in this low-priority task
+        // Drain the GrindController queues here so flash operations
+        // (start/end session) and queued log lines run on Core 1 in this low-priority task
         extern GrindController grind_controller;
         grind_controller.process_queued_flash_operations();
         grind_controller.process_queued_log_messages();
-        
+
         // Periodic filesystem health check
         if (cycle_start_time - last_filesystem_check_time >= 30000) { // Every 30 seconds
             check_filesystem_health();
@@ -166,115 +71,6 @@ void FileIOTask::task_impl() {
     }
     
     LOG_BLE("FileIOTask: I/O processing loop stopped\n");
-}
-
-void FileIOTask::process_file_io_operations() {
-    // If init() has not been called yet by main (queue not set), skip this cycle
-    if (!file_io_queue) {
-        return;
-    }
-
-    FileIORequest request;
-    
-    // Process all queued file I/O operations (non-blocking)
-    while (xQueueReceive(file_io_queue, &request, 0) == pdPASS) {
-        total_operations_processed++;
-        
-        switch (request.operation_type) {
-            case FileIOOperationType::FLASH_OPERATION:
-                process_flash_operation(request.flash_op);
-                flash_operations_processed++;
-                break;
-                
-            case FileIOOperationType::LOG_MESSAGE:
-                process_log_message(request.log_msg);
-                log_messages_processed++;
-                break;
-                
-            case FileIOOperationType::PREFERENCE_WRITE:
-                process_preference_write(request.preference.key, request.preference.value);
-                preference_operations_processed++;
-                break;
-                
-            case FileIOOperationType::DATA_EXPORT:
-                process_data_export(request.data_export.export_path, 
-                                  request.data_export.start_session_id,
-                                  request.data_export.end_session_id);
-                data_export_operations_processed++;
-                break;
-                
-            default:
-                LOG_BLE("WARNING: FileIOTask unknown operation type %d\n", (int)request.operation_type);
-                failed_operations_count++;
-                break;
-        }
-    }
-}
-
-void FileIOTask::process_flash_operation(const FlashOpRequest& request) {
-    // This is the existing flash operation processing extracted from GrindController
-    switch (request.operation_type) {
-        case FlashOpRequest::START_GRIND_SESSION:
-            LOG_BLE("[%lums FLASH_OP] Processing START_GRIND_SESSION: mode=%s, profile=%d\n", 
-                    millis(), request.descriptor.mode == GrindMode::TIME ? "TIME" : "WEIGHT",
-                    request.descriptor.profile_id);
-            grind_logger.start_grind_session(request.descriptor, request.start_weight);
-            break;
-            
-        case FlashOpRequest::END_GRIND_SESSION:
-            LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION: %s, %.2fg, %d pulses\n", 
-                    millis(), request.result_string, request.final_weight, request.pulse_count);
-            grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count);
-            break;
-            
-        default:
-            LOG_BLE("WARNING: FileIOTask unknown flash operation type %d\n", request.operation_type);
-            failed_operations_count++;
-            break;
-    }
-}
-
-void FileIOTask::process_log_message(const LogMessage& message) {
-    // Output the log message using BLE_LOG (extracted from GrindController)
-    LOG_BLE("%s", message.message);
-}
-
-void FileIOTask::process_preference_write(const char* key, const char* value) {
-    if (!filesystem_available) {
-        failed_operations_count++;
-        return;
-    }
-    
-    // Write preference/setting to persistent storage
-    Preferences prefs;
-    if (prefs.begin("grinder", false)) {
-        size_t written = prefs.putString(key, value);
-        prefs.end();
-        
-        if (written == 0) {
-            LOG_BLE("WARNING: Failed to write preference %s=%s\n", key, value);
-            failed_operations_count++;
-        } else {
-            LOG_BLE("FileIOTask: Preference written %s=%s\n", key, value);
-        }
-    } else {
-        LOG_BLE("ERROR: Failed to open preferences for writing\n");
-        failed_operations_count++;
-    }
-}
-
-void FileIOTask::process_data_export(const char* export_path, uint32_t start_id, uint32_t end_id) {
-    if (!filesystem_available) {
-        failed_operations_count++;
-        return;
-    }
-    
-    LOG_BLE("FileIOTask: Data export requested: %s (sessions %lu-%lu)\n", export_path, start_id, end_id);
-    
-    // Placeholder for data export implementation
-    // This could be extended to export grind session data to files
-    // For now, just log the request
-    LOG_BLE("FileIOTask: Data export processing not yet implemented\n");
 }
 
 void FileIOTask::check_filesystem_health() {
@@ -341,14 +137,6 @@ bool FileIOTask::attempt_filesystem_recovery() {
     return recovery_success;
 }
 
-void FileIOTask::log_operation_failure(FileIOOperationType type, const char* details) {
-    const char* type_names[] = {"FLASH_OP", "LOG_MSG", "PREF_WRITE", "DATA_EXPORT"};
-    const char* type_name = ((int)type < 4) ? type_names[(int)type] : "UNKNOWN";
-    
-    LOG_BLE("ERROR: FileIOTask operation failed - Type: %s, Details: %s\n", type_name, details);
-    failed_operations_count++;
-}
-
 void FileIOTask::record_timing(uint32_t start_time, uint32_t end_time) {
     uint32_t cycle_duration = end_time - start_time;
     
@@ -381,9 +169,9 @@ void FileIOTask::print_heartbeat() const {
     uint32_t avg_cycle_time = cycle_count > 0 ? cycle_time_sum_ms / cycle_count : 0;
     const char* fs_status = filesystem_available ? "OK" : "ERROR";
     
-    LOG_BLE("[%lums FILE_IO_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | FS: %s | Ops: %lu | Failed: %lu | Build: #%d\n",
+    LOG_BLE("[%lums FILE_IO_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | FS: %s | Build: #%d\n",
            millis(), cycle_count, avg_cycle_time, cycle_time_min_ms, cycle_time_max_ms,
-           fs_status, total_operations_processed, failed_operations_count, BUILD_NUMBER);
+           fs_status, BUILD_NUMBER);
 #endif
 }
 
@@ -404,22 +192,5 @@ void FileIOTask::print_performance_stats() const {
         uint32_t avg_cycle_time = cycle_time_sum_ms / cycle_count;
         LOG_BLE("Average cycle time: %lums (%lu-%lums)\n", avg_cycle_time, cycle_time_min_ms, cycle_time_max_ms);
     }
-    
-    LOG_BLE("Total operations: %lu\n", total_operations_processed);
-    LOG_BLE("Failed operations: %lu\n", failed_operations_count);
     LOG_BLE("=============================\n");
-}
-
-void FileIOTask::print_operation_stats() const {
-    LOG_BLE("=== FileIOTask Operation Statistics ===\n");
-    LOG_BLE("Flash operations: %lu\n", flash_operations_processed);
-    LOG_BLE("Log messages: %lu\n", log_messages_processed);
-    LOG_BLE("Preference writes: %lu\n", preference_operations_processed);
-    LOG_BLE("Data exports: %lu\n", data_export_operations_processed);
-    LOG_BLE("Total operations: %lu\n", total_operations_processed);
-    LOG_BLE("Failed operations: %lu\n", failed_operations_count);
-    LOG_BLE("Success rate: %.1f%%\n", 
-           total_operations_processed > 0 ? 
-           (100.0f * (total_operations_processed - failed_operations_count) / total_operations_processed) : 0.0f);
-    LOG_BLE("======================================\n");
 }

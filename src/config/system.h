@@ -46,10 +46,6 @@
 #define SYS_TASK_PRIORITY_BLUETOOTH 3                                          // Higher priority (BLE operations)
 #define SYS_TASK_PRIORITY_FILE_IO 1                                            // Low priority (file operations)
 
-// Inter-Task Communication Queue Sizes
-#define SYS_QUEUE_UI_TO_GRIND_SIZE 5                                           // UI events to grind controller
-#define SYS_QUEUE_FILE_IO_SIZE 20                                              // File I/O operation requests
-
 // Legacy task scheduler intervals (deprecated - kept for compatibility)
 #define SYS_TASK_LOADCELL_INTERVAL_MS 20                                       // Load cell polling frequency (50Hz)
 

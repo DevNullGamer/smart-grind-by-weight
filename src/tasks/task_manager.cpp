@@ -25,7 +25,6 @@ TaskManager* TaskManager::instance = nullptr;
 
 TaskManager::TaskManager() {
     memset(&task_handles, 0, sizeof(TaskHandles));
-    memset(&task_queues, 0, sizeof(TaskQueues));
     
     hardware_manager = nullptr;
     state_machine = nullptr;
@@ -41,7 +40,6 @@ TaskManager::TaskManager() {
 
 TaskManager::~TaskManager() {
     delete_all_tasks();
-    cleanup_queues();
     
     if (instance == this) {
         instance = nullptr;
@@ -65,16 +63,9 @@ bool TaskManager::init(HardwareManager* hw_mgr, StateMachine* sm, ProfileControl
         return false;
     }
     
-    // Create inter-task communication queues
-    if (!create_inter_task_queues()) {
-        LOG_BLE("ERROR: Failed to create inter-task communication queues\n");
-        return false;
-    }
-    
     // Create all FreeRTOS tasks
     if (!create_all_tasks()) {
         LOG_BLE("ERROR: Failed to create FreeRTOS tasks\n");
-        cleanup_queues();
         return false;
     }
     
@@ -82,40 +73,6 @@ bool TaskManager::init(HardwareManager* hw_mgr, StateMachine* sm, ProfileControl
     LOG_BLE("TaskManager: All tasks created successfully\n");
     
     return true;
-}
-
-bool TaskManager::create_inter_task_queues() {
-    // Touch to UI queue
-    
-    // UI to Grind queue  
-    task_queues.ui_to_grind_queue = xQueueCreate(SYS_QUEUE_UI_TO_GRIND_SIZE, sizeof(void*)); // Generic pointer for UI events
-    if (!task_queues.ui_to_grind_queue) {
-        LOG_BLE("ERROR: Failed to create ui_to_grind_queue\n");
-        return false;
-    }
-    
-    // File I/O queue
-    task_queues.file_io_queue = xQueueCreate(SYS_QUEUE_FILE_IO_SIZE, sizeof(FileIORequest));
-    if (!task_queues.file_io_queue) {
-        LOG_BLE("ERROR: Failed to create file_io_queue\n");
-        return false;
-    }
-    
-    LOG_BLE("TaskManager: Inter-task communication queues created successfully\n");
-    return true;
-}
-
-void TaskManager::cleanup_queues() {
-    
-    if (task_queues.ui_to_grind_queue) {
-        vQueueDelete(task_queues.ui_to_grind_queue);
-        task_queues.ui_to_grind_queue = nullptr;
-    }
-    
-    if (task_queues.file_io_queue) {
-        vQueueDelete(task_queues.file_io_queue);
-        task_queues.file_io_queue = nullptr;
-    }
 }
 
 bool TaskManager::create_all_tasks() {
@@ -502,7 +459,7 @@ void TaskManager::file_io_task_impl() {
 }
 
 void TaskManager::record_task_timing(int task_index, uint32_t start_time, uint32_t end_time) {
-    if (task_index < 0 || task_index >= 6) return;
+    if (task_index < 0 || task_index >= 5) return;
     
     TaskMetrics& metrics = task_metrics[task_index];
     uint32_t cycle_duration = end_time - start_time;
