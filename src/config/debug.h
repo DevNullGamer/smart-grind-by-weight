@@ -81,6 +81,17 @@
     #error "DEBUG_GRINDER_DEADMAN_AUTORUN is for the deadman-test env only (needs DEBUG_GRINDER_DEADMAN_TEST=1)"
 #endif
 
+// Menu walk (bench test harness, ui/menu_walk_debug.cpp). ~8 s after boot an lv_timer opens every menu page, drives
+// every setting widget through its real LVGL event, checks NVS with an independent raw Preferences read and logs
+// "[MENUWALK]" lines. It writes NVS on the device (restores it afterwards) and switches the UI state: bench boards
+// only, never a grinder in use. Only the ...-menu-walk env sets it. Override with build flag.
+#ifndef DEBUG_MENU_WALK
+    #define DEBUG_MENU_WALK 0
+#endif
+#if DEBUG_MENU_WALK && (DEBUG_RMT_PULSE_SELFTEST || DEBUG_GRINDER_DEADMAN_TEST || DEBUG_BLE_ENABLE_STRESS || DEBUG_WIFI_HEAP_SPIKE || DEBUG_WIFI_DEV_CREDS)
+    #error "DEBUG_MENU_WALK is for the menu-walk env only (it cannot be combined with the other debug envs' flags)"
+#endif
+
 // Core debug logging settings
 #define DEBUG_SERIAL_OUTPUT 1                                             // Enable serial debug output
 #define DEBUG_GRIND_CONTROLLER 0                                          // Enable detailed grind debugging

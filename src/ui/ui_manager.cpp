@@ -7,6 +7,7 @@
 #include "screens/calibration_screen.h"
 #include "../logging/grind_logging.h"
 #include "../controllers/grind_mode_traits.h"
+#include "menu_walk_debug.h"
 #include <utility>
 // Static instance pointer for grind event callbacks
 UIManager* UIManager::instance = nullptr;
@@ -67,6 +68,10 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     
     
     initialized = true;
+
+#if DEBUG_MENU_WALK
+    menu_walk_start(this, state_machine);
+#endif
 
     // Unrecognised board: the user has to tell us before anything else makes sense
     if (board().variant == BoardVariant::UNKNOWN) {

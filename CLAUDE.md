@@ -62,7 +62,7 @@ python3 tools/grinder.py analyze
 - New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`.
 - Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
 - Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failure paths use `cleanup_failed_ota()` (unlocks); WiFi updates use `UpdateGuard` (same busy check and lock-out).
-- Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs.
+- Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs. `DEBUG_MENU_WALK` (bench UI/NVS walk) only in `...-menu-walk`.
 - After exact pulses, saved latency is stale: re-run autotune.
 
 **LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness" in `docs/DESIGN-NOTES.md`):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
