@@ -9,63 +9,17 @@
 #include "../../network/update_ui_logic.h"
 #include "../../network/wifi_manager.h"
 #include "../event_bridge_lvgl.h"
+#include "menu_widgets.h"
 
 // lv_menu is deprecated since LVGL 9.6 (removed in v10); replacing it is tracked separately
 // (chg006 item 23). All deprecation warnings are suppressed in this file, not only lv_menu ones.
 LV_DEPRECATIONS_IGNORE_BEGIN
 
-namespace {
-
-// Transparent full-width column that groups the widgets shown/hidden together
-lv_obj_t* create_block(lv_obj_t* parent) {
-    lv_obj_t* block = lv_obj_create(parent);
-    lv_obj_set_size(block, THEME_CONTENT_WIDTH_PX, LV_SIZE_CONTENT);
-    lv_obj_set_style_bg_opa(block, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(block, 0, 0);
-    lv_obj_set_style_pad_all(block, 0, 0);
-    lv_obj_set_style_pad_gap(block, 0, 0);
-    lv_obj_set_layout(block, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(block, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(block, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_scrollable(block, false);
-    return block;
-}
-
-// Wraps the button text inside the button (a long "Install v1.5.0-rc.3" breaks into two centred lines)
-void wrap_button_text(lv_obj_t* button) {
-    lv_obj_t* label = lv_obj_get_child(button, 0);
-    if (!label) return;
-    lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-    lv_obj_set_width(label, THEME_CONTENT_INNER_WIDTH_PX - 2 * 20);  // button width minus 2 x 20 px padding
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-}
-
-void set_enabled(lv_obj_t* obj, bool enabled) {
-    if (!obj) return;
-    if (enabled) {
-        lv_obj_remove_state(obj, LV_STATE_DISABLED);
-    } else {
-        lv_obj_add_state(obj, LV_STATE_DISABLED);
-    }
-}
-
-void set_visible(lv_obj_t* obj, bool show) {
-    if (!obj) return;
-    if (show) {
-        lv_obj_set_hidden(obj, false);
-    } else {
-        lv_obj_set_hidden(obj, true);
-    }
-}
-
-}  // namespace
+using namespace menu_ui;
 
 void MenuScreen::create_wifi_page(lv_obj_t* parent) {
-    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+    using ET = EventBridgeLVGL::EventType;
+    init_column_page(parent);
 
     create_description_label(parent, "Connect to your home WiFi to update the firmware without Bluetooth.");
 
@@ -91,10 +45,7 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     wifi_forget_button = create_button(wifi_manage_block, "Forget WiFi", lv_color_hex(THEME_COLOR_ERROR));
     lv_obj_set_style_margin_bottom(wifi_forget_button, 10, 0);
 
-    if (wifi_forget_button) {
-        lv_obj_add_event_cb(wifi_forget_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(EventBridgeLVGL::EventType::WIFI_FORGET)));
-    }
+    bind_event(wifi_forget_button, LV_EVENT_CLICKED, ET::WIFI_FORGET);
 
     // Updates: arm the push endpoint and decide whether each update needs a tap on the grinder
     create_separator(parent, "Updates");
@@ -131,27 +82,11 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     wifi_fw_notice_label = create_description_label(parent, "");
     lv_obj_set_style_text_color(wifi_fw_notice_label, lv_color_hex(THEME_COLOR_WARNING), 0);
 
-    using ET = EventBridgeLVGL::EventType;
-    if (wifi_beta_toggle) {
-        lv_obj_add_event_cb(wifi_beta_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_BETA_TOGGLE)));
-    }
-    if (wifi_check_button) {
-        lv_obj_add_event_cb(wifi_check_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_CHECK_UPDATE)));
-    }
-    if (wifi_install_button) {
-        lv_obj_add_event_cb(wifi_install_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_INSTALL_UPDATE)));
-    }
-    if (wifi_push_toggle) {
-        lv_obj_add_event_cb(wifi_push_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_PUSH_TOGGLE)));
-    }
-    if (wifi_confirm_toggle) {
-        lv_obj_add_event_cb(wifi_confirm_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
-                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_CONFIRM_TOGGLE)));
-    }
+    bind_event(wifi_beta_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_BETA_TOGGLE);
+    bind_event(wifi_check_button, LV_EVENT_CLICKED, ET::WIFI_CHECK_UPDATE);
+    bind_event(wifi_install_button, LV_EVENT_CLICKED, ET::WIFI_INSTALL_UPDATE);
+    bind_event(wifi_push_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_PUSH_TOGGLE);
+    bind_event(wifi_confirm_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_CONFIRM_TOGGLE);
     // Content is filled in by reload_wifi_page() when the page is entered
 }
 

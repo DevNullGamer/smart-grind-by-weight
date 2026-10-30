@@ -210,16 +210,4 @@ private:
     void create_data_page(lv_obj_t* parent);
     void create_stats_page(lv_obj_t* parent);
     void create_diagnostics_page(lv_obj_t* parent);
-    lv_obj_t* create_separator(lv_obj_t* parent, const char* text = nullptr);
-    lv_obj_t* create_menu_item(lv_obj_t* parent, const char* text);
-    lv_obj_t *create_toggle_row(lv_obj_t *parent, const char *text,lv_obj_t **out_toggle);
-    lv_obj_t *create_slider_row(lv_obj_t *parent, const char *text,
-                                lv_obj_t **label, lv_obj_t **slider,
-                                lv_color_t slider_color = lv_color_hex(THEME_COLOR_ACCENT),
-                                uint32_t min = 0, uint32_t max = 100);
-    lv_obj_t *create_static_data_label(lv_obj_t *parent, const char *name,
-                                       const char *value);
-    lv_obj_t *create_data_label(lv_obj_t *parent, const char *name,
-                                lv_obj_t **variable, bool stacked = false);
-    lv_obj_t *create_description_label(lv_obj_t *parent, const char *text);
 };
