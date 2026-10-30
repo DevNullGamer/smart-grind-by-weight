@@ -239,70 +239,6 @@ void MenuScreen::create_menu_ui() {
     LOG_BLE("[%lums MENU] Menu UI created successfully\n", millis());
 }
 
-void MenuScreen::create_info_page(lv_obj_t* parent) {
-    init_column_page(parent);
-    lv_obj_set_style_pad_all(parent, 0, 0);
-
-    char build_info[64];
-    snprintf(build_info, sizeof(build_info), "#%d", BUILD_NUMBER);
-
-    create_description_label(parent, "Device metrics and current status snapshot.");
-
-    create_static_data_label(parent, "Firmware:", "v" BUILD_FIRMWARE_VERSION);
-    create_static_data_label(parent, "Build:", build_info);    
-    
-    create_separator(parent);
-    
-    create_data_label(parent, "Instant:", &instant_label);
-    create_data_label(parent, "Samples:", &samples_label);
-    create_data_label(parent, "Raw:", &raw_label);
-
-    create_separator(parent);
-   
-    create_data_label(parent, "Uptime:", &uptime_label);
-    create_data_label(parent, "RAM:", &memory_label);
-}
-
-
-void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
-    init_column_page(parent);
-
-    create_toggle_row(parent, "Enabled", &ble_toggle);
-    create_toggle_row(parent, "Startup", &ble_startup_toggle);
-
-    // BLE Status label
-    ble_status_label = lv_label_create(parent);
-    lv_label_set_text(ble_status_label, "Bluetooth: Disabled");
-    lv_obj_set_style_text_font(ble_status_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(ble_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_obj_set_scrollable(ble_status_label, false);
-
-    // BLE Timer label
-    ble_timer_label = lv_label_create(parent);
-    lv_label_set_text(ble_timer_label, "");
-    lv_obj_set_style_text_font(ble_timer_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(ble_timer_label, lv_color_hex(THEME_COLOR_WARNING), 0);
-    lv_obj_set_scrollable(ble_timer_label, false);
-
-    // Register events for the toggles (done here because widgets are created lazily)
-    using ET = EventBridgeLVGL::EventType;
-    bind_event(ble_toggle, LV_EVENT_VALUE_CHANGED, ET::BLE_TOGGLE);
-    bind_event(ble_startup_toggle, LV_EVENT_VALUE_CHANGED, ET::BLE_STARTUP_TOGGLE);
-}
-
-void MenuScreen::create_display_page(lv_obj_t* parent) {
-    init_column_page(parent);
-
-    create_slider_row(parent, "Brightness", &brightness_normal_label, &brightness_normal_slider);
-    create_slider_row(parent, "Screensaver", &brightness_screensaver_label, &brightness_screensaver_slider, lv_color_hex(THEME_COLOR_WARNING));
-
-    // Register events for the sliders (done here because widgets are created lazily)
-    using ET = EventBridgeLVGL::EventType;
-    bind_event(brightness_normal_slider, LV_EVENT_VALUE_CHANGED, ET::BRIGHTNESS_NORMAL_SLIDER);
-    bind_event(brightness_normal_slider, LV_EVENT_RELEASED, ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED);
-    bind_event(brightness_screensaver_slider, LV_EVENT_VALUE_CHANGED, ET::BRIGHTNESS_SCREENSAVER_SLIDER);
-    bind_event(brightness_screensaver_slider, LV_EVENT_RELEASED, ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED);
-}
 
 
 // Callback for grind mode radio button selection
@@ -395,32 +331,6 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     bind_event(grinder_purge_amount_slider, LV_EVENT_RELEASED, ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED);
     bind_event(grind_freshness_hours_slider, LV_EVENT_VALUE_CHANGED, ET::GRIND_FRESHNESS_HOURS_SLIDER);
     bind_event(grind_freshness_hours_slider, LV_EVENT_RELEASED, ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED);
-}
-
-// Callback for hardware board override radio button selection
-static void board_override_callback(int selected_index, void* user_data) {
-    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::BOARD_OVERRIDE_RADIO_BUTTON, nullptr);
-}
-
-void MenuScreen::create_board_page(lv_obj_t* parent) {
-    init_column_page(parent);
-
-    create_description_label(parent, "Waveshare 1.64\" board revision this grinder runs on.");
-    create_data_label(parent, "Detected:", &board_status_label);
-
-    create_separator(parent, "Override");
-    const char* board_options[] = {"Auto", "V1", "V2"};
-    board_override_radio_group = create_radio_button_group(
-        parent,
-        board_options,
-        3,
-        LV_FLEX_FLOW_ROW,
-        0,  // Auto initially selected
-        -1, 100,  // Auto width, height
-        board_override_callback,
-        this
-    );
-    create_description_label(parent, "Use Auto unless the board is not recognised. A change applies after restarting the grinder.");
 }
 
 void MenuScreen::create_scale_page(lv_obj_t* parent) {
@@ -603,26 +513,6 @@ bool MenuScreen::is_ble_page_current() const {
     return visible && menu && bluetooth_page && lv_menu_get_cur_main_page(menu) == bluetooth_page;
 }
 
-void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap) {
-    if (!visible) return;
-
-    set_label_text_float(instant_label, weight_sensor->get_instant_weight(), "g");
-    set_label_text_int(samples_label, weight_sensor->get_sample_count());
-    set_label_text_int(raw_label, weight_sensor->get_raw_adc_instant());
-
-    // Update uptime - use compact format to avoid horizontal scrolling
-    unsigned long seconds = uptime_ms / 1000;
-    unsigned long hours = seconds / 3600;
-    unsigned long minutes = (seconds % 3600) / 60;
-    seconds = seconds % 60;
-
-    char uptime_text[48];
-    snprintf(uptime_text, sizeof(uptime_text), "%02lu:%02lu:%02lu", hours, minutes, seconds);
-    set_label_text_if_changed(uptime_label, uptime_text);
-
-    set_label_text_int(memory_label, free_heap / 1024, "kB");
-}
-
 void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
     if (!visible || !diagnostics_controller) return;
 
@@ -698,39 +588,6 @@ void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
             set_label_text_if_changed(diag_info_label, message);
             lv_obj_set_hidden(diag_info_label, false);
         }
-    }
-}
-
-void MenuScreen::update_ble_status() {
-    if (!visible || !bluetooth_manager) return;
-    
-    // Update toggle state
-    if (bluetooth_manager->is_enabled()) {
-        lv_obj_add_state(ble_toggle, LV_STATE_CHECKED);
-    } else {
-        lv_obj_remove_state(ble_toggle, LV_STATE_CHECKED);
-    }
-    
-    // Update status text
-    if (bluetooth_manager->is_enabled()) {
-        if (bluetooth_manager->is_connected()) {
-            set_label_text_if_changed(ble_status_label, "Connected");
-        } else {
-            set_label_text_if_changed(ble_status_label, "Advertising");
-        }
-        lv_obj_set_hidden(ble_status_label, false);
-        
-        // Show remaining time
-        unsigned long remaining_ms = bluetooth_manager->get_bluetooth_timeout_remaining_ms();
-        unsigned long remaining_min = remaining_ms / (60 * 1000);
-        char timer_text[64];
-        snprintf(timer_text, sizeof(timer_text), "Auto-disable in: %lu min", remaining_min);
-        set_label_text_if_changed(ble_timer_label, timer_text);
-        lv_obj_set_hidden(ble_timer_label, false);
-    } else {
-        // When nothing to display hide the status labels
-        lv_obj_set_hidden(ble_status_label, true);
-        lv_obj_set_hidden(ble_timer_label, true);
     }
 }
 
@@ -817,48 +674,6 @@ void MenuScreen::refresh_statistics(bool show_overlay) {
     overlay.show_and_execute(BlockingOperation::LOADING_STATISTICS, load_statistics_operation);
 }
 
-void MenuScreen::update_brightness_sliders() {
-    if (!hardware_manager || !brightness_normal_slider || !brightness_screensaver_slider) return;
-    
-    // Read from the dedicated "brightness" namespace using a local Preferences
-    // instance so we don't interfere with the global shared handle.
-    Preferences prefs;
-    prefs.begin("brightness", false); // writable so namespace is created on first use
-    
-    // Load brightness values from preferences (default to compile-time values)
-    float normal_brightness = prefs.getFloat("normal", USER_SCREEN_BRIGHTNESS_NORMAL);
-    float screensaver_brightness = prefs.getFloat("screensaver", USER_SCREEN_BRIGHTNESS_DIMMED);
-    prefs.end();
-    
-    // Convert from 0.0-1.0 to 15-100 range
-    int normal_percent = (int)(normal_brightness * 100);
-    int screensaver_percent = (int)(screensaver_brightness * 100);
-    
-    // Ensure minimum 15%
-    if (normal_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) normal_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-    if (screensaver_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) screensaver_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-    
-    // Update sliders
-    lv_slider_set_value(brightness_normal_slider, normal_percent, LV_ANIM_OFF);
-    lv_slider_set_value(brightness_screensaver_slider, screensaver_percent, LV_ANIM_OFF);
-    
-    update_brightness_labels(normal_percent, screensaver_percent);
-}
-
-void MenuScreen::update_brightness_labels(int normal_percent, int screensaver_percent) {
-    if (brightness_normal_label && normal_percent >= 0) {
-        char normal_text[32];
-        snprintf(normal_text, sizeof(normal_text), "Brightness: %d%%", normal_percent);
-        lv_label_set_text(brightness_normal_label, normal_text);
-    }
-
-    if (brightness_screensaver_label && screensaver_percent >= 0) {
-        char screensaver_text[32];
-        snprintf(screensaver_text, sizeof(screensaver_text), "Dimmed: %d%%", screensaver_percent);
-        lv_label_set_text(brightness_screensaver_label, screensaver_text);
-    }
-}
-
 void MenuScreen::update_grinder_purge_amount_label(float amount_g) {
     if (grinder_purge_amount_label) {
         char buffer[16];
@@ -879,25 +694,6 @@ void MenuScreen::update_grind_freshness_hours_label(float hours) {
             snprintf(buffer, sizeof(buffer), "Freshness: %.0fh", hours);
         }
         lv_label_set_text(grind_freshness_hours_label, buffer);
-    }
-}
-
-void MenuScreen::update_bluetooth_startup_toggle() {
-    if (!ble_startup_toggle) return;
-
-    // Read from the "bluetooth" namespace using a local Preferences instance
-    Preferences prefs;
-    prefs.begin("bluetooth", true); // read-only
-
-    // Load startup value from preferences (default to false)
-    bool startup_enabled = prefs.getBool("startup", true);
-    prefs.end();
-
-    // Update toggle state
-    if (startup_enabled) {
-        lv_obj_add_state(ble_startup_toggle, LV_STATE_CHECKED);
-    } else {
-        lv_obj_remove_state(ble_startup_toggle, LV_STATE_CHECKED);
     }
 }
 
@@ -1034,18 +830,6 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     update_grind_freshness_hours_label(freshness_hours);
-}
-
-void MenuScreen::update_board_page() {
-    if (board_status_label) {
-        char text[32];
-        snprintf(text, sizeof(text), "%s (%s)", board().name(), board().source_name());
-        lv_label_set_text(board_status_label, text);
-    }
-
-    if (board_override_radio_group) {
-        radio_button_group_set_selection(board_override_radio_group, static_cast<int>(board_override_load()));
-    }
 }
 
 LV_DEPRECATIONS_IGNORE_END
