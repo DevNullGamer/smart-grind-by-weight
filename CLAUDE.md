@@ -84,7 +84,7 @@ python3 tools/grinder.py analyze
 - **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
 - **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
 - **No logging** during PURGE_CONFIRM
-- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amount_g` (float: 0.1-2.5, default=1.0)
+- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amt_g` (float: 0.1-2.5, default=1.0)
 
 **Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
 

@@ -64,7 +64,7 @@ const NvsKey kKeys[K_COUNT] = {
     {"brightness_screensaver", "brightness", "screensaver", Kind::FLOAT, 0.35f},
     {"grind_mode", "grinder", "grind_mode", Kind::INT, 0.0f},
     {"purge_mode", "grinder", "grinder_mode", Kind::INT, 1.0f},
-    {"purge_amount_g", "grinder", "grinder_amount_g", Kind::FLOAT, 1.0f},
+    {"purge_amount_g", "grinder", "grinder_amt_g", Kind::FLOAT, 1.0f},
     {"freshness_hours", "grinder", "freshness_hrs", Kind::FLOAT, 8.0f},
 };
 
@@ -104,7 +104,6 @@ RawVal raw_read(KeyId id) {
 // Puts the exact original back (or removes the key if it did not exist before the walk)
 void raw_restore(KeyId id, const RawVal& orig) {
     const NvsKey& k = kKeys[id];
-    if (strlen(k.key) > 15) return;  // never stored (see log_check), nothing to restore
     Preferences p;
     if (!p.begin(k.ns, false)) return;
     if (!orig.present) {
@@ -281,20 +280,10 @@ void log_fingerprint(const char* name, const char* suffix) {
 }
 
 // Logs "<setting> <what> raw=<v> ty=<t> [label=..] OK|FAIL" for one driven value
-//
-// Known baseline defect: NVS keys are limited to 15 characters and "grinder_amount_g" has 16, so putFloat fails
-// with KEY_TOO_LONG and the purge amount is never stored (reads fall back to the 1.0 g default). The walk pins
-// that behaviour: for such a key the expected outcome is "not stored" and the verdict is KNOWN-NOT-STORED. If a
-// later change makes the key storable this reports FAIL, which is the signal that behaviour changed.
-bool key_too_long(KeyId id) { return strlen(kKeys[id].key) > 15; }
-
 void log_check(KeyId id, const char* what, float expected, const char* label) {
     const RawVal r = raw_read(id);
-    const bool too_long = key_too_long(id);
-    const bool ok = too_long ? !r.present
-                             : (r.present && r.type == expected_type(kKeys[id].kind) && r.value == expected);
+    const bool ok = r.present && r.type == expected_type(kKeys[id].kind) && r.value == expected;
     const char* result = verdict(ok);
-    if (too_long && ok) result = "KNOWN-NOT-STORED(key>15 chars)";
     if (label) {
         Serial.printf("[MENUWALK] %s %s raw=%g ty=%d label=\"%s\" %s\n", kKeys[id].name, what, static_cast<double>(r.value),
                       r.type, label, result);
