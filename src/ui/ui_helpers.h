@@ -34,7 +34,7 @@ typedef void (*radio_button_callback_t)(int selected_index, void* user_data);
 // Radio button group helper
 lv_obj_t* create_radio_button_group(
     lv_obj_t* parent,
-    const char* options[],           // Array of button labels
+    const char* const options[],           // Array of button labels
     int option_count,                // Number of options
     lv_flex_flow_t layout,          // LV_FLEX_FLOW_ROW or LV_FLEX_FLOW_COLUMN
     int initial_selection,           // Initially selected index (0-based)

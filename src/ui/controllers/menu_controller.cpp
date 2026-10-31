@@ -47,10 +47,7 @@ void MenuUIController::register_events() {
     register_setting_toggle_events();
     register_setting_slider_events();
 
-    EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
-    EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grinder_purge_mode_radio_button(); });
-
-    EventBridgeLVGL::register_handler(ET::BOARD_OVERRIDE_RADIO_BUTTON, [this](lv_event_t*) { handle_board_override_radio_button(); });
+    register_setting_radio_events();
 
     EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
     EventBridgeLVGL::register_handler(ET::WIFI_PUSH_TOGGLE, [this](lv_event_t*) { handle_wifi_push_toggle(); });
@@ -265,61 +262,6 @@ void MenuUIController::handle_ble_toggle() {
 
     auto& overlay = BlockingOperationOverlay::getInstance();
     overlay.show_and_execute(BlockingOperation::BLE_ENABLING, operation, completion);
-}
-
-void MenuUIController::handle_grind_mode_radio_button() {
-    if (!ui_manager_ || !ui_manager_->profile_controller) return;
-
-    lv_obj_t* radio_group = ui_manager_->menu_screen.get_grind_mode_radio_group();
-    if (!radio_group) return;
-
-    int selected_index = radio_button_group_get_selection(radio_group);
-    if (selected_index < 0) return;
-
-    GrindMode new_mode = (selected_index == 0) ? GrindMode::WEIGHT : GrindMode::TIME;
-    ui_manager_->profile_controller->set_grind_mode(new_mode);
-    ui_manager_->current_mode = new_mode;
-    if (ui_manager_->ready_controller_) {
-        ui_manager_->ready_controller_->refresh_profiles();
-    }
-    ui_manager_->edit_target = get_current_profile_target(*ui_manager_->profile_controller, new_mode);
-    if (ui_manager_->state_machine->is_state(UIState::EDIT)) {
-        if (ui_manager_->edit_controller_) {
-            ui_manager_->edit_controller_->update_display();
-        }
-    }
-
-    LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grind mode set to WEIGHT via radio button" : "Grind mode set to TIME via radio button");
-}
-
-void MenuUIController::handle_grinder_purge_mode_radio_button() {
-    if (!ui_manager_) return;
-
-    auto* radio_group = ui_manager_->menu_screen.get_grinder_purge_mode_radio_group();
-    if (!radio_group) return;
-
-    int selected_index = radio_button_group_get_selection(radio_group);
-
-    ui_settings.set_purge_mode(selected_index);
-
-    LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grinder purge mode: Prime (keep coffee)" : "Grinder purge mode: Purge (discard grinds)");
-}
-
-void MenuUIController::handle_board_override_radio_button() {
-    if (!ui_manager_) return;
-
-    auto* radio_group = ui_manager_->menu_screen.get_board_override_radio_group();
-    if (!radio_group) return;
-
-    // Radio index matches BoardOverride: 0 = Auto, 1 = V1, 2 = V2
-    int selected_index = radio_button_group_get_selection(radio_group);
-    if (selected_index < 0 || selected_index > static_cast<int>(BoardOverride::FORCE_V2)) return;
-
-    if (board_override_store(static_cast<BoardOverride>(selected_index))) {
-        LOG_BLE("[BOARD] Override set to %d by user (applies after restart)\n", selected_index);
-    } else {
-        LOG_BLE("[BOARD] ERROR: could not store board override\n");
-    }
 }
 
 void MenuUIController::perform_factory_reset() {

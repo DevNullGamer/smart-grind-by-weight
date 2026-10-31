@@ -471,10 +471,10 @@ void run_step(const Step& s) {
             break;
         }
         case Op::RADIO_GRIND_MODE:
-            drive_radio(K_GRIND_MODE, menu_screen().get_grind_mode_radio_group(), 2, expect_grind_mode);
+            drive_radio(K_GRIND_MODE, menu_screen().get_setting_radio(RadioSetting::GRIND_MODE), 2, expect_grind_mode);
             break;
         case Op::RADIO_PURGE_MODE:
-            drive_radio(K_PURGE_MODE, menu_screen().get_grinder_purge_mode_radio_group(), 2, expect_index);
+            drive_radio(K_PURGE_MODE, menu_screen().get_setting_radio(RadioSetting::PURGE_MODE), 2, expect_index);
             break;
         case Op::FINISH:
             finish();

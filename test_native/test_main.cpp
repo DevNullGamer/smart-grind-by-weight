@@ -25,6 +25,7 @@ void run_ui_settings_tests();
 void run_menu_setting_models_tests();
 void run_menu_setting_table_tests();
 void run_menu_setting_sliders_tests();
+void run_menu_setting_radios_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -54,5 +55,6 @@ int main() {
     run_menu_setting_models_tests();
     run_menu_setting_table_tests();
     run_menu_setting_sliders_tests();
+    run_menu_setting_radios_tests();
     return UNITY_END();
 }

@@ -13,36 +13,13 @@ LV_DEPRECATIONS_IGNORE_BEGIN
 
 using namespace menu_ui;
 
-// Callback for grind mode radio button selection
-static void grind_mode_callback(int selected_index, void* user_data) {
-    // Trigger the event system instead of handling directly
-    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRIND_MODE_RADIO_BUTTON, nullptr);
-}
-
-// Callback for grinder purge mode radio button selection
-static void grinder_purge_mode_callback(int selected_index, void* user_data) {
-    // Trigger the event system instead of handling directly
-    EventBridgeLVGL::handle_event(EventBridgeLVGL::EventType::GRINDER_PURGE_MODE_RADIO_BUTTON, nullptr);
-}
-
 void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     init_column_page(parent);
 
     // Mode Selection separator/label
     create_separator(parent, "Mode Selection");
 
-    // Radio button group for grind mode selection at top
-    const char* grind_modes[] = {"Weight", "Time"};
-    grind_mode_radio_group = create_radio_button_group(
-        parent,
-        grind_modes,
-        2,
-        LV_FLEX_FLOW_ROW,
-        0,  // Weight initially selected
-        135, 100,  // Width, Height
-        grind_mode_callback,
-        this
-    );
+    create_setting_radio(parent, RadioSetting::GRIND_MODE);
 
     // Descriptive label for swipe functionality
     lv_obj_t* swipe_desc_label = lv_label_create(parent);
@@ -67,18 +44,7 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_separator(parent, "Purging");
     create_description_label(parent, "Decide what to do with the ground coffee after the grinder is primed.");
 
-    // Radio button group for grinder purge mode (Keep/Remove)
-    const char* grinder_purge_modes[] = {"Keep", "Remove"};
-    grinder_purge_mode_radio_group = create_radio_button_group(
-        parent,
-        grinder_purge_modes,
-        2,
-        LV_FLEX_FLOW_ROW,
-        1,  // Purge initially selected (index 1)
-        135, 100,  // Width, Height
-        grinder_purge_mode_callback,
-        this
-    );
+    create_setting_radio(parent, RadioSetting::PURGE_MODE);  // Keep / Remove
 
     create_description_label(parent, "Purge amount is a minimum target, not an exact goal.");
 
@@ -88,17 +54,6 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     // Freshness steps: 0.5, 1, 2, 3, 4, 8, 12, 24, 48 h
     create_setting_slider_row(parent, SliderSetting::FRESHNESS);
-}
-
-void MenuScreen::update_grind_mode_toggles() {
-    if (grind_mode_radio_group) {
-        radio_button_group_set_selection(grind_mode_radio_group, grind_mode_radio_index(ui_settings.grind_mode_raw()));
-    }
-
-    // Update grinder purge mode radio group selection
-    if (grinder_purge_mode_radio_group) {
-        radio_button_group_set_selection(grinder_purge_mode_radio_group, ui_settings.purge_mode());
-    }
 }
 
 LV_DEPRECATIONS_IGNORE_END

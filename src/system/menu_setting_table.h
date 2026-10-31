@@ -75,3 +75,28 @@ struct SliderSettingDef {
 
 // Definition of one slider (id must be below SliderSetting::COUNT)
 const SliderSettingDef& slider_setting_def(SliderSetting id);
+
+// ---- Radio groups (grind mode, purge mode, hardware board override) ----
+
+enum class RadioSetting : unsigned char {
+    GRIND_MODE,      // Weight / Time (motor-adjacent: changes the grind mode of the profile controller)
+    PURGE_MODE,      // Keep / Remove (motor-adjacent: decides what happens to the primed grinds)
+    BOARD_OVERRIDE,  // Auto / V1 / V2
+    COUNT
+};
+
+constexpr size_t RADIO_SETTING_COUNT = static_cast<size_t>(RadioSetting::COUNT);
+constexpr size_t RADIO_MAX_OPTIONS = 3;
+
+// Layout of one radio group. The button index is the stored value of purge mode and board override;
+// grind mode maps through grind_mode_radio_index() (menu_setting_models.h).
+struct RadioSettingDef {
+    const char* labels[RADIO_MAX_OPTIONS];
+    int count;
+    int initial_index;  // selection before show() loads the stored value
+    int width;          // button width in px, -1 = fill the row evenly
+    int height;         // button height in px
+};
+
+// Definition of one radio group (id must be below RadioSetting::COUNT)
+const RadioSettingDef& radio_setting_def(RadioSetting id);

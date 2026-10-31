@@ -6,7 +6,7 @@
 
 class UIManager;
 
-// Handles the interactive menu: setting toggles and sliders, maintenance actions, and stats
+// Handles the interactive menu: setting toggles, sliders and radio groups, maintenance actions, and stats
 
 class MenuUIController {
 public:
@@ -50,6 +50,7 @@ private:
     void update_wifi_page();
     void register_setting_toggle_events();  // menu_controller_settings.cpp
     void register_setting_slider_events();  // menu_controller_settings.cpp
+    void register_setting_radio_events();   // menu_controller_settings.cpp
     void install_update_confirmed(const char* version);
 
     void perform_factory_reset();

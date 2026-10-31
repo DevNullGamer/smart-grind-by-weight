@@ -1,6 +1,8 @@
 // MenuScreen: table-driven setting toggles and sliders (see system/menu_setting_table.h).
 #include "menu_screen.h"
 #include "../../config/constants.h"
+#include "../../hardware/board_detect.h"
+#include "../../system/menu_setting_models.h"
 #include "../../system/nvs_settings_store.h"
 #include "menu_widgets.h"
 
@@ -80,6 +82,54 @@ void MenuScreen::refresh_setting_sliders() {
         const int pos = slider_setting_def(id).load_pos(ui_settings);
         lv_slider_set_value(slider, pos, LV_ANIM_OFF);
         set_setting_slider_label(id, pos);
+    }
+}
+
+// Indexed by RadioSetting
+static const EventBridgeLVGL::EventType kSettingRadioEvents[RADIO_SETTING_COUNT] = {
+    EventBridgeLVGL::EventType::GRIND_MODE_RADIO_BUTTON,
+    EventBridgeLVGL::EventType::GRINDER_PURGE_MODE_RADIO_BUTTON,
+    EventBridgeLVGL::EventType::BOARD_OVERRIDE_RADIO_BUTTON,
+};
+
+EventBridgeLVGL::EventType MenuScreen::setting_radio_event(RadioSetting id) {
+    return kSettingRadioEvents[static_cast<size_t>(id)];
+}
+
+// Shared by all radio groups: user_data carries the EventType, the controller handler reads the selection
+static void setting_radio_callback(int selected_index, void* user_data) {
+    EventBridgeLVGL::handle_event(
+        static_cast<EventBridgeLVGL::EventType>(reinterpret_cast<uintptr_t>(user_data)), nullptr);
+}
+
+void MenuScreen::create_setting_radio(lv_obj_t* parent, RadioSetting id) {
+    const RadioSettingDef& def = radio_setting_def(id);
+    setting_radios_[static_cast<size_t>(id)] = create_radio_button_group(
+        parent,
+        def.labels,
+        def.count,
+        LV_FLEX_FLOW_ROW,
+        def.initial_index,
+        def.width, def.height,
+        setting_radio_callback,
+        reinterpret_cast<void*>(static_cast<uintptr_t>(setting_radio_event(id)))
+    );
+}
+
+// Selected button index of a radio group as stored
+static int stored_radio_index(RadioSetting id) {
+    switch (id) {
+        case RadioSetting::GRIND_MODE: return grind_mode_radio_index(ui_settings.grind_mode_raw());
+        case RadioSetting::PURGE_MODE: return ui_settings.purge_mode();
+        case RadioSetting::BOARD_OVERRIDE: return static_cast<int>(board_override_load());
+        default: return 0;
+    }
+}
+
+void MenuScreen::refresh_setting_radios() {
+    for (size_t i = 0; i < RADIO_SETTING_COUNT; i++) {
+        if (!setting_radios_[i]) continue;
+        radio_button_group_set_selection(setting_radios_[i], stored_radio_index(static_cast<RadioSetting>(i)));
     }
 }
 

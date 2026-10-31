@@ -58,13 +58,10 @@ private:
     lv_obj_t* purge_button = nullptr;
     lv_obj_t* reset_button = nullptr;
     
-    // Grind mode tab elements
-    lv_obj_t* grind_mode_radio_group = nullptr;
-    lv_obj_t* grinder_purge_mode_radio_group = nullptr;
+    lv_obj_t* setting_radios_[RADIO_SETTING_COUNT] = {};  // table-driven radio groups (menu_screen_settings.cpp)
 
     // Hardware board page elements
     lv_obj_t* board_status_label = nullptr;
-    lv_obj_t* board_override_radio_group = nullptr;
 
     // WiFi page elements (menu_screen_wifi.cpp)
     lv_obj_t* wifi_status_label = nullptr;
@@ -132,7 +129,8 @@ public:
     void refresh_statistics(bool show_overlay = true);
     // Sets all table-driven toggles to the stored values (menu_screen_settings.cpp)
     void refresh_setting_toggles();
-    void update_grind_mode_toggles();
+    // Selects the stored button of every table-driven radio group (menu_screen_settings.cpp)
+    void refresh_setting_radios();
     // Sets all table-driven sliders and their labels to the stored values (menu_screen_settings.cpp)
     void refresh_setting_sliders();
     // Shows the label text of a slider position
@@ -171,9 +169,8 @@ public:
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
     lv_obj_t* get_setting_slider(SliderSetting id) const { return setting_sliders_[static_cast<size_t>(id)]; }
     static EventBridgeLVGL::EventType setting_slider_event(SliderSetting id, bool released);
-    lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
-    lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
-    lv_obj_t* get_board_override_radio_group() const { return board_override_radio_group; }
+    lv_obj_t* get_setting_radio(RadioSetting id) const { return setting_radios_[static_cast<size_t>(id)]; }
+    static EventBridgeLVGL::EventType setting_radio_event(RadioSetting id);
     lv_obj_t* get_wifi_push_toggle() const { return wifi_push_toggle; }
     lv_obj_t* get_wifi_confirm_toggle() const { return wifi_confirm_toggle; }
     lv_obj_t* get_wifi_beta_toggle() const { return wifi_beta_toggle; }
@@ -189,6 +186,8 @@ private:
     void create_setting_toggle_row(lv_obj_t* parent, ToggleSetting id);
     // Label + slider row of a table-driven setting, wired to its events (menu_screen_settings.cpp)
     void create_setting_slider_row(lv_obj_t* parent, SliderSetting id);
+    // Radio button group of a table-driven setting, wired to its event (menu_screen_settings.cpp)
+    void create_setting_radio(lv_obj_t* parent, RadioSetting id);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

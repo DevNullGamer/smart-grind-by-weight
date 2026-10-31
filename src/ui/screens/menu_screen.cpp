@@ -224,7 +224,7 @@ void MenuScreen::show() {
     update_ble_status();
     refresh_setting_sliders();
     refresh_setting_toggles();
-    update_grind_mode_toggles();
+    refresh_setting_radios();
     update_board_page();
     // The WiFi page can still be the current page when the menu is shown again
     sync_wifi_provisioning_window();

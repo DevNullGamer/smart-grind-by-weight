@@ -228,7 +228,7 @@ static void radio_button_group_delete_handler(lv_event_t* e) {
 
 lv_obj_t* create_radio_button_group(
     lv_obj_t* parent,
-    const char* options[],
+    const char* const options[],
     int option_count,
     lv_flex_flow_t layout,
     int initial_selection,

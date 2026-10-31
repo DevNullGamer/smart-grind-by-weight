@@ -70,6 +70,13 @@ const SliderSettingDef kSliderDefs[SLIDER_SETTING_COUNT] = {
      label_freshness, store_freshness, nullptr, SliderAfter::NONE, "Grind freshness hours set to"},
 };
 
+// Indexed by RadioSetting; the order is the enum order
+const RadioSettingDef kRadioDefs[RADIO_SETTING_COUNT] = {
+    {{"Weight", "Time", nullptr}, 2, 0, 135, 100},
+    {{"Keep", "Remove", nullptr}, 2, 1, 135, 100},
+    {{"Auto", "V1", "V2"}, 3, 0, -1, 100},
+};
+
 }  // namespace
 
 const ToggleSettingDef& toggle_setting_def(ToggleSetting id) {
@@ -78,4 +85,8 @@ const ToggleSettingDef& toggle_setting_def(ToggleSetting id) {
 
 const SliderSettingDef& slider_setting_def(SliderSetting id) {
     return kSliderDefs[static_cast<size_t>(id)];
+}
+
+const RadioSettingDef& radio_setting_def(RadioSetting id) {
+    return kRadioDefs[static_cast<size_t>(id)];
 }
