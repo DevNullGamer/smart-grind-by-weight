@@ -1,11 +1,11 @@
 #include "ui_manager.h"
 #include <Arduino.h>
-#include <Preferences.h>
 #include <cmath>
 #include <esp_system.h>
 #include "../config/constants.h"
 #include "screens/calibration_screen.h"
 #include "../logging/grind_logging.h"
+#include "../system/nvs_settings_store.h"
 #include "../controllers/grind_mode_traits.h"
 #include "menu_walk_debug.h"
 #include <utility>
@@ -499,11 +499,8 @@ void UIManager::set_background_active(bool active) {
 }
 
 void UIManager::refresh_auto_action_settings() {
-    Preferences prefs;
-    prefs.begin("autogrind", true);
-    auto_actions_.auto_start_enabled = prefs.getBool("auto_start", false);
-    auto_actions_.auto_return_enabled = prefs.getBool("auto_return", false);
-    prefs.end();
+    auto_actions_.auto_start_enabled = ui_settings.auto_start();
+    auto_actions_.auto_return_enabled = ui_settings.auto_return();
 
     uint32_t now = millis();
     auto_actions_.last_auto_start_ms = now;

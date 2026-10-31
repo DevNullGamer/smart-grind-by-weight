@@ -1,9 +1,9 @@
 // MenuScreen: Logs & Data and Lifetime Stats pages.
 #include "menu_screen.h"
 #include <Arduino.h>
-#include <Preferences.h>
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
+#include "../../system/nvs_settings_store.h"
 #include "../../system/statistics_manager.h"
 #include "../event_bridge_lvgl.h"
 #include "../components/blocking_overlay.h"
@@ -151,13 +151,7 @@ void MenuScreen::refresh_statistics(bool show_overlay) {
 void MenuScreen::update_logging_toggle() {
     if (!logging_toggle) return;
 
-    // Read from the "logging" namespace using a local Preferences instance
-    Preferences prefs;
-    prefs.begin("logging", true); // read-only
-
-    // Load logging enabled value from preferences (default to false)
-    bool logging_enabled = prefs.getBool("enabled", false);
-    prefs.end();
+    bool logging_enabled = ui_settings.logging_enabled();
 
     // Update toggle state
     if (logging_enabled) {

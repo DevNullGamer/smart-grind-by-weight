@@ -5,6 +5,7 @@
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "../config/constants.h"
+#include "../system/nvs_settings_store.h"
 #include "../system/statistics_manager.h"
 
 namespace {
@@ -183,10 +184,7 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
     }
 
     // Check if logging is enabled before saving to flash
-    Preferences logging_prefs;
-    logging_prefs.begin("logging", true); // read-only
-    bool logging_enabled = logging_prefs.getBool("enabled", false);
-    logging_prefs.end();
+    bool logging_enabled = ui_settings.logging_enabled();
 
     const char* mode_name = (mode == GrindMode::TIME) ? "TIME" : "WEIGHT";
 

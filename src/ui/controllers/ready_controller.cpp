@@ -1,9 +1,9 @@
 #include "ready_controller.h"
 
-#include <Preferences.h>
 #include <lvgl.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "../ui_manager.h"
 
@@ -63,10 +63,7 @@ void ReadyUIController::toggle_mode() {
         return;
     }
 
-    Preferences prefs;
-    prefs.begin("swipe", true); // read-only
-    bool swipe_enabled = prefs.getBool("enabled", false);
-    prefs.end();
+    bool swipe_enabled = ui_settings.swipe_enabled();
 
     if (!swipe_enabled) {
         return;

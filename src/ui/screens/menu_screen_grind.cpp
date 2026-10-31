@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "../../config/constants.h"
 #include "../../hardware/hardware_manager.h"
+#include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "menu_widgets.h"
 
@@ -130,11 +131,7 @@ void MenuScreen::update_grind_freshness_hours_label(float hours) {
 }
 
 void MenuScreen::update_grind_mode_toggles() {
-    // Read swipe enabled from "swipe" namespace
-    Preferences swipe_prefs;
-    swipe_prefs.begin("swipe", true); // read-only
-    bool swipe_enabled = swipe_prefs.getBool("enabled", false);
-    swipe_prefs.end();
+    bool swipe_enabled = ui_settings.swipe_enabled();
 
     // Read current grind mode from main grinder preferences using hardware manager
     int mode_index = 0; // Default to Weight (index 0)
@@ -163,11 +160,8 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     // Auto actions toggles (defaults disabled)
-    Preferences auto_prefs;
-    auto_prefs.begin("autogrind", true);
-    bool auto_start_enabled = auto_prefs.getBool("auto_start", false);
-    bool auto_return_enabled = auto_prefs.getBool("auto_return", false);
-    auto_prefs.end();
+    bool auto_start_enabled = ui_settings.auto_start();
+    bool auto_return_enabled = ui_settings.auto_return();
 
     if (auto_start_toggle) {
         if (auto_start_enabled) {

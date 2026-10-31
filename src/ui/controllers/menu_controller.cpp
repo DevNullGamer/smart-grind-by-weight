@@ -314,10 +314,7 @@ void MenuUIController::handle_logging_toggle() {
 
     bool logging_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
 
-    Preferences prefs;
-    prefs.begin("logging", false);
-    prefs.putBool("enabled", logging_enabled);
-    prefs.end();
+    ui_settings.set_logging_enabled(logging_enabled);
 
     LOG_DEBUG_PRINTLN(logging_enabled ? "Logging enabled" : "Logging disabled");
 }
@@ -330,10 +327,7 @@ void MenuUIController::handle_grind_mode_swipe_toggle() {
 
     bool swipe_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
 
-    Preferences prefs;
-    prefs.begin("swipe", false);
-    prefs.putBool("enabled", swipe_enabled);
-    prefs.end();
+    ui_settings.set_swipe_enabled(swipe_enabled);
 
     LOG_DEBUG_PRINTLN(swipe_enabled ? "Grind mode swipe gestures enabled" : "Grind mode swipe gestures disabled");
 }
@@ -371,10 +365,7 @@ void MenuUIController::handle_auto_start_toggle() {
 
     bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
 
-    Preferences prefs;
-    prefs.begin("autogrind", false);
-    prefs.putBool("auto_start", enabled);
-    prefs.end();
+    ui_settings.set_auto_start(enabled);
 
     if (ui_manager_) {
         ui_manager_->refresh_auto_action_settings();
@@ -391,10 +382,7 @@ void MenuUIController::handle_auto_return_toggle() {
 
     bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
 
-    Preferences prefs;
-    prefs.begin("autogrind", false);
-    prefs.putBool("auto_return", enabled);
-    prefs.end();
+    ui_settings.set_auto_return(enabled);
 
     if (ui_manager_) {
         ui_manager_->refresh_auto_action_settings();
