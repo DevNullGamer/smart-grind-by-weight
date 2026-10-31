@@ -10,7 +10,7 @@ All development tasks use the unified cross-platform Python tool:
 # Build and upload
 python3 tools/grinder.py build-upload
 
-# Data analysis (exports data and launches Streamlit report)  
+# Data analysis (exports data and launches Streamlit report)
 python3 tools/grinder.py analyze
 ```
 
@@ -21,26 +21,24 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
 - `python3 tools/grinder.py scan` - Scan for BLE devices
 - `python3 tools/grinder.py info` - Get device system information
-- `python3 tools/grinder.py wifi-info` - Query the grinder over WiFi (prints name, version, build, board, busy, confirm); needs only the host (`--host`, `GRINDER_WIFI_HOST` or `~/.grinder-wifi.json`), `/api/info` is unauthenticated
-- `python3 tools/grinder.py wifi-upload [firmware.bin]` - Push firmware over WiFi; needs host and token (`--token`, `GRINDER_WIFI_TOKEN` or the config file), Receive must be on, confirm on the grinder screen
-- `python3 tools/grinder.py wifi-set "<ssid>"` / `wifi-clear` - Provision / remove WiFi credentials over BLE (changing them later needs Menu -> WiFi open on the device)
+- WiFi commands (`wifi-info`, `wifi-upload`, `wifi-set`, `wifi-clear`): see `docs/DOC.md` "WiFi Setup" and "Update from the computer"
 - `python3 tools/grinder.py clean` - Clean build artifacts
 
 ## Architecture
 
 **4-Layer Architecture:**
 1. **Hardware Layer** (`src/hardware/`): ESP32-S3 peripheral abstraction
-2. **Control Layer** (`src/controllers/`): Business logic and algorithms  
+2. **Control Layer** (`src/controllers/`): Business logic and algorithms
 3. **System Layer** (`src/system/`): State management
 4. **UI Layer** (`src/ui/`): LVGL touchscreen interface
 
-**Key Components:**
-- **HardwareManager**: Central hardware coordinator
-- **GrindController**: 17-phase state machine (`GrindPhase` enum) with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
-- **WeightSensor (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
-- **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
-- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, WiFi, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses. The WiFi page has Receive/Confirm toggles; `WifiUpdateUIController` shows the WiFi-update Accept dialog (confirm screen, READY/MENU only) and the progress screen (never call LVGL from the HTTP task; details in `docs/DESIGN-NOTES.md`)
-- **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
+**Key Components** (details in `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md"):
+- **HardwareManager**: central hardware coordinator
+- **GrindController**: 17-phase state machine (`GrindPhase`) with predictive flow control and pulse corrections
+- **WeightSensor (HX711)**: multi-mode weight measurement, calibration flag, noise diagnostics
+- **DiagnosticsController**: system health monitoring and priority-based warnings
+- **UIManager**: 7 LVGL screens, menu and split-button layouts
+- **StateMachine**: central state coordination (READY -> GRINDING -> GRIND_COMPLETE)
 
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
@@ -58,7 +56,7 @@ python3 tools/grinder.py analyze
 - Pull TLS allocates from PSRAM only inside `TlsPsramScope`; the pull URL is the fixed `UPDATE_PULL_BASE_URL`, https only.
 - `DEBUG_PULL_*` and `DEBUG_UPDATE_PROMPT_AUTOREPLY` exist only in `...-wifi-dev*` envs (they `#error` otherwise). Erase NVS after using a wifi-dev env (it seeds a public token and arms push). `release.yml` builds only the main env.
 
-**Motor / grind safety (details in `docs/DESIGN-NOTES.md` "Safety batch 1"; NOT run on hardware yet: weight-mode checks, deadman, lock-out/OTA fail-safe, MOTOR_FAULT; exact pulses measured on a V2 bench board only):**
+**Motor / grind safety (details and hardware-run status: `docs/DESIGN-NOTES.md`, "Safety batch 1" and its "Known limitations"; several checks are still not run on hardware):**
 - New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`.
 - Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
 - Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failure paths use `cleanup_failed_ota()` (unlocks); WiFi updates use `UpdateGuard` (same busy check and lock-out).
@@ -72,38 +70,15 @@ python3 tools/grinder.py analyze
 
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
-**Grind Phases:**
-- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
-- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
-- `PURGE_CONFIRM` - Purge mode pause so the user can discard grinds before the main grind
-- **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+**Grind phases:** the full phase list, `TIME_ADDITIONAL_PULSE`, `PURGE_CONFIRM` and the 60 s timeout are in `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md".
 
-**Grinder Purge/Prime:**
-- **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
-- **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
-- **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
-- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
-- **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
-- **No logging** during PURGE_CONFIRM
-- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amt_g` (float: 0.1-2.5, default=1.0)
+**Grinder purge/prime:** always runs before weight-mode grinding; modes, amounts and popup behaviour in the same DESIGN-NOTES section. Prefs: `grinder_mode`, `grinder_amt_g`.
 
-**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+**Time mode pulses:** split-button completion screen (OK + PULSE) and the `TIME_ADDITIONAL_PULSE` phase; details in the same DESIGN-NOTES section.
 
-**Grind Settings:** Configurable through Menu → Grind Settings page
-- **Mode Selection**: Weight/Time radio buttons
-- **Swipe Gestures Toggle**: vertical swipe mode switching (default: disabled)
-- **Automation**: Start on Cup and Return on Removal toggles
-- **Purging**: Keep/Remove radio buttons and Amount slider (0.1g-2.5g)
-- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time); purge prefs above. Swipe works only when enabled
+**Grind Settings** (Menu -> Grind Settings: mode, swipe, automation, purging). Prefs: `swipe.enabled`, `grind_mode`, `grinder_mode`, `grinder_amt_g`. Details in the same DESIGN-NOTES section.
 
-**Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
-- `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color
-- `THEME_COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
-- `THEME_COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
-- `THEME_COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
-- `THEME_COLOR_ERROR`: 0xFF0000 (Red) - Error states
-- `THEME_COLOR_BACKGROUND`: 0x000000 (Black) - Background
-- `THEME_COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
+Theme colours: `THEME_COLOR_*` in `src/config/theme.h` (values in `docs/DESIGN-NOTES.md`); prefer them over raw hex.
 
 **Font Usage Hierarchy:**
 - `lv_font_montserrat_24`: Standard text and button labels
@@ -113,28 +88,23 @@ python3 tools/grinder.py analyze
 
 ## Development Notes
 
-* When modifying this codebase, follow the existing architectural patterns, maintain the clean separation between layers, and ensure any timing-critical code respects the established update intervals.
-* use macos compatible commands. macos uses python3
-* after making a test build let me know the build number
-* Always read entire files. Otherwise, you don’t know what you don’t know, and will end up making mistakes, duplicating code that already exists, or misunderstanding the architecture.  
+* Follow the existing architectural patterns and keep the layers separate; timing-critical code must respect the update intervals above.
+* Use macOS-compatible commands; macOS uses python3.
+* After making a test build, tell the user the build number.
+* Always read entire files. Partial reads lead to mistakes, duplicated code and misread architecture.
 * Exception to "read entire files": never read `~\.claude\workspace\chgreq\smart-grind-by-weight\chg006\plan.md` whole (about 48 KB). Grep it for the step heading (e.g. `### 23.7`) and read only those lines with offset/limit.
-* Commit early and often. When working on large tasks, your task could be broken down into multiple logical milestones. After a certain milestone is completed and confirmed to be ok by the user, you should commit it. If you do not, if something goes wrong in further steps, we would need to end up throwing away all the code, which is expensive and time consuming.  
-* Your internal knowledgebase of libraries might not be up to date. When working with any external library, unless you are 100% sure that the library has a super stable interface, you will look up the latest syntax and usage via either Perplexity (first preference) or web search (less preferred, only use if Perplexity is not available)  
-* Do not say things like: “x library isn’t working so I will skip it”. Generally, it isn’t working because you are using the incorrect syntax or patterns. This applies doubly when the user has explicitly asked you to use a specific library, if the user wanted to use another library they wouldn’t have asked you to use a specific one in the first place.  
-* Always run linting after making major changes. Otherwise, you won’t know if you’ve corrupted a file or made syntax errors, or are using the wrong methods, or using methods in the wrong way.   
-* Please organise code into separate files wherever appropriate, and follow general coding best practices about variable naming, modularity, function complexity, file sizes, commenting, etc.  
-* Code is read more often than it is written, make sure your code is always optimised for readability  
-* Unless explicitly asked otherwise, the user never wants you to do a “dummy” implementation of any given task. Never do an implementation where you tell the user: “This is how it *would* look like”. Just implement the thing.  
-* Whenever you are starting a new task, it is of utmost importance that you have clarity about the task. You should ask the user follow up questions if you do not, rather than making incorrect assumptions.  
-* Do not carry out large refactors unless explicitly instructed to do so.  
-* When starting on a new task, you should first understand the current architecture, identify the files you will need to modify, and come up with a Plan. In the Plan, you will think through architectural aspects related to the changes you will be making, consider edge cases, and identify the best approach for the given task. Get your Plan approved by the user before writing a single line of code.   
-* If you are running into repeated issues with a given task, figure out the root cause instead of throwing random things at the wall and seeing what sticks, or throwing in the towel by saying “I’ll just use another library / do a dummy implementation”.   
-* You are an incredibly talented and experienced polyglot with decades of experience in diverse areas such as software architecture, system design, development, UI & UX, copywriting, and more.  
-* When doing UI & UX work, make sure your designs are both aesthetically pleasing, easy to use, and follow UI / UX best practices. You pay attention to interaction patterns, micro-interactions, and are proactive about creating smooth, engaging user interfaces that delight users.   
-* When you receive a task that is very large in scope or too vague, you will first try to break it down into smaller subtasks. If that feels difficult or still leaves you with too many open questions, push back to the user and ask them to consider breaking down the task for you, or guide them through that process. This is important because the larger the task, the more likely it is that things go wrong, wasting time and energy for everyone involved.
-- Touch polling now uses the IDF I2C master driver with ACK checking disabled so idle NACKs don't spam logs. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 if you need the raw driver output for troubleshooting.
-- `LOG_BLE(...)` (`src/config/logging.h`) is just `Serial.printf`, not a BLE log; BLE-specific verbose output is `LOG_BLE_DEBUG` behind `ENABLE_BLE_DEBUG_VERBOSE`.
-- Use the src/config/constants.h aggregation file to include constants / settings - dont refer to config files directly.
-- When new features have been added and tested always update the docs as well
-- when making a commit, only focus on the end result not the process we went through to get to the end result
-- CI (`.github/workflows/ci.yml`, also gates `release.yml`) runs ruff (errors only), compileall, pytest (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) and the native tests; run them before pushing (commands in `docs/DEVELOPMENT.md`). `firmware_cache/<env>/` keeps the newest 20 builds; `tools/web-flasher/firmware/` is generated, never commit it.
+* Commit early and often on large tasks: once a milestone is completed and confirmed by the user, commit it, so a later failure does not throw away everything.
+* Commit messages describe the end result, not the process used to reach it.
+* For external libraries, look up current syntax (Perplexity first, web search second) unless you are certain the interface is stable.
+* Never drop a library or fall back to a dummy implementation because it "isn't working". The cause is usually incorrect syntax or pattern: find the root cause instead of trying random fixes. Never present a "this is how it would look" implementation; implement the thing, unless the user asks otherwise.
+* Run linting after major changes.
+* Organise code into separate files where appropriate. Follow best practices for naming, modularity, function and file size, and comments. Code is read more often than written: optimise for readability.
+* Do not carry out large refactors unless explicitly instructed.
+* For a new task, make sure the requirements are clear and ask the user rather than assuming. Then understand the current architecture, identify the files to change, and present a plan (architecture, edge cases, approach) for approval before writing any code.
+* Very large or vague tasks: break them into subtasks; if there are still too many open questions, push back and ask the user to split the task.
+* UI/UX work: aim for designs that are attractive and easy to use, follow best practices, and pay attention to interaction patterns and micro-interactions.
+* When a feature has been added and tested, update the docs too.
+* Use the `src/config/constants.h` aggregation file to include constants and settings; do not refer to config files directly.
+* Touch polling and its I2C error toggle: see `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md".
+* `LOG_BLE(...)` (`src/config/logging.h`) is just `Serial.printf`, not a BLE log; BLE-specific verbose output is `LOG_BLE_DEBUG` behind `ENABLE_BLE_DEBUG_VERBOSE`.
+* CI (`.github/workflows/ci.yml`, also gates `release.yml`) runs ruff (errors only), compileall, pytest (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) and the native tests; run them before pushing (commands in `docs/DEVELOPMENT.md`). `firmware_cache/<env>/` keeps the newest 20 builds; `tools/web-flasher/firmware/` is generated, never commit it.

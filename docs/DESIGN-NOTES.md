@@ -527,3 +527,60 @@ Before = baseline `f6c1347` (built and booted on the bench board for the compari
 | `[TASK_HEARTBEAT_UIRender]` on READY, cycles per 10 s | 453 | 453 |
 | Menu `show()` duration | not logged | not logged (the walk has no timing line; boot captures show the "Showing menu" and "shown" lines 5 ms apart, with no baseline to pair) |
 | Native host tests | 313 | 352 |
+
+## Reference moved from CLAUDE.md
+
+Reference material moved out of the always-loaded `CLAUDE.md` (B1). The binding rules stay there; this section is the detail behind the one-line pointers.
+
+### WiFi command details
+
+- `wifi-info` prints name, version, build, board, busy and confirm. It needs only the host (`--host`, `GRINDER_WIFI_HOST` or `~/.grinder-wifi.json`); `/api/info` is unauthenticated.
+- `wifi-upload [firmware.bin]` needs host and token (`--token`, `GRINDER_WIFI_TOKEN` or the config file); Receive must be on and the update confirmed on the grinder screen.
+- `wifi-set "<ssid>"` / `wifi-clear` provision or remove WiFi credentials over BLE; changing them later needs Menu -> WiFi open on the device.
+- Usage for all four: `docs/DOC.md`, "WiFi Setup" and "Update from the computer".
+
+### Key components
+
+- **HardwareManager**: central hardware coordinator.
+- **GrindController**: 17-phase state machine (`GrindPhase`) with predictive flow control, 10 pulse corrections, mechanical instability detection and time-mode additional pulses.
+- **WeightSensor (HX711)**: multi-mode weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics.
+- **DiagnosticsController**: system health (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings.
+- **UIManager**: 7 screens with LVGL. Menu page: Tools (Scale view, Calibrate, Tune Pulses, Motor Test), then Settings (Bluetooth, WiFi, Display, Grind Settings), then Info (Diagnostics, System Info, Logs & Data, Lifetime Stats). Warning icon indicator; split-button layout for time-mode pulses. The WiFi page has the Receive/Confirm toggles.
+- **WifiUpdateUIController**: the WiFi-update Accept dialog (confirm screen, READY/MENU only) and the progress screen. Never call LVGL from the HTTP task.
+- **StateMachine**: central state coordination (READY -> GRINDING -> GRIND_COMPLETE).
+
+### Grind phases
+
+- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT.
+- `TIME_ADDITIONAL_PULSE`: dedicated phase for post-completion additional grinding pulses in time mode.
+- `PURGE_CONFIRM`: purge-mode pause so the user can discard grinds before the main grind. No logging during this phase.
+- Timeout: `GRIND_TIMEOUT_SEC` (60 s) is the maximum from grind start (includes taring). The grind auto-stops and requires user acknowledgment.
+
+### Grinder purge / prime
+
+- Always runs before weight-mode grinding, to saturate the grinder for accurate latency detection.
+- Prime mode keeps the coffee and continues immediately to PREDICTIVE.
+- Purge mode (default) shows a confirmation popup and waits for the user to discard stale grinds, then continues.
+- Amount: 0.1 g to `GRIND_PURGE_AMOUNT_MAX_G` (2.5 g; default 1.0 g).
+- The popup's "Always keep" checkbox switches Purge to Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge.
+- Preferences: `grinder_mode` (int: 0 Prime, 1 Purge, default 1), `grinder_amt_g` (float: 0.1-2.5, default 1.0).
+
+### Time mode pulses
+
+- Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100 ms duration.
+
+### Grind settings (Menu -> Grind Settings)
+
+- Mode selection: Weight/Time radio buttons.
+- Swipe gestures toggle: vertical swipe mode switching, default disabled. Swipe works only when enabled.
+- Automation: Start on Cup and Return on Removal toggles.
+- Purging: Keep/Remove radio buttons and an Amount slider (0.1-2.5 g).
+- Preferences: `swipe.enabled` (bool), `grind_mode` (0 Weight, 1 Time), plus the purge keys above.
+
+### Colours
+
+Values from `src/config/theme.h`: PRIMARY 0xFF3D00 (red, primary theme colour), ACCENT 0x00AAFF (blue, highlights), SUCCESS 0x00AA00 (green), WARNING 0xCC8800 (orange), ERROR 0xFF0000 (red), BACKGROUND 0x000000 (black), TEXT_PRIMARY 0xFFFFFF (white).
+
+### Touch polling
+
+- Touch polling uses the IDF I2C master driver with ACK checking disabled, so idle NACKs do not spam the log. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 to see the raw driver output when troubleshooting.

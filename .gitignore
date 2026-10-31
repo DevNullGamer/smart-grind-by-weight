@@ -30,3 +30,6 @@ failed_session_*.bin
 include/spike_secrets.h
 # Release assets downloaded by deploy-web-flasher.yml (never committed)
 tools/web-flasher/firmware/
+
+# Claude Code agent worktrees and local settings
+.claude/worktrees/
