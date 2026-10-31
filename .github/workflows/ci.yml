@@ -27,10 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: pip
@@ -52,16 +52,16 @@ jobs:
 
       - name: Set up Node
         if: ${{ hashFiles('tools/tests/*.test.js') != '' }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Node tests
         if: ${{ hashFiles('tools/tests/*.test.js') != '' }}
         run: node --test tools/tests/*.test.js
 
       - name: Cache PlatformIO (native tests)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.platformio
           key: pio-native-${{ runner.os }}-${{ hashFiles('platformio-native.ini') }}
@@ -78,15 +78,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
       - name: Cache PlatformIO
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.platformio
           key: pio-firmware-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
