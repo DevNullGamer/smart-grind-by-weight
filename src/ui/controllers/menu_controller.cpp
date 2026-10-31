@@ -71,8 +71,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_screensaver_slider_released(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
-    // (menu_screen.cpp) because the menu is created lazily and destroyed on hide.
-    // Attempting to register events here would fail silently since widgets don't exist yet.
+    // (menu_screen*.cpp): the widgets are created once in MenuScreen::create and only hidden afterwards.
 }
 
 void MenuUIController::update() {

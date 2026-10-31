@@ -41,19 +41,6 @@ void MenuScreen::create(BluetoothManager* bluetooth, GrindController* grind_ctrl
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
 
-    visible = false;
-    scale_active = false;
-    scale_page = nullptr;
-    scale_weight_label = nullptr;
-    scale_tare_button = nullptr;
-    scale_item = nullptr;
-    grinder_purge_mode_radio_group = nullptr;
-    grinder_purge_amount_slider = nullptr;
-    grinder_purge_amount_label = nullptr;
-    grind_freshness_hours_slider = nullptr;
-    grind_freshness_hours_label = nullptr;
-    board_status_label = nullptr;
-    board_override_radio_group = nullptr;
     lv_obj_set_hidden(screen, true);
 
     // Create menu UI immediately at boot for instant access
@@ -158,53 +145,45 @@ void MenuScreen::create_menu_ui() {
     diagnostics_page = lv_menu_page_create(menu, "Diagnostics");
     create_diagnostics_page(diagnostics_page);
 
-    // Create menu items grouped with separators
-    create_separator(main_page, "Tools");
-    scale_item = create_menu_item(main_page, "Scale");
-    cal_button = create_menu_item(main_page, "Calibrate");
-    autotune_button = create_menu_item(main_page, "Tune Pulses");
-    motor_test_button = create_menu_item(main_page, "Motor Test");
-
-    lv_menu_set_load_page_event(menu, scale_item, scale_page);
-
-    lv_obj_set_clickable(scale_item, true);
-    lv_obj_set_clickable(cal_button, true);
-    lv_obj_set_clickable(autotune_button, true);
-    lv_obj_set_clickable(motor_test_button, true);
-
+    // Main-page rows, grouped by section. `item` keeps the row handle for entries other code needs, `page` is
+    // the sub-page a tap opens, `action` an event raised on tap (kNoAction = none).
     using ET = EventBridgeLVGL::EventType;
-    bind_event(cal_button, LV_EVENT_CLICKED, ET::MENU_CALIBRATE);
-    bind_event(autotune_button, LV_EVENT_CLICKED, ET::MENU_AUTOTUNE);
-    bind_event(motor_test_button, LV_EVENT_CLICKED, ET::MENU_MOTOR_TEST);
+    constexpr ET kNoAction = static_cast<ET>(-1);
+    struct MainItem {
+        const char* section;
+        const char* label;
+        lv_obj_t* MenuScreen::* item;
+        lv_obj_t* MenuScreen::* page;
+        ET action;
+    };
+    const MainItem main_items[] = {
+        {"Tools",    "Scale",          &MenuScreen::scale_item,        &MenuScreen::scale_page,       kNoAction},
+        {"Tools",    "Calibrate",      &MenuScreen::cal_button,        nullptr,                       ET::MENU_CALIBRATE},
+        {"Tools",    "Tune Pulses",    &MenuScreen::autotune_button,   nullptr,                       ET::MENU_AUTOTUNE},
+        {"Tools",    "Motor Test",     &MenuScreen::motor_test_button, nullptr,                       ET::MENU_MOTOR_TEST},
+        {"Settings", "Bluetooth",      nullptr,                        &MenuScreen::bluetooth_page,   kNoAction},
+        {"Settings", "WiFi",           nullptr,                        &MenuScreen::wifi_page,        kNoAction},
+        {"Settings", "Display",        nullptr,                        &MenuScreen::display_page,     kNoAction},
+        {"Settings", "Grind Settings", nullptr,                        &MenuScreen::grind_mode_page,  kNoAction},
+        {"Settings", "Hardware board", nullptr,                        &MenuScreen::board_page,       kNoAction},
+        {"Info",     "Diagnostics",    nullptr,                        &MenuScreen::diagnostics_page, kNoAction},
+        {"Info",     "System Info",    nullptr,                        &MenuScreen::info_page,        kNoAction},
+        {"Info",     "Logs & Data",    nullptr,                        &MenuScreen::data_page,        kNoAction},
+        {"Info",     "Lifetime Stats", nullptr,                        &MenuScreen::stats_page,       kNoAction},
+    };
+    const char* current_section = nullptr;
+    for (const MainItem& entry : main_items) {
+        if (entry.section != current_section) {
+            current_section = entry.section;
+            create_separator(main_page, current_section);
+        }
+        lv_obj_t* row = create_menu_item(main_page, entry.label);
+        if (entry.item) this->*(entry.item) = row;
+        if (entry.page) lv_menu_set_load_page_event(menu, row, this->*(entry.page));
+        lv_obj_set_clickable(row, true);
+        if (entry.action != kNoAction) bind_event(row, LV_EVENT_CLICKED, entry.action);
+    }
 
-    create_separator(main_page, "Settings");
-    lv_obj_t* bluetooth_item = create_menu_item(main_page, "Bluetooth");
-    lv_menu_set_load_page_event(menu, bluetooth_item, bluetooth_page);
-
-    lv_obj_t* wifi_item = create_menu_item(main_page, "WiFi");
-    lv_menu_set_load_page_event(menu, wifi_item, wifi_page);
-
-    lv_obj_t* display_item = create_menu_item(main_page, "Display");
-    lv_menu_set_load_page_event(menu, display_item, display_page);
-
-    lv_obj_t* grind_mode_item = create_menu_item(main_page, "Grind Settings");
-    lv_menu_set_load_page_event(menu, grind_mode_item, grind_mode_page);
-
-    lv_obj_t* board_item = create_menu_item(main_page, "Hardware board");
-    lv_menu_set_load_page_event(menu, board_item, board_page);
-
-    create_separator(main_page, "Info");
-    lv_obj_t* diagnostics_item = create_menu_item(main_page, "Diagnostics");
-    lv_menu_set_load_page_event(menu, diagnostics_item, diagnostics_page);
-
-    lv_obj_t* info_item = create_menu_item(main_page, "System Info");
-    lv_menu_set_load_page_event(menu, info_item, info_page);
-
-    lv_obj_t* data_item = create_menu_item(main_page, "Logs & Data");
-    lv_menu_set_load_page_event(menu, data_item, data_page);
-
-    lv_obj_t* stats_item = create_menu_item(main_page, "Lifetime Stats");
-    lv_menu_set_load_page_event(menu, stats_item, stats_page);
 
     // Set main page as active (menu will be the landing page)
     lv_menu_set_page(menu, main_page);
@@ -269,16 +248,13 @@ void MenuScreen::hide() {
     LOG_BLE("[%lums MENU] Menu screen hidden successfully\n", millis());
 }
 
-bool MenuScreen::is_info_page_current() const {
-    return visible && menu && info_page && lv_menu_get_cur_main_page(menu) == info_page;
+bool MenuScreen::is_page_current(lv_obj_t* page) const {
+    return visible && menu && page && lv_menu_get_cur_main_page(menu) == page;
 }
 
-bool MenuScreen::is_diagnostics_page_current() const {
-    return visible && menu && diagnostics_page && lv_menu_get_cur_main_page(menu) == diagnostics_page;
-}
-
-bool MenuScreen::is_ble_page_current() const {
-    return visible && menu && bluetooth_page && lv_menu_get_cur_main_page(menu) == bluetooth_page;
-}
+bool MenuScreen::is_info_page_current() const { return is_page_current(info_page); }
+bool MenuScreen::is_diagnostics_page_current() const { return is_page_current(diagnostics_page); }
+bool MenuScreen::is_ble_page_current() const { return is_page_current(bluetooth_page); }
+bool MenuScreen::is_wifi_page_current() const { return is_page_current(wifi_page); }
 
 LV_DEPRECATIONS_IGNORE_END

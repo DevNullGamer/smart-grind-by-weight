@@ -196,6 +196,7 @@ public:
 
 private:
     void create_menu_ui();
+    bool is_page_current(lv_obj_t* page) const;  // menu visible and `page` is the one on screen
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);

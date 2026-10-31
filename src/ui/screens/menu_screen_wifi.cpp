@@ -110,10 +110,6 @@ void MenuScreen::apply_wifi_update_toggles() {
     apply(wifi_confirm_toggle, wifi_manager.accept_required());
 }
 
-bool MenuScreen::is_wifi_page_current() const {
-    return visible && menu && wifi_page && lv_menu_get_cur_main_page(menu) == wifi_page;
-}
-
 bool MenuScreen::wifi_credentials_changed() const {
     return wifi_loaded_revision != wifi_manager.credentials_revision();
 }
