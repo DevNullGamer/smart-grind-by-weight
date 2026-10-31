@@ -1,8 +1,8 @@
 // MenuScreen: Bluetooth page.
 #include "menu_screen.h"
 #include <Arduino.h>
-#include <Preferences.h>
 #include "../../config/constants.h"
+#include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "menu_widgets.h"
 
@@ -74,13 +74,8 @@ void MenuScreen::update_ble_status() {
 void MenuScreen::update_bluetooth_startup_toggle() {
     if (!ble_startup_toggle) return;
 
-    // Read from the "bluetooth" namespace using a local Preferences instance
-    Preferences prefs;
-    prefs.begin("bluetooth", true); // read-only
-
-    // Load startup value from preferences (default to true)
-    bool startup_enabled = prefs.getBool("startup", true);
-    prefs.end();
+    // Stored startup flag (the facade defaults to true when unset)
+    const bool startup_enabled = ui_settings.ble_startup();
 
     // Update toggle state
     if (startup_enabled) {

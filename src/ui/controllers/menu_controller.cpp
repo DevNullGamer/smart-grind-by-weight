@@ -13,6 +13,8 @@
 #include "../../hardware/board_detect.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/diagnostics_controller.h"
+#include "../../system/menu_setting_models.h"
+#include "../../system/nvs_settings_store.h"
 #include "../../system/statistics_manager.h"
 #include "../components/blocking_overlay.h"
 #include "../components/ui_operations.h"
@@ -20,6 +22,20 @@
 #include "../ui_helpers.h"
 #include "../ui_manager.h"
 #include "../screens/menu_screen.h"
+
+namespace {
+
+// Slider percent clamped to the display minimum; the slider is snapped back when it was below it.
+int read_brightness_percent(lv_obj_t* slider) {
+    const int raw_percent = lv_slider_get_value(slider);
+    const int percent = brightness_clamp_percent(raw_percent);
+    if (percent != raw_percent) {
+        lv_slider_set_value(slider, percent, LV_ANIM_OFF);
+    }
+    return percent;
+}
+
+}  // namespace
 
 MenuUIController::MenuUIController(UIManager* manager)
     : ui_manager_(manager) {}
@@ -285,10 +301,7 @@ void MenuUIController::handle_ble_startup_toggle() {
 
     bool startup_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
 
-    Preferences prefs;
-    prefs.begin("bluetooth", false);
-    prefs.putBool("startup", startup_enabled);
-    prefs.end();
+    ui_settings.set_ble_startup(startup_enabled);
 
     LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
 }
@@ -517,12 +530,8 @@ void MenuUIController::handle_brightness_normal_slider() {
     auto* slider = ui_manager_->menu_screen.get_brightness_normal_slider();
     if (!slider) return;
 
-    int brightness_percent = lv_slider_get_value(slider);
-    if (brightness_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) {
-        brightness_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-        lv_slider_set_value(slider, brightness_percent, LV_ANIM_OFF);
-    }
-    float brightness = brightness_percent / 100.0f;
+    const int brightness_percent = read_brightness_percent(slider);
+    const float brightness = brightness_fraction_from_percent(brightness_percent);
 
     ui_manager_->get_hardware_manager()->get_display()->set_brightness(brightness);
     ui_manager_->menu_screen.update_brightness_labels(brightness_percent, -1);
@@ -533,17 +542,10 @@ void MenuUIController::handle_brightness_normal_slider_released() {
     auto* slider = ui_manager_->menu_screen.get_brightness_normal_slider();
     if (!slider) return;
 
-    int brightness_percent = lv_slider_get_value(slider);
-    if (brightness_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) {
-        brightness_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-        lv_slider_set_value(slider, brightness_percent, LV_ANIM_OFF);
-    }
-    float brightness = brightness_percent / 100.0f;
+    const int brightness_percent = read_brightness_percent(slider);
+    const float brightness = brightness_fraction_from_percent(brightness_percent);
 
-    Preferences prefs;
-    prefs.begin("brightness", false);
-    prefs.putFloat("normal", brightness);
-    prefs.end();
+    ui_settings.set_brightness_normal(brightness);
 }
 
 void MenuUIController::handle_brightness_screensaver_slider() {
@@ -552,12 +554,8 @@ void MenuUIController::handle_brightness_screensaver_slider() {
     auto* slider = ui_manager_->menu_screen.get_brightness_screensaver_slider();
     if (!slider) return;
 
-    int brightness_percent = lv_slider_get_value(slider);
-    if (brightness_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) {
-        brightness_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-        lv_slider_set_value(slider, brightness_percent, LV_ANIM_OFF);
-    }
-    float brightness = brightness_percent / 100.0f;
+    const int brightness_percent = read_brightness_percent(slider);
+    const float brightness = brightness_fraction_from_percent(brightness_percent);
 
     ui_manager_->get_hardware_manager()->get_display()->set_brightness(brightness);
     ui_manager_->menu_screen.update_brightness_labels(-1, brightness_percent);
@@ -568,17 +566,10 @@ void MenuUIController::handle_brightness_screensaver_slider_released() {
     auto* slider = ui_manager_->menu_screen.get_brightness_screensaver_slider();
     if (!slider) return;
 
-    int brightness_percent = lv_slider_get_value(slider);
-    if (brightness_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) {
-        brightness_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-        lv_slider_set_value(slider, brightness_percent, LV_ANIM_OFF);
-    }
-    float brightness = brightness_percent / 100.0f;
+    const int brightness_percent = read_brightness_percent(slider);
+    const float brightness = brightness_fraction_from_percent(brightness_percent);
 
-    Preferences prefs;
-    prefs.begin("brightness", false);
-    prefs.putFloat("screensaver", brightness);
-    prefs.end();
+    ui_settings.set_brightness_screensaver(brightness);
 
     float normal = get_normal_brightness();
     ui_manager_->get_hardware_manager()->get_display()->set_brightness(normal);
@@ -639,15 +630,7 @@ float MenuUIController::get_normal_brightness() const {
         return USER_SCREEN_BRIGHTNESS_NORMAL;
     }
 
-    Preferences prefs;
-    prefs.begin("brightness", true);
-    float brightness = prefs.getFloat("normal", USER_SCREEN_BRIGHTNESS_NORMAL);
-    prefs.end();
-
-    if (brightness < 0.15f) {
-        brightness = 0.15f;
-    }
-    return brightness;
+    return brightness_fraction_floor(ui_settings.brightness_normal());
 }
 
 float MenuUIController::get_screensaver_brightness() const {
@@ -655,14 +638,6 @@ float MenuUIController::get_screensaver_brightness() const {
         return USER_SCREEN_BRIGHTNESS_DIMMED;
     }
 
-    Preferences prefs;
-    prefs.begin("brightness", true);
-    float brightness = prefs.getFloat("screensaver", USER_SCREEN_BRIGHTNESS_DIMMED);
-    prefs.end();
-
-    if (brightness < 0.15f) {
-        brightness = 0.15f;
-    }
-    return brightness;
+    return brightness_fraction_floor(ui_settings.brightness_screensaver());
 }
 

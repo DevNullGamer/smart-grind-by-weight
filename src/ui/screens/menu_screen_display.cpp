@@ -1,9 +1,10 @@
 // MenuScreen: Display page (brightness sliders).
 #include "menu_screen.h"
 #include <Arduino.h>
-#include <Preferences.h>
 #include "../../config/constants.h"
 #include "../../hardware/hardware_manager.h"
+#include "../../system/menu_setting_models.h"
+#include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "menu_widgets.h"
 
@@ -30,24 +31,10 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
 void MenuScreen::update_brightness_sliders() {
     if (!hardware_manager || !brightness_normal_slider || !brightness_screensaver_slider) return;
     
-    // Read from the dedicated "brightness" namespace using a local Preferences
-    // instance so we don't interfere with the global shared handle.
-    Preferences prefs;
-    prefs.begin("brightness", false); // writable so namespace is created on first use
-    
-    // Load brightness values from preferences (default to compile-time values)
-    float normal_brightness = prefs.getFloat("normal", USER_SCREEN_BRIGHTNESS_NORMAL);
-    float screensaver_brightness = prefs.getFloat("screensaver", USER_SCREEN_BRIGHTNESS_DIMMED);
-    prefs.end();
-    
-    // Convert from 0.0-1.0 to 15-100 range
-    int normal_percent = (int)(normal_brightness * 100);
-    int screensaver_percent = (int)(screensaver_brightness * 100);
-    
-    // Ensure minimum 15%
-    if (normal_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) normal_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-    if (screensaver_percent < HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT) screensaver_percent = HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT;
-    
+    // Stored fractions (0.0-1.0) converted to the clamped slider percent (15-100)
+    const int normal_percent = brightness_percent_from_fraction(ui_settings.brightness_normal());
+    const int screensaver_percent = brightness_percent_from_fraction(ui_settings.brightness_screensaver());
+
     // Update sliders
     lv_slider_set_value(brightness_normal_slider, normal_percent, LV_ANIM_OFF);
     lv_slider_set_value(brightness_screensaver_slider, screensaver_percent, LV_ANIM_OFF);

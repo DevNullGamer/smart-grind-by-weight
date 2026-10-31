@@ -10,6 +10,7 @@
 #include "../system/performance_monitor.h"
 #include "../system/statistics_manager.h"
 #include "../system/diagnostics_controller.h"
+#include "../system/nvs_settings_store.h"
 #include "../system/update_guard.h"
 #include "../config/constants.h"
 #include "../config/user.h"
@@ -301,12 +302,9 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
 }
 
 void BluetoothManager::enable_during_bootup() {
-    Preferences prefs;
-    prefs.begin("bluetooth", true);
-    if (prefs.getBool("startup", true)) {
+    if (ui_settings.ble_startup()) {
         enable(BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS);
     }
-    prefs.end();
 }
 
 // Soft disable: BLEDevice::deinit()/init() leaks ~11 KB of internal heap per cycle, so the stack stays
