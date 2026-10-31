@@ -1,10 +1,8 @@
 // MenuScreen: Grind Settings page (mode, swipe, automation, purge, freshness).
 #include "menu_screen.h"
 #include <Arduino.h>
-#include <Preferences.h>
-#include <algorithm>
 #include "../../config/constants.h"
-#include "../../hardware/hardware_manager.h"
+#include "../../system/menu_setting_models.h"
 #include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "menu_widgets.h"
@@ -85,8 +83,8 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_description_label(parent, "Purge amount is a minimum target, not an exact goal.");
 
     // Slider for grinder purge amount (uses kPurgeSliderScale for resolution)
-    const uint32_t slider_min_units = static_cast<uint32_t>(GRIND_PURGE_AMOUNT_MIN_G * kPurgeSliderScale + 0.5f);
-    const uint32_t slider_max_units = static_cast<uint32_t>(GRIND_PURGE_AMOUNT_MAX_G * kPurgeSliderScale + 0.5f);
+    const uint32_t slider_min_units = static_cast<uint32_t>(purge_slider_min());
+    const uint32_t slider_max_units = static_cast<uint32_t>(purge_slider_max());
     create_slider_row(parent, "Amount", &grinder_purge_amount_label, &grinder_purge_amount_slider,
                      lv_color_hex(THEME_COLOR_ACCENT), slider_min_units, slider_max_units);
 
@@ -110,49 +108,24 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 void MenuScreen::update_grinder_purge_amount_label(float amount_g) {
     if (grinder_purge_amount_label) {
         char buffer[16];
-        float clamped_amount = amount_g;
-        if (clamped_amount < GRIND_PURGE_AMOUNT_MIN_G) clamped_amount = GRIND_PURGE_AMOUNT_MIN_G;
-        if (clamped_amount > GRIND_PURGE_AMOUNT_MAX_G) clamped_amount = GRIND_PURGE_AMOUNT_MAX_G;
-        snprintf(buffer, sizeof(buffer), "Amount: %.1fg", clamped_amount);
-        lv_label_set_text(grinder_purge_amount_label, buffer);
+        lv_label_set_text(grinder_purge_amount_label, purge_label(buffer, sizeof(buffer), amount_g));
     }
 }
 
 void MenuScreen::update_grind_freshness_hours_label(float hours) {
     if (grind_freshness_hours_label) {
         char buffer[24];
-        if (hours < 1.0f) {
-            snprintf(buffer, sizeof(buffer), "Freshness: %.1fh", hours);
-        } else {
-            snprintf(buffer, sizeof(buffer), "Freshness: %.0fh", hours);
-        }
-        lv_label_set_text(grind_freshness_hours_label, buffer);
+        lv_label_set_text(grind_freshness_hours_label, freshness_label(buffer, sizeof(buffer), hours));
     }
 }
 
 void MenuScreen::update_grind_mode_toggles() {
-    bool swipe_enabled = ui_settings.swipe_enabled();
-
-    // Read current grind mode from main grinder preferences using hardware manager
-    int mode_index = 0; // Default to Weight (index 0)
-    int grinder_purge_mode_index = GRIND_PURGE_MODE_DEFAULT;  // Default to Purge
-    float grinder_purge_amount_g = GRIND_PURGE_AMOUNT_DEFAULT_G;  // Default to 1.0g
-    if (hardware_manager) {
-        Preferences* main_prefs = hardware_manager->get_preferences();
-        if (main_prefs) {
-            int stored_mode = main_prefs->getInt("grind_mode", static_cast<int>(GrindMode::WEIGHT));
-            mode_index = (stored_mode == static_cast<int>(GrindMode::TIME)) ? 1 : 0;
-            grinder_purge_mode_index = main_prefs->getInt(GrindController::PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
-            grinder_purge_amount_g = main_prefs->getFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
-        }
-    }
-
     if (grind_mode_radio_group) {
-        radio_button_group_set_selection(grind_mode_radio_group, mode_index);
+        radio_button_group_set_selection(grind_mode_radio_group, grind_mode_radio_index(ui_settings.grind_mode_raw()));
     }
 
     if (grind_mode_swipe_toggle) {
-        if (swipe_enabled) {
+        if (ui_settings.swipe_enabled()) {
             lv_obj_add_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_remove_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
@@ -160,11 +133,8 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     // Auto actions toggles (defaults disabled)
-    bool auto_start_enabled = ui_settings.auto_start();
-    bool auto_return_enabled = ui_settings.auto_return();
-
     if (auto_start_toggle) {
-        if (auto_start_enabled) {
+        if (ui_settings.auto_start()) {
             lv_obj_add_state(auto_start_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_remove_state(auto_start_toggle, LV_STATE_CHECKED);
@@ -172,7 +142,7 @@ void MenuScreen::update_grind_mode_toggles() {
     }
 
     if (auto_return_toggle) {
-        if (auto_return_enabled) {
+        if (ui_settings.auto_return()) {
             lv_obj_add_state(auto_return_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_remove_state(auto_return_toggle, LV_STATE_CHECKED);
@@ -181,46 +151,21 @@ void MenuScreen::update_grind_mode_toggles() {
 
     // Update grinder purge mode radio group selection
     if (grinder_purge_mode_radio_group) {
-        radio_button_group_set_selection(grinder_purge_mode_radio_group, grinder_purge_mode_index);
+        radio_button_group_set_selection(grinder_purge_mode_radio_group, ui_settings.purge_mode());
     }
 
-    grinder_purge_amount_g = std::clamp(grinder_purge_amount_g, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
-    const int slider_min_units = static_cast<int>(GRIND_PURGE_AMOUNT_MIN_G * kPurgeSliderScale + 0.5f);
-    const int slider_max_units = static_cast<int>(GRIND_PURGE_AMOUNT_MAX_G * kPurgeSliderScale + 0.5f);
-
-    // Update grinder purge amount slider using kPurgeSliderScale (0.1g resolution)
+    // Purge amount slider (0.1g resolution) and label
+    const float purge_amount_g = ui_settings.purge_amount_g();
     if (grinder_purge_amount_slider) {
-        int slider_value = static_cast<int>(grinder_purge_amount_g * kPurgeSliderScale + 0.5f);
-        slider_value = std::clamp(slider_value, slider_min_units, slider_max_units);
-        lv_slider_set_value(grinder_purge_amount_slider, slider_value, LV_ANIM_OFF);
+        lv_slider_set_value(grinder_purge_amount_slider, purge_slider_from_amount(purge_amount_g), LV_ANIM_OFF);
     }
+    update_grinder_purge_amount_label(purge_amount_g);
 
-    // Update grinder purge amount label
-    update_grinder_purge_amount_label(grinder_purge_amount_g);
-
-    // Load and set grind freshness hours
-    float freshness_hours = GRIND_FRESHNESS_DEFAULT_HOURS;
-    if (hardware_manager) {
-        Preferences* main_prefs = hardware_manager->get_preferences();
-        if (main_prefs) {
-            freshness_hours = main_prefs->getFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, GRIND_FRESHNESS_DEFAULT_HOURS);
-        }
-    }
-
-    // Map hours to slider index (discrete steps: 0.5, 1, 2, 3, 4, 8, 12, 24, 48)
-    static const float freshness_steps[] = {0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 8.0f, 12.0f, 24.0f, 48.0f};
-    int slider_index = 5; // Default to 8h
-    for (int i = 0; i < 9; i++) {
-        if (fabsf(freshness_hours - freshness_steps[i]) < 0.1f) {
-            slider_index = i;
-            break;
-        }
-    }
-
+    // Freshness slider index from the stored hours (label shows the stored value itself)
+    const float freshness_hours = ui_settings.freshness_hours();
     if (grind_freshness_hours_slider) {
-        lv_slider_set_value(grind_freshness_hours_slider, slider_index, LV_ANIM_OFF);
+        lv_slider_set_value(grind_freshness_hours_slider, freshness_index_from_hours(freshness_hours), LV_ANIM_OFF);
     }
-
     update_grind_freshness_hours_label(freshness_hours);
 }
 

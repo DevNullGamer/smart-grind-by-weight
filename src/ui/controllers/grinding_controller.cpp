@@ -8,6 +8,7 @@
 #include "../../controllers/grind_events.h"
 #include "../../controllers/grind_mode.h"
 #include "../../logging/grind_logging.h"
+#include "../../system/nvs_settings_store.h"
 #include "../ui_manager.h"
 
 GrindingUIController* GrindingUIController::instance_ = nullptr;
@@ -280,11 +281,7 @@ void GrindingUIController::handle_purge_confirm_continue() {
         LOG_BLE("[%lums PURGE] User chose to keep grinds - switching to Prime mode\n", millis());
 
         // Switch grinder purge mode from Purge to Prime in preferences
-        auto* hardware = ui_manager_->get_hardware_manager();
-        Preferences* prefs = hardware ? hardware->get_preferences() : nullptr;
-        if (prefs) {
-            prefs->putInt(GrindController::PREF_KEY_GRINDER_MODE, static_cast<int>(GrinderPurgeMode::PRIME));
-        }
+        ui_settings.set_purge_mode(static_cast<int>(GrinderPurgeMode::PRIME));
     }
 
     // Hide the purge confirmation screen and continue grinding
