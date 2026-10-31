@@ -119,7 +119,6 @@ private:
     DiagnosticsController* diagnostics_controller = nullptr;
 
 public:
-
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
     void hide();

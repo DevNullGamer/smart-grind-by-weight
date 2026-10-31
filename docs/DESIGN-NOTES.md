@@ -371,7 +371,7 @@ Goal: a faulty sensor, a stuck phase, a lost motor command or an interrupted upd
 - **Assert handler**: `LV_ASSERT_HANDLER` is `abort();` (`include/lv_assert_handler.h`) instead of `while(1);`. A hang on the UI task (Core 1) freezes UI, BLE and WiFi with no watchdog reset; a reboot is recoverable and rolls back an unconfirmed update. NULL and MALLOC asserts stay on.
 - **Fonts**: built-in 14 (default), 24, 28, 32, 36 are enabled; 56 and 60 are custom, declared in `include/lv_font_custom.h` (`LV_FONT_USE_CUSTOM_INCLUDE`). Unused widgets, themes, demos and examples are off; the compiler's dependency `#error`s decide what must stay.
 - **API names**: the v8 names and the 9.6-deprecated `lv_obj_add_flag`/`remove_flag` were migrated (`lv_screen_active`, `lv_button_create`, `lv_obj_set_hidden(o, true)`, `lv_obj_set_clickable(o, false)` and so on; the per-flag setters do what the flag functions did internally). `-DLV_DISABLE_API_MAPPING` is in the shared `build_flags`, so a v8 name is now a compile error.
-- **lv_menu**: deprecated since 9.6 (removed in v10). Not replaced; `menu_screen.cpp` and `menu_screen_wifi.cpp` wrap their code in `LV_DEPRECATIONS_IGNORE_BEGIN/END` so only that file-level suppression exists. A replacement belongs to chg006 item 23 (MenuScreen split).
+- **lv_menu**: deprecated since 9.6 (removed in v10). Not replaced; `menu_screen.cpp` and `menu_screen_wifi.cpp` wrap their code in `LV_DEPRECATIONS_IGNORE_BEGIN/END` so only that file-level suppression exists. The replacement is deferred (see "Menu refactor (chg006 item 23)": the split keeps `lv_menu`).
 
 ## UI robustness (chg005)
 
@@ -437,3 +437,93 @@ Builds, native tests (313) and pytest ran; the following were reviewed in code o
 - Mock grind increments the session count in Logs & Data (proves FileIO still drains the log queues).
 - Colours (red primary, blue accent), fonts and icons after the `lv_conf.h` regeneration; Motor Test overlay with STOP, grind/pulse/cancel button visibility, READY tab swipe, menu scrolling.
 - Menu pages, Calibration and Auto-Tune after the 24.4 width constants (no visual change expected).
+
+## Menu refactor (chg006 item 23)
+
+Goal: split the 1292-line `menu_screen.cpp` and 669-line `menu_controller.cpp`, and put every menu NVS key behind one facade, with no change in behaviour or stored data. Branch `feat/menu-refactor`, roughly one commit per step (23.1 to 23.14).
+
+### Settings facade contract
+
+- `system/settings_store.h`: abstract `SettingsStore` (`get_/put_` bool, int32, float by `(namespace, key)`; `put_*` returns false when not stored).
+- `system/ui_settings.h/.cpp`: `UiSettings` holds a `SettingsStore&`, no state, no cache. It is the ONLY place that defines the namespaces and keys (`ui_settings_keys` in the header; accessors in the `.cpp`). Getters return the raw stored value with the legacy default; clamping and conversion live in `menu_setting_models.*`.
+- `system/nvs_settings_store.*`: `NvsSettingsStore` over Arduino `Preferences`, plus the global `ui_settings`. Namespace `grinder` uses the shared handle (`set_grinder_handle`, attached in `main.cpp` after `hardware_manager.init()`; until then gets return the default and puts are dropped, like the old `if (prefs)` guards). Every other namespace opens a short-lived handle per call. `static_assert`s compare the grinder keys with `GrindController::PREF_KEY_*`.
+- UI code never opens `Preferences` for these keys. `tools/tests/test_nvs_single_source.py` is a text guard: the key literals appear only in the allowed files, nothing under `src/ui/` uses `Preferences` except `grinding_screen.*` and the debug harness, and `bluetooth/manager.cpp` and `grind_logging.cpp` contain none of the literals. Allowed extras (A4): `grind_controller.h` `PREF_KEY_*` and the `"grind_mode"` literal in `profile_controller.cpp`.
+- Stored types and values are unchanged, so an upgrade keeps NVS. The one exception is the purge-amount key, renamed in b8b5e11 (`grinder_amount_g` to `grinder_amt_g`); the old 16-character key could never persist (NVS 15-character limit), so nothing is lost.
+
+| Setting | Namespace | Key | Type | Default |
+|---|---|---|---|---|
+| ble_startup | `bluetooth` | `startup` | bool | true |
+| logging_enabled | `logging` | `enabled` | bool | false |
+| swipe_enabled | `swipe` | `enabled` | bool | false |
+| auto_start | `autogrind` | `auto_start` | bool | false |
+| auto_return | `autogrind` | `auto_return` | bool | false |
+| brightness_normal | `brightness` | `normal` | float (percent / 100) | 1.0 |
+| brightness_screensaver | `brightness` | `screensaver` | float | 0.35 |
+| grind_mode (read only) | `grinder` | `grind_mode` | int | 0 (WEIGHT) |
+| purge_mode | `grinder` | `grinder_mode` (0 Prime, 1 Purge) | int | 1 |
+| purge_amount_g | `grinder` | `grinder_amt_g` | float 0.1..2.5 | 1.0 |
+| freshness_hours | `grinder` | `freshness_hrs` | float | 8.0 |
+
+The purge amount key is `grinder_amt_g` (shortened earlier to fit the 15-character NVS key limit; `tools/tests/test_nvs_key_length.py` checks it).
+
+### Decisions
+
+- **A3, no cache, no threading change.** The facade does not cache and does not move NVS I/O to another task. Reads still happen on user actions and dim/undim transitions on the calling task. `bluetooth/manager.cpp` and `grind_logging.cpp` read two of the keys from other tasks, so a cache would need a coherence design with no user-visible gain. The facade is the single choke point, so a later cache or write-behind is a one-file change.
+- **A5, brightness namespace creation dropped.** The old `update_brightness_sliders()` opened the `brightness` namespace writable to create it on first use. The facade reads read-only, so opening the menu on a device that never saved a brightness no longer creates an empty `brightness` namespace. Keys, types and values are unchanged.
+- **A6, quirks preserved and pinned by host tests.** (1) BLE startup default is true. (2) A stored brightness fraction becomes a slider percent with `(int)(f * 100)` then the minimum-percent clamp, while `get_*_brightness()` clamps the fraction at 0.15. (3) A stored freshness that is not one of the 9 steps shows the slider at index 5 (8 h) with the stored value in the label; the store changes only when the slider is released. (4) The purge-mode radio stores the selected index as is (including -1). (5) Purge amount and freshness sliders write NVS on RELEASED only; VALUE_CHANGED updates the label.
+
+### File map as built
+
+| File | Content |
+|---|---|
+| `src/ui/screens/menu_screen.h/.cpp` | class, `create`, `create_menu_ui` (main-item table), `show/hide`, one `is_page_current` helper |
+| `src/ui/screens/menu_widgets.h/.cpp` | `namespace menu_ui` helpers: separators, menu items, toggle/slider rows, labels, `init_column_page`, `bind_event` |
+| `src/ui/screens/menu_screen_{info,bluetooth,display,grind,board,scale,data,diagnostics,wifi}.cpp` | one page each: create and update code |
+| `src/ui/screens/menu_screen_settings.cpp` | table-driven creation and refresh of setting toggles, sliders and radio groups |
+| `src/ui/controllers/menu_controller.cpp` | `register_events`, `update`, calibrate/reset/purge/scale/autotune/back/stats/diagnostics handlers, factory reset |
+| `src/ui/controllers/menu_controller_settings.cpp` | generic toggle/slider/radio handlers, grind-mode and board handlers, `get_normal/screensaver_brightness` |
+| `src/ui/controllers/menu_controller_{wifi,motor_test}.cpp` | unchanged |
+| `src/system/{settings_store.h,ui_settings.*,nvs_settings_store.*}` | the facade above |
+| `src/system/menu_setting_models.*` | pure conversions and label texts (brightness, purge slider scale 10, the single freshness step table) |
+| `src/system/menu_setting_table.*` | toggle, slider and radio tables (pointer-to-member of `UiSettings`, host-testable against a fake store) |
+| `src/ui/menu_walk_debug.*` | bench walk harness (`DEBUG_MENU_WALK`) |
+| `test_native/test_{ui_settings,menu_setting_models,menu_setting_table,menu_setting_sliders,menu_setting_radios}.cpp` | host tests, including a golden key/type/default table |
+
+### Walk harness
+
+- `DEBUG_MENU_WALK` exists only in the `waveshare-esp32s3-touch-amoled-164-menu-walk` env. About 8 s after boot an `lv_timer` opens every menu page, drives each setting widget through its real LVGL event (callback, handler, facade), checks NVS with a raw `Preferences` read and logs `[MENUWALK]` lines ending in `DONE fail=<n>`. It writes NVS and restores the original values: bench board only, never a grinder in use.
+- Run: `pio run -e waveshare-esp32s3-touch-amoled-164-menu-walk -t upload`, capture the serial output for about 30 s, then `python3 menu_walk_normalize.py capture.log > normalized.txt` and `diff` it with the golden capture.
+- The golden captures (`menu-walk-baseline.log` from the pre-refactor code, one `item23-walk-23.N.txt` per step) and `menu_walk_normalize.py` live OUTSIDE the repo in the chg006 change-request folder (`~/.claude/workspace/chgreq/smart-grind-by-weight/chg006/`). They are not versioned here.
+- Not covered by the walk: the board picker.
+
+### lv_menu stays; replacement deferred
+
+`lv_menu` is deprecated since LVGL 9.6 and removed in v10, but the split keeps it: the page files keep the file-level `LV_DEPRECATIONS_IGNORE_BEGIN/END` pair and the main-env warning count stays at the baseline. Replacing it is a separate change; the page files and `menu_widgets` are the seam for it (see also "LVGL pin and config").
+
+### Leftovers
+
+- Slider width literal `220` is in `menu_widgets.cpp` (not in the theme).
+- `grind_layout` (`GrindingScreen`) and the `grind_mode` write (`ProfileController`) are not in the facade; folding them in is a possible follow-up.
+- A4 exceptions: `profile_controller.cpp` keeps its own `"grind_mode"` literal and `grind_controller.h` its `PREF_KEY_*` constants (the only edit under `src/controllers/` is the one-line key shortening in `grind_controller.h`, `PREF_KEY_GRINDER_AMOUNT_G` `grinder_amount_g` to `grinder_amt_g`, commit b8b5e11; `src/hardware/` was not edited). Key identity is guarded by `static_assert`, the golden host test and the pytest guard.
+- The board picker page is not covered by the walk. Board override keys (`board_override`, `board_last`) stay in `board_detect.cpp`.
+
+### Measured before / after
+
+Before = baseline `f6c1347` (built and booted on the bench board for the comparison). Plan targets in brackets. Captures are kept outside the repo.
+
+| Metric | Before | After |
+|---|---|---|
+| `wc -l` `menu_screen.cpp` | 1292 | 259 [<= 300] |
+| `wc -l` `menu_screen.h` | 225 | 202 [<= 200, missed by 2] |
+| `wc -l` `menu_screen_wifi.cpp` | 315 | 246 [<= 300] |
+| `wc -l` `menu_controller.cpp` | 669 | 331 [<= 350] |
+| `wc -l` `menu_controller.h` | 73 | 66 [<= 65, missed by 1] |
+| `wc -l` largest new menu file (`menu_widgets.cpp`) | n/a | 203 [<= 200, missed by 3] |
+| `wc -l` facade files (`ui_settings`, `menu_setting_models`, `menu_setting_table`, `nvs_settings_store`) | 0 | 562 [about 430; the row tables and slider hooks came to more] |
+| Firmware size (main env, flash bytes) | 2417799 (76.9%) | 2416207 (76.8%) |
+| Build warnings (main env) | 3 | 3 |
+| Free internal heap after hardware init | 251632 B | 251368 B (-264 B) |
+| Free internal heap after UI init | 245864 B | 245608 B (-256 B) |
+| `[TASK_HEARTBEAT_UIRender]` on READY, cycles per 10 s | 453 | 453 |
+| Menu `show()` duration | not logged | not logged (the walk has no timing line; boot captures show the "Showing menu" and "shown" lines 5 ms apart, with no baseline to pair) |
+| Native host tests | 313 | 352 |
