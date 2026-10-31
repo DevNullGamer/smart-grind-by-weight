@@ -58,13 +58,9 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::MENU_REFRESH_STATS, [this](lv_event_t*) { handle_refresh_stats(); });
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
-    EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
-    EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
+    register_setting_toggle_events();
 
-    EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
-    EventBridgeLVGL::register_handler(ET::AUTO_START_TOGGLE, [this](lv_event_t*) { handle_auto_start_toggle(); });
-    EventBridgeLVGL::register_handler(ET::AUTO_RETURN_TOGGLE, [this](lv_event_t*) { handle_auto_return_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grinder_purge_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER, [this](lv_event_t*) { handle_grinder_purge_amount_slider(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED, [this](lv_event_t*) { handle_grinder_purge_amount_slider_released(); });
@@ -292,45 +288,6 @@ void MenuUIController::handle_ble_toggle() {
     overlay.show_and_execute(BlockingOperation::BLE_ENABLING, operation, completion);
 }
 
-void MenuUIController::handle_ble_startup_toggle() {
-    if (!ui_manager_) return;
-
-    auto* toggle = ui_manager_->menu_screen.get_ble_startup_toggle();
-    if (!toggle) return;
-
-    bool startup_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
-
-    ui_settings.set_ble_startup(startup_enabled);
-
-    LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
-}
-
-void MenuUIController::handle_logging_toggle() {
-    if (!ui_manager_) return;
-
-    auto* toggle = ui_manager_->menu_screen.get_logging_toggle();
-    if (!toggle) return;
-
-    bool logging_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
-
-    ui_settings.set_logging_enabled(logging_enabled);
-
-    LOG_DEBUG_PRINTLN(logging_enabled ? "Logging enabled" : "Logging disabled");
-}
-
-void MenuUIController::handle_grind_mode_swipe_toggle() {
-    if (!ui_manager_) return;
-
-    auto* toggle = ui_manager_->menu_screen.get_grind_mode_swipe_toggle();
-    if (!toggle) return;
-
-    bool swipe_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
-
-    ui_settings.set_swipe_enabled(swipe_enabled);
-
-    LOG_DEBUG_PRINTLN(swipe_enabled ? "Grind mode swipe gestures enabled" : "Grind mode swipe gestures disabled");
-}
-
 void MenuUIController::handle_grind_mode_radio_button() {
     if (!ui_manager_ || !ui_manager_->profile_controller) return;
 
@@ -354,40 +311,6 @@ void MenuUIController::handle_grind_mode_radio_button() {
     }
 
     LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grind mode set to WEIGHT via radio button" : "Grind mode set to TIME via radio button");
-}
-
-void MenuUIController::handle_auto_start_toggle() {
-    if (!ui_manager_) return;
-
-    auto* toggle = ui_manager_->menu_screen.get_auto_start_toggle();
-    if (!toggle) return;
-
-    bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
-
-    ui_settings.set_auto_start(enabled);
-
-    if (ui_manager_) {
-        ui_manager_->refresh_auto_action_settings();
-    }
-
-    LOG_DEBUG_PRINTLN(enabled ? "Auto-start on cup enabled" : "Auto-start on cup disabled");
-}
-
-void MenuUIController::handle_auto_return_toggle() {
-    if (!ui_manager_) return;
-
-    auto* toggle = ui_manager_->menu_screen.get_auto_return_toggle();
-    if (!toggle) return;
-
-    bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
-
-    ui_settings.set_auto_return(enabled);
-
-    if (ui_manager_) {
-        ui_manager_->refresh_auto_action_settings();
-    }
-
-    LOG_DEBUG_PRINTLN(enabled ? "Auto return on cup removal enabled" : "Auto return on cup removal disabled");
 }
 
 void MenuUIController::handle_grinder_purge_mode_radio_button() {

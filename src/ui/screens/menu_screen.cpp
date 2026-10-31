@@ -223,8 +223,7 @@ void MenuScreen::show() {
     visible = true;
     update_ble_status();
     update_brightness_sliders();
-    update_bluetooth_startup_toggle();
-    update_logging_toggle();
+    refresh_setting_toggles();
     update_grind_mode_toggles();
     update_board_page();
     // The WiFi page can still be the current page when the menu is shown again

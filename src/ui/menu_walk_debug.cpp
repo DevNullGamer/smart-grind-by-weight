@@ -306,11 +306,11 @@ void log_before(KeyId id) {
 lv_obj_t* toggle_widget(int id) {
     MenuScreen& m = menu_screen();
     switch (id) {
-        case K_BLE_STARTUP: return m.get_ble_startup_toggle();
-        case K_LOGGING: return m.get_logging_toggle();
-        case K_SWIPE: return m.get_grind_mode_swipe_toggle();
-        case K_AUTO_START: return m.get_auto_start_toggle();
-        default: return m.get_auto_return_toggle();
+        case K_BLE_STARTUP: return m.get_setting_toggle(ToggleSetting::BLE_STARTUP);
+        case K_LOGGING: return m.get_setting_toggle(ToggleSetting::LOGGING);
+        case K_SWIPE: return m.get_setting_toggle(ToggleSetting::SWIPE);
+        case K_AUTO_START: return m.get_setting_toggle(ToggleSetting::AUTO_START);
+        default: return m.get_setting_toggle(ToggleSetting::AUTO_RETURN);
     }
 }
 

@@ -6,6 +6,8 @@
 #include "../../system/diagnostics_controller.h"
 #include "../../network/pull_ui_text.h"
 #include "../../network/wifi_status_text.h"
+#include "../../system/menu_setting_table.h"
+#include "../event_bridge_lvgl.h"
 #include "../ui_helpers.h"
 
 class GrindingScreen;  // Forward declaration
@@ -48,10 +50,9 @@ private:
     
     // Menu toggle elements
     lv_obj_t* ble_toggle = nullptr;
-    lv_obj_t* ble_startup_toggle = nullptr;
     lv_obj_t* ble_status_label = nullptr;
     lv_obj_t* ble_timer_label = nullptr;
-    lv_obj_t* logging_toggle = nullptr;
+    lv_obj_t* setting_toggles_[TOGGLE_SETTING_COUNT] = {};  // table-driven toggles (menu_screen_settings.cpp)
     lv_obj_t* brightness_normal_slider = nullptr;
     lv_obj_t* brightness_screensaver_slider = nullptr;
     lv_obj_t* brightness_normal_label = nullptr;
@@ -61,9 +62,6 @@ private:
     
     // Grind mode tab elements
     lv_obj_t* grind_mode_radio_group = nullptr;
-    lv_obj_t* grind_mode_swipe_toggle = nullptr;
-    lv_obj_t* auto_start_toggle = nullptr;
-    lv_obj_t* auto_return_toggle = nullptr;
     lv_obj_t* grinder_purge_mode_radio_group = nullptr;
     lv_obj_t* grinder_purge_amount_slider = nullptr;
     lv_obj_t* grinder_purge_amount_label = nullptr;
@@ -140,8 +138,8 @@ public:
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
     void update_brightness_sliders();
-    void update_bluetooth_startup_toggle();
-    void update_logging_toggle();
+    // Sets all table-driven toggles to the stored values (menu_screen_settings.cpp)
+    void refresh_setting_toggles();
     void update_grind_mode_toggles();
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
@@ -173,16 +171,13 @@ public:
     lv_obj_t* get_autotune_button() const { return autotune_button; }
     bool is_scale_page_active() const { return scale_active; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
-    lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
-    lv_obj_t* get_logging_toggle() const { return logging_toggle; }
+    lv_obj_t* get_setting_toggle(ToggleSetting id) const { return setting_toggles_[static_cast<size_t>(id)]; }
+    static EventBridgeLVGL::EventType setting_toggle_event(ToggleSetting id);
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
     lv_obj_t* get_brightness_normal_slider() const { return brightness_normal_slider; }
     lv_obj_t* get_brightness_screensaver_slider() const { return brightness_screensaver_slider; }
     lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
-    lv_obj_t* get_grind_mode_swipe_toggle() const { return grind_mode_swipe_toggle; }
-    lv_obj_t* get_auto_start_toggle() const { return auto_start_toggle; }
-    lv_obj_t* get_auto_return_toggle() const { return auto_return_toggle; }
     lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
     lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
@@ -198,6 +193,8 @@ private:
     bool is_page_current(lv_obj_t* page) const;  // menu visible and `page` is the one on screen
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
+    // Label + switch row of a table-driven setting, wired to its event (menu_screen_settings.cpp)
+    void create_setting_toggle_row(lv_obj_t* parent, ToggleSetting id);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

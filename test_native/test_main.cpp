@@ -23,6 +23,7 @@ void run_motor_test_check_tests();
 void run_ui_format_tests();
 void run_ui_settings_tests();
 void run_menu_setting_models_tests();
+void run_menu_setting_table_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -50,5 +51,6 @@ int main() {
     run_ui_format_tests();
     run_ui_settings_tests();
     run_menu_setting_models_tests();
+    run_menu_setting_table_tests();
     return UNITY_END();
 }

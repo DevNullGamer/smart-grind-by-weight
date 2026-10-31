@@ -20,7 +20,7 @@ void MenuScreen::create_data_page(lv_obj_t* parent) {
 
     create_description_label(parent, "Saved grind logs stored on the grinder for export/analysis.");
 
-    create_toggle_row(parent, "Logging", &logging_toggle);
+    create_setting_toggle_row(parent, ToggleSetting::LOGGING);
 
     // Log data section
     create_separator(parent, "Log Data");
@@ -35,9 +35,8 @@ void MenuScreen::create_data_page(lv_obj_t* parent) {
     lv_obj_set_style_margin_bottom(purge_button, 10, 0);
     reset_button = create_button(parent, "Factory Reset", lv_color_hex(THEME_COLOR_ERROR));
 
-    // Register events for the toggle and buttons (done here because widgets are created lazily)
+    // Register events for the buttons (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
-    bind_event(logging_toggle, LV_EVENT_VALUE_CHANGED, ET::LOGGING_TOGGLE);
     bind_event(purge_button, LV_EVENT_CLICKED, ET::MENU_PURGE);
     bind_event(reset_button, LV_EVENT_CLICKED, ET::MENU_RESET);
 }
@@ -146,19 +145,6 @@ void MenuScreen::refresh_statistics(bool show_overlay) {
     // Show blocking overlay while loading statistics
     auto& overlay = BlockingOperationOverlay::getInstance();
     overlay.show_and_execute(BlockingOperation::LOADING_STATISTICS, load_statistics_operation);
-}
-
-void MenuScreen::update_logging_toggle() {
-    if (!logging_toggle) return;
-
-    bool logging_enabled = ui_settings.logging_enabled();
-
-    // Update toggle state
-    if (logging_enabled) {
-        lv_obj_add_state(logging_toggle, LV_STATE_CHECKED);
-    } else {
-        lv_obj_remove_state(logging_toggle, LV_STATE_CHECKED);
-    }
 }
 
 LV_DEPRECATIONS_IGNORE_END

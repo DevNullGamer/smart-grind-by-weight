@@ -54,14 +54,14 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     lv_obj_set_width(swipe_desc_label, THEME_CONTENT_INNER_WIDTH_PX);
 
     // Swipe toggle using existing pattern
-    create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
+    create_setting_toggle_row(parent, ToggleSetting::SWIPE);
 
     // Automatic actions section
     create_separator(parent, "Automation");
     create_description_label(parent, "Start the selected profile as soon as the cup lands on the scale.");
-    create_toggle_row(parent, "Start", &auto_start_toggle);
+    create_setting_toggle_row(parent, ToggleSetting::AUTO_START);
     create_description_label(parent, "Exit the completion screen once that cup weight drops away.");
-    create_toggle_row(parent, "Return", &auto_return_toggle);
+    create_setting_toggle_row(parent, ToggleSetting::AUTO_RETURN);
 
     // Grinder Purging section
     create_separator(parent, "Purging");
@@ -94,11 +94,8 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     create_slider_row(parent, "Freshness", &grind_freshness_hours_label, &grind_freshness_hours_slider,
                      lv_color_hex(THEME_COLOR_ACCENT), 0, 8);  // 9 positions (0-8)
 
-    // Register events for the toggles (done here because widgets are created lazily)
+    // Register events for the sliders (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
-    bind_event(grind_mode_swipe_toggle, LV_EVENT_VALUE_CHANGED, ET::GRIND_MODE_SWIPE_TOGGLE);
-    bind_event(auto_start_toggle, LV_EVENT_VALUE_CHANGED, ET::AUTO_START_TOGGLE);
-    bind_event(auto_return_toggle, LV_EVENT_VALUE_CHANGED, ET::AUTO_RETURN_TOGGLE);
     bind_event(grinder_purge_amount_slider, LV_EVENT_VALUE_CHANGED, ET::GRINDER_PURGE_AMOUNT_SLIDER);
     bind_event(grinder_purge_amount_slider, LV_EVENT_RELEASED, ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED);
     bind_event(grind_freshness_hours_slider, LV_EVENT_VALUE_CHANGED, ET::GRIND_FRESHNESS_HOURS_SLIDER);
@@ -122,31 +119,6 @@ void MenuScreen::update_grind_freshness_hours_label(float hours) {
 void MenuScreen::update_grind_mode_toggles() {
     if (grind_mode_radio_group) {
         radio_button_group_set_selection(grind_mode_radio_group, grind_mode_radio_index(ui_settings.grind_mode_raw()));
-    }
-
-    if (grind_mode_swipe_toggle) {
-        if (ui_settings.swipe_enabled()) {
-            lv_obj_add_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
-        } else {
-            lv_obj_remove_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
-        }
-    }
-
-    // Auto actions toggles (defaults disabled)
-    if (auto_start_toggle) {
-        if (ui_settings.auto_start()) {
-            lv_obj_add_state(auto_start_toggle, LV_STATE_CHECKED);
-        } else {
-            lv_obj_remove_state(auto_start_toggle, LV_STATE_CHECKED);
-        }
-    }
-
-    if (auto_return_toggle) {
-        if (ui_settings.auto_return()) {
-            lv_obj_add_state(auto_return_toggle, LV_STATE_CHECKED);
-        } else {
-            lv_obj_remove_state(auto_return_toggle, LV_STATE_CHECKED);
-        }
     }
 
     // Update grinder purge mode radio group selection

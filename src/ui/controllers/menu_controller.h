@@ -2,6 +2,7 @@
 #include <lvgl.h>
 #include <stdint.h>
 #include "../../controllers/motor_test_check.h"
+#include "../../system/menu_setting_table.h"
 
 class UIManager;
 
@@ -24,12 +25,8 @@ public:
     void handle_refresh_stats();
     void handle_diagnostics_reset();
     void handle_ble_toggle();
-    void handle_ble_startup_toggle();
-    void handle_logging_toggle();
-    void handle_grind_mode_swipe_toggle();
     void handle_grind_mode_radio_button();
-    void handle_auto_start_toggle();
-    void handle_auto_return_toggle();
+    void handle_setting_toggle(ToggleSetting id);
     void handle_grinder_purge_mode_radio_button();
     void handle_grinder_purge_amount_slider();
     void handle_grinder_purge_amount_slider_released();
@@ -58,6 +55,7 @@ private:
 
     static constexpr uint32_t WIFI_PAGE_REFRESH_INTERVAL_MS = 1000;  // WiFi page runtime values refresh rate
     void update_wifi_page();
+    void register_setting_toggle_events();  // menu_controller_settings.cpp
     void install_update_confirmed(const char* version);
 
     void perform_factory_reset();
