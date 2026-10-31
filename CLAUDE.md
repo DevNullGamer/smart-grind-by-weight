@@ -68,6 +68,7 @@ python3 tools/grinder.py analyze
 **LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness" in `docs/DESIGN-NOTES.md`):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
 - Anything updated per frame uses `set_label_text_if_changed`; no unguarded `lv_label_set_text` or style setters per frame.
 - `UIManager::init` needs an initialised display; if the display fails the UI stays off (update() no-op).
+- Menu NVS keys only in `system/ui_settings.*` (UI never opens `Preferences`); rows are table-driven (`menu_setting_table`).
 
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
@@ -116,6 +117,7 @@ python3 tools/grinder.py analyze
 * use macos compatible commands. macos uses python3
 * after making a test build let me know the build number
 * Always read entire files. Otherwise, you don’t know what you don’t know, and will end up making mistakes, duplicating code that already exists, or misunderstanding the architecture.  
+* Exception to "read entire files": never read `~\.claude\workspace\chgreq\smart-grind-by-weight\chg006\plan.md` whole (about 48 KB). Grep it for the step heading (e.g. `### 23.7`) and read only those lines with offset/limit.
 * Commit early and often. When working on large tasks, your task could be broken down into multiple logical milestones. After a certain milestone is completed and confirmed to be ok by the user, you should commit it. If you do not, if something goes wrong in further steps, we would need to end up throwing away all the code, which is expensive and time consuming.  
 * Your internal knowledgebase of libraries might not be up to date. When working with any external library, unless you are 100% sure that the library has a super stable interface, you will look up the latest syntax and usage via either Perplexity (first preference) or web search (less preferred, only use if Perplexity is not available)  
 * Do not say things like: “x library isn’t working so I will skip it”. Generally, it isn’t working because you are using the incorrect syntax or patterns. This applies doubly when the user has explicitly asked you to use a specific library, if the user wanted to use another library they wouldn’t have asked you to use a specific one in the first place.  
