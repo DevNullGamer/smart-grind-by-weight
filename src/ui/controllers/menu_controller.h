@@ -6,7 +6,7 @@
 
 class UIManager;
 
-// Handles the interactive menu: BLE/logging toggles, brightness sliders, maintenance actions, and stats
+// Handles the interactive menu: setting toggles and sliders, maintenance actions, and stats
 
 class MenuUIController {
 public:
@@ -27,11 +27,8 @@ public:
     void handle_ble_toggle();
     void handle_grind_mode_radio_button();
     void handle_setting_toggle(ToggleSetting id);
+    void handle_setting_slider(SliderSetting id, bool released);
     void handle_grinder_purge_mode_radio_button();
-    void handle_grinder_purge_amount_slider();
-    void handle_grinder_purge_amount_slider_released();
-    void handle_grind_freshness_hours_slider();
-    void handle_grind_freshness_hours_slider_released();
     void handle_board_override_radio_button();
     void handle_wifi_forget();
     void handle_wifi_push_toggle();
@@ -39,10 +36,6 @@ public:
     void handle_wifi_beta_toggle();
     void handle_wifi_check_update();
     void handle_wifi_install_update();
-    void handle_brightness_normal_slider();
-    void handle_brightness_normal_slider_released();
-    void handle_brightness_screensaver_slider();
-    void handle_brightness_screensaver_slider_released();
 
     float get_normal_brightness() const;
     float get_screensaver_brightness() const;
@@ -56,6 +49,7 @@ private:
     static constexpr uint32_t WIFI_PAGE_REFRESH_INTERVAL_MS = 1000;  // WiFi page runtime values refresh rate
     void update_wifi_page();
     void register_setting_toggle_events();  // menu_controller_settings.cpp
+    void register_setting_slider_events();  // menu_controller_settings.cpp
     void install_update_confirmed(const char* version);
 
     void perform_factory_reset();

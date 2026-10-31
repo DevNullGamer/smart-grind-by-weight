@@ -53,20 +53,14 @@ private:
     lv_obj_t* ble_status_label = nullptr;
     lv_obj_t* ble_timer_label = nullptr;
     lv_obj_t* setting_toggles_[TOGGLE_SETTING_COUNT] = {};  // table-driven toggles (menu_screen_settings.cpp)
-    lv_obj_t* brightness_normal_slider = nullptr;
-    lv_obj_t* brightness_screensaver_slider = nullptr;
-    lv_obj_t* brightness_normal_label = nullptr;
-    lv_obj_t* brightness_screensaver_label = nullptr;
+    lv_obj_t* setting_sliders_[SLIDER_SETTING_COUNT] = {};        // table-driven sliders (menu_screen_settings.cpp)
+    lv_obj_t* setting_slider_labels_[SLIDER_SETTING_COUNT] = {};  // the label row above each slider
     lv_obj_t* purge_button = nullptr;
     lv_obj_t* reset_button = nullptr;
     
     // Grind mode tab elements
     lv_obj_t* grind_mode_radio_group = nullptr;
     lv_obj_t* grinder_purge_mode_radio_group = nullptr;
-    lv_obj_t* grinder_purge_amount_slider = nullptr;
-    lv_obj_t* grinder_purge_amount_label = nullptr;
-    lv_obj_t* grind_freshness_hours_slider = nullptr;
-    lv_obj_t* grind_freshness_hours_label = nullptr;
 
     // Hardware board page elements
     lv_obj_t* board_status_label = nullptr;
@@ -136,13 +130,13 @@ public:
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_ble_status();
     void refresh_statistics(bool show_overlay = true);
-    void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
-    void update_brightness_sliders();
     // Sets all table-driven toggles to the stored values (menu_screen_settings.cpp)
     void refresh_setting_toggles();
     void update_grind_mode_toggles();
-    void update_grinder_purge_amount_label(float amount_g);
-    void update_grind_freshness_hours_label(float hours);
+    // Sets all table-driven sliders and their labels to the stored values (menu_screen_settings.cpp)
+    void refresh_setting_sliders();
+    // Shows the label text of a slider position
+    void set_setting_slider_label(SliderSetting id, int pos);
     void update_board_page();
     // Runtime values only (state, IP, signal, blocks); cheap, no NVS access
     void update_wifi_page();
@@ -175,12 +169,10 @@ public:
     static EventBridgeLVGL::EventType setting_toggle_event(ToggleSetting id);
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
-    lv_obj_t* get_brightness_normal_slider() const { return brightness_normal_slider; }
-    lv_obj_t* get_brightness_screensaver_slider() const { return brightness_screensaver_slider; }
+    lv_obj_t* get_setting_slider(SliderSetting id) const { return setting_sliders_[static_cast<size_t>(id)]; }
+    static EventBridgeLVGL::EventType setting_slider_event(SliderSetting id, bool released);
     lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
     lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
-    lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
-    lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
     lv_obj_t* get_board_override_radio_group() const { return board_override_radio_group; }
     lv_obj_t* get_wifi_push_toggle() const { return wifi_push_toggle; }
     lv_obj_t* get_wifi_confirm_toggle() const { return wifi_confirm_toggle; }
@@ -195,6 +187,8 @@ private:
     void create_bluetooth_page(lv_obj_t* parent);
     // Label + switch row of a table-driven setting, wired to its event (menu_screen_settings.cpp)
     void create_setting_toggle_row(lv_obj_t* parent, ToggleSetting id);
+    // Label + slider row of a table-driven setting, wired to its events (menu_screen_settings.cpp)
+    void create_setting_slider_row(lv_obj_t* parent, SliderSetting id);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

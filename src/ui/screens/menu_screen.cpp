@@ -222,7 +222,7 @@ void MenuScreen::show() {
     lv_obj_set_hidden(screen, false);
     visible = true;
     update_ble_status();
-    update_brightness_sliders();
+    refresh_setting_sliders();
     refresh_setting_toggles();
     update_grind_mode_toggles();
     update_board_page();

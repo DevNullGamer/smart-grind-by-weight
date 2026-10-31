@@ -22,20 +22,6 @@
 #include "../ui_manager.h"
 #include "../screens/menu_screen.h"
 
-namespace {
-
-// Slider percent clamped to the display minimum; the slider is snapped back when it was below it.
-int read_brightness_percent(lv_obj_t* slider) {
-    const int raw_percent = lv_slider_get_value(slider);
-    const int percent = brightness_clamp_percent(raw_percent);
-    if (percent != raw_percent) {
-        lv_slider_set_value(slider, percent, LV_ANIM_OFF);
-    }
-    return percent;
-}
-
-}  // namespace
-
 MenuUIController::MenuUIController(UIManager* manager)
     : ui_manager_(manager) {}
 
@@ -59,13 +45,10 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
     register_setting_toggle_events();
+    register_setting_slider_events();
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grinder_purge_mode_radio_button(); });
-    EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER, [this](lv_event_t*) { handle_grinder_purge_amount_slider(); });
-    EventBridgeLVGL::register_handler(ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED, [this](lv_event_t*) { handle_grinder_purge_amount_slider_released(); });
-    EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER, [this](lv_event_t*) { handle_grind_freshness_hours_slider(); });
-    EventBridgeLVGL::register_handler(ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED, [this](lv_event_t*) { handle_grind_freshness_hours_slider_released(); });
 
     EventBridgeLVGL::register_handler(ET::BOARD_OVERRIDE_RADIO_BUTTON, [this](lv_event_t*) { handle_board_override_radio_button(); });
 
@@ -76,10 +59,6 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::WIFI_CHECK_UPDATE, [this](lv_event_t*) { handle_wifi_check_update(); });
     EventBridgeLVGL::register_handler(ET::WIFI_INSTALL_UPDATE, [this](lv_event_t*) { handle_wifi_install_update(); });
 
-    EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER, [this](lv_event_t*) { handle_brightness_normal_slider(); });
-    EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
-    EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER, [this](lv_event_t*) { handle_brightness_screensaver_slider(); });
-    EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_screensaver_slider_released(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen*.cpp): the widgets are created once in MenuScreen::create and only hidden afterwards.
@@ -326,71 +305,6 @@ void MenuUIController::handle_grinder_purge_mode_radio_button() {
     LOG_DEBUG_PRINTLN(selected_index == 0 ? "Grinder purge mode: Prime (keep coffee)" : "Grinder purge mode: Purge (discard grinds)");
 }
 
-void MenuUIController::handle_grinder_purge_amount_slider() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_grinder_purge_amount_slider();
-    if (!slider) return;
-
-    float amount_g = purge_amount_from_slider(lv_slider_get_value(slider));
-
-    // Update the label via MenuScreen method
-    ui_manager_->menu_screen.update_grinder_purge_amount_label(amount_g);
-}
-
-void MenuUIController::handle_grinder_purge_amount_slider_released() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_grinder_purge_amount_slider();
-    if (!slider) return;
-
-    int slider_value = lv_slider_get_value(slider);
-    float amount_g = purge_amount_from_slider(slider_value);
-    // Snap a slider that sits outside the allowed range back inside it
-    if (slider_value < purge_slider_min()) {
-        lv_slider_set_value(slider, purge_slider_min(), LV_ANIM_OFF);
-    } else if (slider_value > purge_slider_max()) {
-        lv_slider_set_value(slider, purge_slider_max(), LV_ANIM_OFF);
-    }
-
-    ui_settings.set_purge_amount_g(amount_g);
-
-    LOG_DEBUG_PRINT("Grinder purge amount set to: ");
-    LOG_DEBUG_PRINT(amount_g);
-    LOG_DEBUG_PRINTLN("g");
-
-    ui_manager_->menu_screen.update_grinder_purge_amount_label(amount_g);
-}
-
-void MenuUIController::handle_grind_freshness_hours_slider() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_grind_freshness_hours_slider();
-    if (!slider) return;
-
-    float hours = freshness_hours_from_index(lv_slider_get_value(slider));
-
-    // Update the label via MenuScreen method
-    ui_manager_->menu_screen.update_grind_freshness_hours_label(hours);
-}
-
-void MenuUIController::handle_grind_freshness_hours_slider_released() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_grind_freshness_hours_slider();
-    if (!slider) return;
-
-    float hours = freshness_hours_from_index(lv_slider_get_value(slider));
-
-    ui_settings.set_freshness_hours(hours);
-
-    LOG_DEBUG_PRINT("Grind freshness hours set to: ");
-    LOG_DEBUG_PRINT(hours);
-    LOG_DEBUG_PRINTLN("h");
-
-    ui_manager_->menu_screen.update_grind_freshness_hours_label(hours);
-}
-
 void MenuUIController::handle_board_override_radio_button() {
     if (!ui_manager_) return;
 
@@ -406,58 +320,6 @@ void MenuUIController::handle_board_override_radio_button() {
     } else {
         LOG_BLE("[BOARD] ERROR: could not store board override\n");
     }
-}
-
-void MenuUIController::handle_brightness_normal_slider() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_brightness_normal_slider();
-    if (!slider) return;
-
-    const int brightness_percent = read_brightness_percent(slider);
-    const float brightness = brightness_fraction_from_percent(brightness_percent);
-
-    ui_manager_->get_hardware_manager()->get_display()->set_brightness(brightness);
-    ui_manager_->menu_screen.update_brightness_labels(brightness_percent, -1);
-    LOG_DEBUG_PRINTF("Normal brightness set to %d%% (%.2f)\n", brightness_percent, brightness);
-}
-
-void MenuUIController::handle_brightness_normal_slider_released() {
-    auto* slider = ui_manager_->menu_screen.get_brightness_normal_slider();
-    if (!slider) return;
-
-    const int brightness_percent = read_brightness_percent(slider);
-    const float brightness = brightness_fraction_from_percent(brightness_percent);
-
-    ui_settings.set_brightness_normal(brightness);
-}
-
-void MenuUIController::handle_brightness_screensaver_slider() {
-    if (!ui_manager_) return;
-
-    auto* slider = ui_manager_->menu_screen.get_brightness_screensaver_slider();
-    if (!slider) return;
-
-    const int brightness_percent = read_brightness_percent(slider);
-    const float brightness = brightness_fraction_from_percent(brightness_percent);
-
-    ui_manager_->get_hardware_manager()->get_display()->set_brightness(brightness);
-    ui_manager_->menu_screen.update_brightness_labels(-1, brightness_percent);
-    LOG_DEBUG_PRINTF("Screensaver brightness set to %d%% (%.2f)\n", brightness_percent, brightness);
-}
-
-void MenuUIController::handle_brightness_screensaver_slider_released() {
-    auto* slider = ui_manager_->menu_screen.get_brightness_screensaver_slider();
-    if (!slider) return;
-
-    const int brightness_percent = read_brightness_percent(slider);
-    const float brightness = brightness_fraction_from_percent(brightness_percent);
-
-    ui_settings.set_brightness_screensaver(brightness);
-
-    float normal = get_normal_brightness();
-    ui_manager_->get_hardware_manager()->get_display()->set_brightness(normal);
-    LOG_DEBUG_PRINTF("Touch released - restored normal brightness to %.2f\n", normal);
 }
 
 void MenuUIController::perform_factory_reset() {

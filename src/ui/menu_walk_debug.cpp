@@ -456,18 +456,18 @@ void run_step(const Step& s) {
             static const int values[] = {5, 60, 100};  // 5 must clamp to 15 % and store 0.15
             const bool normal = (s.arg == K_BRIGHT_NORMAL);
             drive_slider(static_cast<KeyId>(s.arg),
-                         normal ? menu_screen().get_brightness_normal_slider() : menu_screen().get_brightness_screensaver_slider(),
+                         menu_screen().get_setting_slider(normal ? SliderSetting::BRIGHTNESS_NORMAL : SliderSetting::BRIGHTNESS_SCREENSAVER),
                          values, 3, expect_brightness);
             break;
         }
         case Op::SLIDER_PURGE_AMOUNT: {
             static const int values[] = {1, 13, 25};  // 0.1 g, 1.3 g, 2.5 g
-            drive_slider(K_PURGE_AMOUNT, menu_screen().get_grinder_purge_amount_slider(), values, 3, expect_purge);
+            drive_slider(K_PURGE_AMOUNT, menu_screen().get_setting_slider(SliderSetting::PURGE_AMOUNT), values, 3, expect_purge);
             break;
         }
         case Op::SLIDER_FRESHNESS: {
             static const int values[] = {0, 3, 8};  // 0.5 h, 3 h, 48 h
-            drive_slider(K_FRESHNESS, menu_screen().get_grind_freshness_hours_slider(), values, 3, expect_freshness);
+            drive_slider(K_FRESHNESS, menu_screen().get_setting_slider(SliderSetting::FRESHNESS), values, 3, expect_freshness);
             break;
         }
         case Op::RADIO_GRIND_MODE:

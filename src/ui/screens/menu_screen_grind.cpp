@@ -82,38 +82,12 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
 
     create_description_label(parent, "Purge amount is a minimum target, not an exact goal.");
 
-    // Slider for grinder purge amount (uses kPurgeSliderScale for resolution)
-    const uint32_t slider_min_units = static_cast<uint32_t>(purge_slider_min());
-    const uint32_t slider_max_units = static_cast<uint32_t>(purge_slider_max());
-    create_slider_row(parent, "Amount", &grinder_purge_amount_label, &grinder_purge_amount_slider,
-                     lv_color_hex(THEME_COLOR_ACCENT), slider_min_units, slider_max_units);
+    create_setting_slider_row(parent, SliderSetting::PURGE_AMOUNT);
 
     create_description_label(parent, "Set how long grounds stay fresh before showing purge prompt.");
 
-    // Slider for grind freshness hours (discrete steps: 0.5, 1, 2, 3, 4, 8, 12, 24, 48)
-    create_slider_row(parent, "Freshness", &grind_freshness_hours_label, &grind_freshness_hours_slider,
-                     lv_color_hex(THEME_COLOR_ACCENT), 0, 8);  // 9 positions (0-8)
-
-    // Register events for the sliders (done here because widgets are created lazily)
-    using ET = EventBridgeLVGL::EventType;
-    bind_event(grinder_purge_amount_slider, LV_EVENT_VALUE_CHANGED, ET::GRINDER_PURGE_AMOUNT_SLIDER);
-    bind_event(grinder_purge_amount_slider, LV_EVENT_RELEASED, ET::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED);
-    bind_event(grind_freshness_hours_slider, LV_EVENT_VALUE_CHANGED, ET::GRIND_FRESHNESS_HOURS_SLIDER);
-    bind_event(grind_freshness_hours_slider, LV_EVENT_RELEASED, ET::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED);
-}
-
-void MenuScreen::update_grinder_purge_amount_label(float amount_g) {
-    if (grinder_purge_amount_label) {
-        char buffer[16];
-        lv_label_set_text(grinder_purge_amount_label, purge_label(buffer, sizeof(buffer), amount_g));
-    }
-}
-
-void MenuScreen::update_grind_freshness_hours_label(float hours) {
-    if (grind_freshness_hours_label) {
-        char buffer[24];
-        lv_label_set_text(grind_freshness_hours_label, freshness_label(buffer, sizeof(buffer), hours));
-    }
+    // Freshness steps: 0.5, 1, 2, 3, 4, 8, 12, 24, 48 h
+    create_setting_slider_row(parent, SliderSetting::FRESHNESS);
 }
 
 void MenuScreen::update_grind_mode_toggles() {
@@ -125,20 +99,6 @@ void MenuScreen::update_grind_mode_toggles() {
     if (grinder_purge_mode_radio_group) {
         radio_button_group_set_selection(grinder_purge_mode_radio_group, ui_settings.purge_mode());
     }
-
-    // Purge amount slider (0.1g resolution) and label
-    const float purge_amount_g = ui_settings.purge_amount_g();
-    if (grinder_purge_amount_slider) {
-        lv_slider_set_value(grinder_purge_amount_slider, purge_slider_from_amount(purge_amount_g), LV_ANIM_OFF);
-    }
-    update_grinder_purge_amount_label(purge_amount_g);
-
-    // Freshness slider index from the stored hours (label shows the stored value itself)
-    const float freshness_hours = ui_settings.freshness_hours();
-    if (grind_freshness_hours_slider) {
-        lv_slider_set_value(grind_freshness_hours_slider, freshness_index_from_hours(freshness_hours), LV_ANIM_OFF);
-    }
-    update_grind_freshness_hours_label(freshness_hours);
 }
 
 LV_DEPRECATIONS_IGNORE_END
