@@ -21,6 +21,8 @@ void run_grind_safety_tests();
 void run_grind_start_check_tests();
 void run_motor_test_check_tests();
 void run_ui_format_tests();
+void run_ui_settings_tests();
+void run_menu_setting_models_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -46,5 +48,7 @@ int main() {
     run_grind_start_check_tests();
     run_motor_test_check_tests();
     run_ui_format_tests();
+    run_ui_settings_tests();
+    run_menu_setting_models_tests();
     return UNITY_END();
 }
