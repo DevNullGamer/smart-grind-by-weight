@@ -14,10 +14,10 @@ static void test_brightness_clamp_percent() {
 }
 
 static void test_brightness_percent_truncation_is_pinned() {
-    // (int)(f * 100) truncates: 0.57f * 100 = 56.99999 -> 56, 0.15f * 100 -> 15, 0.99f * 100 -> 99
+    // (int)(f * 100) truncates; on the host 0.57f * 100 gives 57 and 0.99f * 100 gives 99 (literals pinned)
     TEST_ASSERT_EQUAL_INT(15, brightness_percent_from_fraction(0.15f));
-    TEST_ASSERT_EQUAL_INT((int)(0.57f * 100), brightness_percent_from_fraction(0.57f));
-    TEST_ASSERT_EQUAL_INT((int)(0.99f * 100), brightness_percent_from_fraction(0.99f));
+    TEST_ASSERT_EQUAL_INT(57, brightness_percent_from_fraction(0.57f));
+    TEST_ASSERT_EQUAL_INT(99, brightness_percent_from_fraction(0.99f));
     TEST_ASSERT_EQUAL_INT(100, brightness_percent_from_fraction(1.0f));
     TEST_ASSERT_EQUAL_INT(15, brightness_percent_from_fraction(0.0f));
     TEST_ASSERT_EQUAL_INT(15, brightness_percent_from_fraction(NAN));

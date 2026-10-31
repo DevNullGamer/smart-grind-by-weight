@@ -7,6 +7,7 @@
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
 #include "system/boot_health.h"
+#include "system/nvs_settings_store.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -96,6 +97,7 @@ void setup() {
     }
     
     hardware_manager.init();
+    nvs_settings_store.set_grinder_handle(hardware_manager.get_preferences());  // settings facade: unused until call sites migrate
 #if DEBUG_RMT_PULSE_SELFTEST
     hardware_manager.get_grinder()->run_pulse_selftest();
 #endif

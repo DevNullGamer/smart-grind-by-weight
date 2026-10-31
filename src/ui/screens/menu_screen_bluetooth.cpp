@@ -78,7 +78,7 @@ void MenuScreen::update_bluetooth_startup_toggle() {
     Preferences prefs;
     prefs.begin("bluetooth", true); // read-only
 
-    // Load startup value from preferences (default to false)
+    // Load startup value from preferences (default to true)
     bool startup_enabled = prefs.getBool("startup", true);
     prefs.end();
 
