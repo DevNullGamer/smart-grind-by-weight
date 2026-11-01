@@ -28,6 +28,7 @@ LITERAL_ALLOWED = {
     "src/ui/menu_walk_debug.cpp",  # debug harness oracle, compiled out of main
     "src/controllers/grind_controller.h",  # PREF_KEY_* (A4)
     "src/controllers/profile_controller.cpp",  # "grind_mode" (A4)
+    "src/network/portal_api.cpp",  # public web API key names (same words, not NVS keys; no Preferences access)
 }
 PREFERENCES_ALLOWED_PREFIXES = ("src/ui/screens/grinding_screen.", "src/ui/menu_walk_debug.")
 NO_LITERAL_FILES = ["src/bluetooth/manager.cpp", "src/logging/grind_logging.cpp"]
