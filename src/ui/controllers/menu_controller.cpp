@@ -51,6 +51,7 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
     EventBridgeLVGL::register_handler(ET::WIFI_PUSH_TOGGLE, [this](lv_event_t*) { handle_wifi_push_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_WEB_TOGGLE, [this](lv_event_t*) { handle_wifi_web_toggle(); });
     EventBridgeLVGL::register_handler(ET::WIFI_CONFIRM_TOGGLE, [this](lv_event_t*) { handle_wifi_confirm_toggle(); });
     EventBridgeLVGL::register_handler(ET::WIFI_BETA_TOGGLE, [this](lv_event_t*) { handle_wifi_beta_toggle(); });
     EventBridgeLVGL::register_handler(ET::WIFI_CHECK_UPDATE, [this](lv_event_t*) { handle_wifi_check_update(); });

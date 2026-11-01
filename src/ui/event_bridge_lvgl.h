@@ -54,6 +54,7 @@ public:
         PURGE_CONFIRM_CONTINUE,
         WIFI_FORGET,
         WIFI_PUSH_TOGGLE,
+        WIFI_WEB_TOGGLE,
         WIFI_CONFIRM_TOGGLE,
         WIFI_BETA_TOGGLE,
         WIFI_CHECK_UPDATE,

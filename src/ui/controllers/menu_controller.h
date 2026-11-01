@@ -32,6 +32,7 @@ public:
     void handle_board_override_radio_button();
     void handle_wifi_forget();
     void handle_wifi_push_toggle();
+    void handle_wifi_web_toggle();
     void handle_wifi_confirm_toggle();
     void handle_wifi_beta_toggle();
     void handle_wifi_check_update();

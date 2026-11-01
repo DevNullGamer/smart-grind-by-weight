@@ -3,6 +3,8 @@
 #include "wifi_credentials.h"
 #include "update_approval_gate.h"
 #include "update_status.h"
+#include "portal_guard.h"
+#include "portal_routes.h"
 #include "../system/ota_marker.h"
 #include "../system/boot_health.h"
 #include "../config/constants.h"
@@ -166,10 +168,21 @@ void get_peer_ip(httpd_req_t* req, char* out, size_t out_len) {
     inet_ntop(AF_INET, &v4->sin_addr, out, out_len);
 }
 
+// The server also runs for the web interface alone, so its existence no longer means "Receive is on": the update
+// routes check the switch themselves (RAM copy, no NVS on the HTTP task). Receive off refuses before anything else.
+bool update_routes_open() {
+    return portal_route_enabled(PortalRoute::UPDATE_PUSH, wifi_manager.web_enabled(), wifi_manager.push_enabled());
+}
+
+esp_err_t refuse_receive_off(httpd_req_t* req) {
+    return send_error(req, "403 Forbidden", "receive_off", "Receive is off on the grinder");
+}
+
 // esp_http_server handlers are plain C callbacks: forward to the singleton
 esp_err_t info_trampoline(httpd_req_t* req) { return update_server.handle_info(req); }
 esp_err_t begin_trampoline(httpd_req_t* req) { return update_server.handle_begin(req); }
 esp_err_t data_trampoline(httpd_req_t* req) { return update_server.handle_data(req); }
+esp_err_t page_trampoline(httpd_req_t* req) { return portal_handle_page(req); }
 
 }  // namespace
 
@@ -213,6 +226,8 @@ void UpdateServer::start_server() {
     config.stack_size = UPDATE_HTTP_STACK_SIZE;
     config.recv_wait_timeout = UPDATE_HTTP_RECV_TIMEOUT_S;
     config.send_wait_timeout = UPDATE_HTTP_RECV_TIMEOUT_S;
+    config.max_uri_handlers = UPDATE_HTTP_MAX_URI_HANDLERS;
+    config.max_resp_headers = UPDATE_HTTP_MAX_RESP_HEADERS;
     config.lru_purge_enable = true;
 
     httpd_handle_t handle = nullptr;
@@ -229,6 +244,8 @@ void UpdateServer::start_server() {
     struct Route { const char* uri; httpd_method_t method; esp_err_t (*handler)(httpd_req_t*); };
     const Route routes[] = {
         {"/api/info", HTTP_GET, info_trampoline},
+        {"/", HTTP_GET, page_trampoline},
+        {"/index.html", HTTP_GET, page_trampoline},
         {"/api/update/begin", HTTP_POST, begin_trampoline},
         {"/api/update/data", HTTP_PUT, data_trampoline},
     };
@@ -243,10 +260,11 @@ void UpdateServer::start_server() {
 
     server_ = handle;
     wifi_manager.register_http_service();
-    LOG_BLE("UPDATE: push endpoint listening on port %d (free internal heap %u, Bluetooth task stack %u bytes free at its low point)\n",
-            UPDATE_HTTP_PORT, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+    LOG_BLE("UPDATE: HTTP server listening on port %d (web interface %s, receive %s, free internal heap %u, Bluetooth task stack %u bytes free at its low point)\n",
+            UPDATE_HTTP_PORT, wifi_manager.web_enabled() ? "on" : "off", wifi_manager.push_enabled() ? "on" : "off",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
             (unsigned)(uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t)));
-    if (!wifi_manager.accept_required()) {
+    if (wifi_manager.push_enabled() && !wifi_manager.accept_required()) {
         LOG_BLE("UPDATE: WARNING Confirm is off, any client with the token can update without a tap on the grinder\n");
     }
 }
@@ -256,7 +274,7 @@ void UpdateServer::stop_server() {
     httpd_stop(static_cast<httpd_handle_t>(server_));
     server_ = nullptr;
     wifi_manager.unregister_http_service();
-    LOG_BLE("UPDATE: push endpoint stopped\n");
+    LOG_BLE("UPDATE: HTTP server stopped\n");
 }
 
 void UpdateServer::tick() {
@@ -288,7 +306,8 @@ void UpdateServer::tick() {
     if (now - last_gate_check_ms_ < UPDATE_GATE_CHECK_INTERVAL_MS) return;
     last_gate_check_ms_ = now;
 
-    const bool wanted = wifi_manager.is_connected() && wifi_manager.push_enabled();
+    const bool wanted =
+        portal_server_should_run(wifi_manager.is_connected(), wifi_manager.web_enabled(), wifi_manager.push_enabled());
     if (wanted && !server_) {
         start_server();
     } else if (!wanted && server_) {
@@ -326,6 +345,8 @@ int UpdateServer::handle_info(httpd_req* req) {
 // POST /api/update/begin
 //------------------------------------------------------------------------------
 int UpdateServer::handle_begin(httpd_req* req) {
+    if (!update_routes_open()) return refuse_receive_off(req);
+
     // An update is already running or finishing: answer before authenticating (no NVS read, no lockout count)
     bool already_busy = UpdateGuard::is_held() || update_approval.in_use();
     if (lock(portMAX_DELAY)) {
@@ -447,6 +468,9 @@ int UpdateServer::handle_begin(httpd_req* req) {
 // PUT /api/update/data
 //------------------------------------------------------------------------------
 int UpdateServer::handle_data(httpd_req* req) {
+    // Receive switched off after begin: refuse; the session ends by the inactivity timeout (UpdateGuard)
+    if (!update_routes_open()) return refuse_receive_off(req);
+
     // No session means no RAM token to check against: answer 403 (not 401, and no lockout count) like any
     // other unknown or expired session
     bool have_token_copy = false;

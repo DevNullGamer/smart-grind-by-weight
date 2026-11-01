@@ -97,6 +97,20 @@ static void test_listening_text() {
     TEST_ASSERT_EQUAL_STRING(".local", buf + strlen(buf) - 6);
 }
 
+static void test_web_listening_text() {
+    char buf[128];
+    TEST_ASSERT_EQUAL_STRING("Web interface:\ngrindbyweight.local\n192.168.1.20",
+                             web_listening_text("grindbyweight", "192.168.1.20", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("Web interface:\ngrindbyweight.local", web_listening_text("grindbyweight", "", buf, sizeof(buf)));
+    TEST_ASSERT_EQUAL_STRING("Web interface:\ngrindbyweight.local", web_listening_text("grindbyweight", nullptr, buf, sizeof(buf)));
+    char host[100];
+    memset(host, 'h', sizeof(host) - 1);
+    host[sizeof(host) - 1] = '\0';
+    web_listening_text(host, "255.255.255.255", buf, sizeof(buf));
+    TEST_ASSERT_LESS_THAN(128, strlen(buf));
+    TEST_ASSERT_EQUAL_STRING("255.255.255.255", buf + strlen(buf) - 15);
+}
+
 void run_update_ui_logic_tests() {
     RUN_TEST(test_prompt_action_idle_and_show);
     RUN_TEST(test_prompt_action_dialog_up);
@@ -107,4 +121,5 @@ void run_update_ui_logic_tests() {
     RUN_TEST(test_status_text_failed_long_reason_is_shortened);
     RUN_TEST(test_status_text_small_buffer_is_terminated);
     RUN_TEST(test_listening_text);
+    RUN_TEST(test_web_listening_text);
 }

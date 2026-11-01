@@ -92,6 +92,8 @@ void WiFiManager::begin() {
         char ssid[WIFI_SSID_MAX_LEN + 1];
         credentials_present = read_string(prefs, WIFI_NVS_KEY_SSID, ssid, sizeof(ssid)) && ssid[0] != '\0';
         accept_cached = prefs.getBool(WIFI_NVS_KEY_ACCEPT, true);
+        push_cached = prefs.getBool(WIFI_NVS_KEY_PUSH_ENABLED, false);
+        web_cached = prefs.getBool(WIFI_NVS_KEY_WEB_ENABLED, false);
         prefs.end();
     }
 #if DEBUG_WIFI_DEV_CREDS
@@ -169,9 +171,12 @@ bool WiFiManager::clear_credentials() {
     prefs.remove(WIFI_NVS_KEY_PASSWORD);
     prefs.remove(WIFI_NVS_KEY_TOKEN);
     prefs.remove(WIFI_NVS_KEY_PUSH_ENABLED);
+    prefs.remove(WIFI_NVS_KEY_WEB_ENABLED);  // Forget WiFi switches the web interface off again
     if (prefs.isKey(WIFI_NVS_KEY_ACCEPT)) prefs.remove(WIFI_NVS_KEY_ACCEPT);  // back to the safe default
     prefs.end();
     accept_cached = true;
+    push_cached = false;
+    web_cached = false;
     credentials_present = false;
     apply_requested = false;
     teardown_requested = true;
@@ -218,19 +223,21 @@ bool WiFiManager::token_matches(const char* candidate) {
     return match;
 }
 
-bool WiFiManager::push_enabled() {
-    Preferences prefs;
-    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
-    const bool enabled = prefs.getBool(WIFI_NVS_KEY_PUSH_ENABLED, false);
-    prefs.end();
-    return enabled;
-}
-
 bool WiFiManager::set_push_enabled(bool enabled) {
     Preferences prefs;
     if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
     const bool stored = prefs.putBool(WIFI_NVS_KEY_PUSH_ENABLED, enabled) == sizeof(uint8_t);
     prefs.end();
+    if (stored) push_cached = enabled;
+    return stored;
+}
+
+bool WiFiManager::set_web_enabled(bool enabled) {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const bool stored = prefs.putBool(WIFI_NVS_KEY_WEB_ENABLED, enabled) == sizeof(uint8_t);
+    prefs.end();
+    if (stored) web_cached = enabled;
     return stored;
 }
 

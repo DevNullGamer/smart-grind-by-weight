@@ -15,3 +15,9 @@
 #define PORTAL_CUSTOM_HEADER_NAME "X-Grinder"                                  // State-changing calls must carry this header ...
 #define PORTAL_CUSTOM_HEADER_VALUE "1"                                         // ... with this value (forces a CORS preflight the device never answers)
 #define PORTAL_LEAD_IN_MS 3000                                                 // Remote start: touch-to-cancel window before the grind starts
+
+// Embedded page (built from web/portal/index.html by tools/build-scripts/embed_portal.py, gzip, served from flash)
+#define PORTAL_PAGE_SOURCE "web/portal/index.html"                             // Relative to the project root; the build fails if it is missing
+#define PORTAL_PAGE_BUDGET_BYTES 65536                                         // The build fails when the gzip page is larger (read by embed_portal.py)
+#define PORTAL_PAGE_ETAG_MAX_LEN 40                                            // Buffer for the quoted ETag
+#define PORTAL_PAGE_CSP "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"

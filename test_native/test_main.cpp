@@ -30,6 +30,7 @@ void run_menu_setting_sliders_tests();
 void run_menu_setting_radios_tests();
 void run_portal_api_tests();
 void run_portal_guard_tests();
+void run_portal_page_logic_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -64,5 +65,6 @@ int main() {
     run_menu_setting_radios_tests();
     run_portal_api_tests();
     run_portal_guard_tests();
+    run_portal_page_logic_tests();
     return UNITY_END();
 }

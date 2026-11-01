@@ -47,6 +47,15 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
 
     bind_event(wifi_forget_button, LV_EVENT_CLICKED, ET::WIFI_FORGET);
 
+    // Web interface: the page and API on the local network (the only place it can be switched)
+    create_separator(parent, "Web interface");
+    create_description_label(parent,
+                             "Opens a control page on your network. While on, anyone on your WiFi can change "
+                             "settings and start the grinder.");
+    create_toggle_row(parent, "Web", &wifi_web_toggle);
+    wifi_web_label = create_description_label(parent, "");
+    lv_obj_set_style_text_color(wifi_web_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+
     // Updates: arm the push endpoint and decide whether each update needs a tap on the grinder
     create_separator(parent, "Updates");
     create_description_label(parent,
@@ -86,11 +95,12 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     bind_event(wifi_check_button, LV_EVENT_CLICKED, ET::WIFI_CHECK_UPDATE);
     bind_event(wifi_install_button, LV_EVENT_CLICKED, ET::WIFI_INSTALL_UPDATE);
     bind_event(wifi_push_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_PUSH_TOGGLE);
+    bind_event(wifi_web_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_WEB_TOGGLE);
     bind_event(wifi_confirm_toggle, LV_EVENT_VALUE_CHANGED, ET::WIFI_CONFIRM_TOGGLE);
     // Content is filled in by reload_wifi_page() when the page is entered
 }
 
-// Toggle states come from NVS / the RAM copy of the Confirm flag. Without credentials both are greyed out and
+// Toggle states come from the RAM copies in WiFiManager (Receive, Web interface, Confirm). Without credentials all three are greyed out and
 // off/default: arming needs a token, and an unattended Confirm-off must not survive into a later provisioning.
 void MenuScreen::apply_wifi_update_toggles() {
     auto apply = [this](lv_obj_t* toggle, bool on) {
@@ -107,6 +117,7 @@ void MenuScreen::apply_wifi_update_toggles() {
         }
     };
     apply(wifi_push_toggle, wifi_has_credentials && wifi_manager.push_enabled());
+    apply(wifi_web_toggle, wifi_has_credentials && wifi_manager.web_enabled());
     apply(wifi_confirm_toggle, wifi_manager.accept_required());
 }
 
@@ -183,12 +194,23 @@ void MenuScreen::update_wifi_page() {
     snprintf(name, sizeof(name), "%s.local", wifi_manager.hostname());
     set_label_text_if_changed(wifi_name_label, name);
 
-    const bool listening = wifi_has_credentials && update_server.running();
+    // The server also runs for the web interface alone: each label needs its own switch as well
+    const bool server_up = wifi_has_credentials && update_server.running();
+    const bool listening = server_up && wifi_manager.push_enabled();
     if (listening) {
         char listen_text[96];
         set_label_text_if_changed(wifi_listen_label, update_listening_text(wifi_manager.hostname(), listen_text, sizeof(listen_text)));
     }
     set_visible(wifi_listen_label ? lv_obj_get_parent(wifi_listen_label) : nullptr, listening);
+
+    const bool web_listening = server_up && wifi_manager.web_enabled();
+    if (web_listening) {
+        char ip[16];
+        wifi_manager.get_ip(ip, sizeof(ip));
+        char web_text[128];
+        set_label_text_if_changed(wifi_web_label, web_listening_text(wifi_manager.hostname(), ip, web_text, sizeof(web_text)));
+    }
+    set_visible(wifi_web_label ? lv_obj_get_parent(wifi_web_label) : nullptr, web_listening);
 
     set_visible(wifi_setup_block, !wifi_has_credentials);
     set_visible(wifi_manage_block, wifi_has_credentials);

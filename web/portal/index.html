@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grinder panel (reference page)</title>
+<style>
+  body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 1rem; }
+  .banner { background: #ff3d00; color: #fff; font-weight: bold; padding: .75rem 1rem; border-radius: .4rem; }
+  h1 { font-size: 1.3rem; margin: 1rem 0 .25rem; }
+  #status { color: #aaa; }
+</style>
+</head>
+<body>
+<div class="banner">REFERENCE PAGE, not the final portal</div>
+<h1 id="name">Grinder</h1>
+<p id="status">Loading...</p>
+<script>
+fetch('/api/info', { cache: 'no-store' })
+  .then(function (r) { return r.json(); })
+  .then(function (info) {
+    document.getElementById('name').textContent = info.name + '.local';
+    document.getElementById('status').textContent =
+      'Firmware ' + info.version + ' (build ' + info.build + '), board ' + info.board +
+      (info.busy ? ', busy' : ', idle');
+  })
+  .catch(function () {
+    document.getElementById('status').textContent = 'The grinder did not answer.';
+  });
+</script>
+</body>
+</html>

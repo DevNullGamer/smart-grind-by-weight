@@ -25,6 +25,7 @@
 #define WIFI_NVS_KEY_PASSWORD "pass"
 #define WIFI_NVS_KEY_TOKEN "token"
 #define WIFI_NVS_KEY_PUSH_ENABLED "push_enabled"                               // bool, default false
+#define WIFI_NVS_KEY_WEB_ENABLED "web_enabled"                                 // bool, default false: the web interface (page and API) answers; Forget WiFi resets it
 #define WIFI_NVS_KEY_ACCEPT "accept"                                           // bool, default true: every update needs a tap on the grinder
 #define WIFI_NVS_KEY_BETA "beta"                                               // bool, default false: the menu "Check for update" also offers prereleases
 #define WIFI_NVS_KEY_NAME "name"                                               // mDNS hostname, default WIFI_DEFAULT_HOSTNAME

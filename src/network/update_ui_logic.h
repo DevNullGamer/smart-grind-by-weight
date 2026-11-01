@@ -48,3 +48,6 @@ const char* update_pull_connecting_text();
 
 // "Listening:\ngrindbyweight.local" (two rows so it fits 280 px; host is cut if absurdly long). Needs 96 bytes. Returns out.
 const char* update_listening_text(const char* host, char* out, size_t out_len);
+
+// "Web interface:\n<host>.local\n<ip>" (three rows; the IP row is left out when ip is empty). Needs 128 bytes. Returns out.
+const char* web_listening_text(const char* host, const char* ip, char* out, size_t out_len);

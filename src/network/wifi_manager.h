@@ -29,7 +29,7 @@ public:
     // Validates and stores the credentials and the API token (always rewritten; the provisioning tool
     // generates it), then (re)connects from tick(). Write order: password, token, SSID last (commit marker).
     SetResult set_credentials(const char* ssid, const char* password, const char* token);
-    // Removes SSID, password, token and the push flag, and takes the radio down from tick().
+    // Removes SSID, password, token, the push flag and the web interface flag, and takes the radio down from tick().
     // Returns false (state and flags unchanged) if NVS could not be opened.
     bool clear_credentials();
 
@@ -52,9 +52,17 @@ public:
     // Constant-time check of a candidate token against the stored one (false if none is stored)
     bool token_matches(const char* candidate);
 
-    bool push_enabled();
-    // Returns false if the value could not be stored
+    // "Receive" (firmware push). Served from a RAM copy (loaded in begin()), so the HTTP task can call it per
+    // request without touching NVS.
+    bool push_enabled() const { return push_cached; }
+    // Returns false if the value could not be stored (the RAM copy then keeps its old value)
     bool set_push_enabled(bool enabled);
+
+    // "Web interface" (web panel page and API, default off, changed only from the touchscreen). Same RAM copy
+    // rule as push_enabled(). Forgetting the WiFi resets it to off.
+    bool web_enabled() const { return web_cached; }
+    // Returns false if the value could not be stored (the RAM copy then keeps its old value)
+    bool set_web_enabled(bool enabled);
 
     // "Confirm on the grinder" (default true): every update needs a tap on INSTALL. Served from a RAM copy
     // (loaded in begin()), so it is safe to call while an update owns the flash. Turning it off only takes
@@ -95,6 +103,8 @@ private:
     volatile uint32_t credentials_rev = 0;
     volatile bool http_service_wanted = false;
     volatile bool accept_cached = true;  // fail closed until begin() has read NVS
+    volatile bool push_cached = false;   // RAM copies of the Receive and Web interface switches (off until begin() has read NVS)
+    volatile bool web_cached = false;
     bool radio_started = false;
     bool events_registered = false;
     bool mdns_started = false;

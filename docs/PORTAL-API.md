@@ -30,7 +30,11 @@ firmware sources (menu tables, `UiSettings`, `user.h`, `ProfileController`).
 | `GET /api/status`, `GET /api/settings`, `GET /api/schema` | Web interface | 403 `web_interface_off` |
 | `PATCH /api/settings` | Web interface | 403 `web_interface_off` |
 | `POST /api/command` (including `stop`) | Web interface | 403 `web_interface_off` |
-| `/api/update/begin`, `/api/update/data` | Receive (+ the existing token and Accept dialog) | refused by the update code, unchanged |
+| `/api/update/begin`, `/api/update/data` | Receive (+ the existing token and Accept dialog) | 403 `receive_off` (the update routes check Receive themselves because the server also runs for the web interface alone) |
+
+The Web interface switch is kept in RAM (loaded at boot, written only by the on-screen toggle), so the HTTP task
+never reads NVS. **Forget WiFi switches it off again**, like Receive. The switch only decides whether the web routes
+answer; the server itself follows within about 2 s.
 
 There is **no token** for the panel (the existing token keeps protecting firmware push only). The page is served
 by the grinder itself, so it is same origin: no CORS headers are sent and none are needed.
@@ -56,7 +60,7 @@ which the grinder never answers.
 
 | Method and path | Body | Success reply |
 |---|---|---|
-| `GET /` | | the embedded page (step 3) |
+| `GET /` (also `/index.html`) | | the embedded page: gzip, `Content-Encoding: gzip`, `ETag` (build number + content CRC, `If-None-Match` answers 304), `Cache-Control: no-cache`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a Content-Security-Policy (`default-src 'self'` ... `frame-ancestors 'none'`), `Connection: close`. At most 64 KB gzipped (the build fails above that). |
 | `GET /api/info` | | unchanged (name, version, build, board, busy, confirm) |
 | `GET /api/status` | | status object (section 7) |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
