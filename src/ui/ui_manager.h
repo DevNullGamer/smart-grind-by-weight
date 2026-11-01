@@ -143,6 +143,7 @@ public:
     // Refusal notice for a motor_pulse_block() answer (block != NONE): the motor dialog for
     // MOTOR_DISABLED, otherwise a single-OK notice with the cause. Not for use inside a confirm callback.
     void show_motor_pulse_blocked_notice(MotorTestBlock block);
+    void show_calibration_failed_notice(CalibrationResult result);
 
     // Runs show_notice from a one-shot timer, after the confirm dialog that is handling a tap has
     // returned to its previous state (a dialog opened inside a confirm callback corrupts that state).

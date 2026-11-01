@@ -3,6 +3,7 @@
 #include "circular_buffer_math/circular_buffer_math.h"
 #include "load_cell_driver.h"
 #include "hx711_driver.h"
+#include "calibration_math.h"
 #include "../config/constants.h"
 #include <Preferences.h>
 #include <freertos/FreeRTOS.h>
@@ -62,9 +63,10 @@ private:
     
     // Tare implementation (hardware-independent)
     static const uint8_t DATA_SET = 16 + 1 + 1;  // SAMPLES + IGN_HIGH_SAMPLE + IGN_LOW_SAMPLE
-    bool doTare;
-    uint8_t tareTimes;
-    bool tareStatus;
+    // Atomic: written by the UI task (tare request / cancel) and by the Core 0 sampling task
+    std::atomic<bool> doTare;
+    std::atomic<uint8_t> tareTimes;
+    std::atomic<bool> tareStatus;
     bool tareTimeoutFlag;
     unsigned long tareTimeOut;
     
@@ -118,7 +120,7 @@ public:
     void power_down();
     
     // Tare operations
-    void tare();                          // Blocking tare
+    bool tare();                          // Blocking tare; false (tare cancelled) on timeout
     void tareNoDelay();                   // Exact HX711_ADC method
     bool getTareStatus();                 // Exact HX711_ADC method
     
@@ -127,7 +129,9 @@ public:
     bool is_tare_in_progress() const { return doTare; }
     
     // Calibration
-    void calibrate(float known_weight);
+    // Blocking (UI task); reads only the filter Core 0 fills, never the ADC. On any failure the old
+    // factor is kept and nothing is saved.
+    CalibrationResult calibrate(float known_weight);
     void set_calibration_factor(float factor);
     void set_zero_offset(int32_t offset);
     

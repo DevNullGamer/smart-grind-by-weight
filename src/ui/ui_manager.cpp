@@ -387,6 +387,19 @@ void UIManager::show_motor_pulse_blocked_notice(MotorTestBlock block) {
         nullptr);  // Single OK button
 }
 
+void UIManager::show_calibration_failed_notice(CalibrationResult result) {
+    if (result == CalibrationResult::OK) {
+        return;
+    }
+    show_confirmation(
+        calibration_result_title(result),
+        calibration_result_message(result),
+        "OK",
+        lv_color_hex(THEME_COLOR_WARNING),
+        nullptr,
+        nullptr);  // Single OK button
+}
+
 void UIManager::show_notice_after_dialog(std::function<void()> show_notice) {
     if (!show_notice) {
         return;
