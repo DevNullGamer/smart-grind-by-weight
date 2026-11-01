@@ -79,7 +79,9 @@ def test_setting_keys_are_exactly_the_eleven_menu_settings():
     assert len(settings) == 11
     assert sorted(settings) == sorted(SETTING_GETTER)
     assert [f["key"] for f in VECTORS["fields"] if f["group"] == "profile"] == PROFILE_KEYS
-    assert len(set(FIELDS)) == len(VECTORS["fields"]) == 17
+    assert [f["key"] for f in VECTORS["fields"] if f["group"] == "device"] == ["device_name"]
+    assert len(set(FIELDS)) == len(VECTORS["fields"]) == 18
+    assert VECTORS["fields"][-1]["key"] == "device_name"  # last: keeps the other indices stable
 
 
 def test_ui_settings_getters_equal_the_portal_settings():
@@ -198,6 +200,29 @@ def test_toggle_defaults_equal_ui_settings():
             assert defaults[SETTING_GETTER[key]] == ("true" if field["default"] else "false"), key
 
 
+def test_device_name_equals_wifi_manager():
+    wifi = read("src/config/wifi.h")
+    field = FIELDS["device_name"]
+    assert field["type"] == "string" and field["group"] == "device"
+    # Stored in the key WiFiManager reads, default is WiFiManager's default
+    assert re.search(r'WIFI_NVS_KEY_NAME\s+"name"', wifi) and re.search(r'WIFI_NVS_NAMESPACE\s+"wifi"', wifi)
+    default = re.search(r'WIFI_DEFAULT_HOSTNAME\s+"([^"]+)"', wifi).group(1)
+    assert field["default"] == default
+    manager = read("src/network/wifi_manager.cpp")
+    assert "WIFI_NVS_KEY_NAME" in manager and "wifi_validate_hostname" in manager
+    # Limits: stricter than (a subset of) the 63-character label limit WiFiManager accepts
+    assert field["min"] == 1 and field["max"] == LIMITS["device_name_max_len"] == 24
+    assert field["max"] <= macro(wifi, "WIFI_HOSTNAME_MAX_LEN")
+    portal = read("src/config/portal.h")
+    assert macro(portal, "PORTAL_DEVICE_NAME_MAX_LEN") == field["max"]
+    # The portal validator reuses WiFiManager's validator instead of a second copy of the character rule
+    assert "wifi_validate_hostname" in read("src/network/portal_api.cpp")
+    creds = read("src/network/wifi_credentials.cpp")
+    body = re.search(r"bool wifi_validate_hostname\(const char\* name\) \{(.*?)\n\}", creds, re.S).group(1)
+    assert "'a' && c <= 'z'" in body and "'0' && c <= '9'" in body and "c == '-'" in body
+    assert "name[0] == '-'" in body and "name[len - 1] == '-'" in body
+
+
 def test_request_limits_equal_portal_h():
     header = read("src/config/portal.h")
     assert macro(header, "PORTAL_BODY_MAX") == LIMITS["body_max"]
@@ -247,7 +272,7 @@ def test_every_case_uses_known_codes_and_keys():
 def test_vectors_cover_the_required_refusals():
     patch_errors = {c["error"] for c in VECTORS["patch_cases"]}
     for needed in ("empty_body", "body_too_large", "malformed_json", "nested_value", "duplicate_key", "unknown_key",
-                   "empty_patch", "wrong_type", "invalid_value", "out_of_range"):
+                   "empty_patch", "wrong_type", "invalid_value", "out_of_range", "invalid_device_name"):
         assert needed in patch_errors, needed
     command_errors = {c["error"] for c in VECTORS["command_cases"]}
     for needed in ("missing_field", "unexpected_field", "unknown_command", "wrong_type", "out_of_range"):

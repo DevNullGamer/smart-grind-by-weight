@@ -60,8 +60,8 @@ which the grinder never answers.
 | `GET /api/info` | | unchanged (name, version, build, board, busy, confirm) |
 | `GET /api/status` | | status object (section 7) |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
-| `GET /api/settings` | | `{"values":{<17 keys>},"current_profile":N}` |
-| `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state) |
+| `GET /api/settings` | | `{"values":{<18 keys>},"current_profile":N}` |
+| `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
@@ -70,8 +70,8 @@ needs are 1 KB for the values and patch reply, 4 KB for the schema.
 
 ## 4. Settings and profile fields
 
-One flat namespace: the 11 menu settings (the 10 settings of the Settings pages plus the grind mode) and the 6
-profile targets (single/double/custom, weight and time). Names, types and limits of every field are also served
+One flat namespace: the 11 menu settings (the 10 settings of the Settings pages plus the grind mode), the 6
+profile targets (single/double/custom, weight and time) and the **device setting** `device_name`. Names, types and limits of every field are also served
 by `GET /api/schema`. Values in `GET /api/settings` use the same JSON types as the table; numbers are written with at most 3 decimals (trailing zeros trimmed, at least one decimal kept, e.g. `9.0`, `21.5`).
 
 | Key | Type | Unit | Range | Step | Default | Rule outside the range |
@@ -93,6 +93,7 @@ by `GET /api/schema`. Values in `GET /api/settings` use the same JSON types as t
 | `double_time_s` | number | s | 0.5 - 25 | | 10.0 | **refused** |
 | `custom_weight_g` | number | g | 5 - 1000 | | 21.5 | **refused** |
 | `custom_time_s` | number | s | 0.5 - 25 | | 12.0 | **refused** |
+| `device_name` | string | | 1 - 24 characters of `a-z`, `0-9`, `-`; no leading or trailing hyphen | | `"grindbyweight"` | **refused** (`invalid_device_name`), never clamped or folded |
 
 Profile names are fixed: index 0 `SINGLE`, 1 `DOUBLE`, 2 `CUSTOM` (`GET /api/schema` lists them with the keys of
 their two targets). `current_profile` (0-2, the selection on the screen) is returned by `GET /api/settings` but
@@ -113,9 +114,29 @@ Clamping is exactly what the menu does with the same value:
   53 % and 59 % read back as 52 % and 58 % (also on the grinder's own slider). `values` always reports what the
   menu would show.
 
+### Device name (`device_name`)
+
+`device_name` is the mDNS host name: the grinder answers at `http://<device_name>.local`. It is a **device setting**,
+not a menu setting: it is stored in the existing NVS key `wifi/name` and applied by `WiFiManager`, on the UI-task
+side of the mailbox like every other write (the HTTP task never touches NVS or WiFi). Rules:
+
+- Default `grindbyweight` (unchanged). 1-24 characters of lowercase `a-z`, `0-9` and hyphen, no leading or trailing
+  hyphen (a double hyphen is fine). This is the rule `WiFiManager` already applies when it loads the name
+  (`wifi_validate_hostname`, which would allow up to 63 characters) with the length limited to 24.
+- **Uppercase input is refused, not folded to lowercase.** Any invalid name (empty, 25+ characters, underscore, dot,
+  space, leading/trailing hyphen) is refused with 400 `invalid_device_name`; it is never clamped or corrected.
+  A non-ASCII byte anywhere in a body is `malformed_json` (like in every string), a non-string is `wrong_type`.
+- Applying it restarts **only mDNS**; WiFi stays connected, so the IP address does not change. The `PATCH` reply
+  contains `"address":"<name>.local"` and the page must be reopened at that address (the old name stops
+  answering). `GET /api/settings` and `GET /api/schema` include `device_name` (schema group `device`, type
+  `string`, `min`/`max` are the length limits).
+- Setting the name it already has is accepted and changes nothing.
+- **Duplicate names on the LAN are the user's responsibility.** The grinder does not detect them; with two grinders
+  on one name, use the IP address or give them different names.
+
 ## 5. Request body rules (`PATCH /api/settings`, `POST /api/command`)
 
-A body is **one flat JSON object** of simple values, at most 512 bytes (the firmware also caps the member count at 24, a defensive limit that cannot be reached: there are only 17 known keys and duplicates are refused). Anything else is
+A body is **one flat JSON object** of simple values, at most 512 bytes (the firmware also caps the member count at 24, a defensive limit that cannot be reached: there are only 18 known keys and duplicates are refused). Anything else is
 refused and nothing is applied (all or nothing, also for a patch with one good and one bad field).
 
 | Rule | Refusal |
@@ -129,7 +150,7 @@ refused and nothing is applied (all or nothing, also for a patch with one good a
 | a key that is not in the field table (case-sensitive) | 400 `unknown_key` |
 | `{}` for `PATCH` | 400 `empty_patch` |
 | JSON type does not match the field (bool needs true/false, number fields need a number, enum fields a string, `null` is never valid) | 400 `wrong_type` |
-| enum string that is not a choice or longer than 16 characters; a number that does not fit a finite double (`1e999`) | 400 `invalid_value` |
+| enum string that is not a choice or longer than 24 characters; a number that does not fit a finite double (`1e999`) | 400 `invalid_value` |
 | profile target outside its limits | 400 `out_of_range` |
 
 Members are examined in document order and the first problem wins: per member the key (duplicate, then known),
@@ -235,6 +256,7 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `invalid_value` | 400 | enum choice unknown/too long, number not finite, `profile` not a whole number |
 | `out_of_range` | 400 | profile target outside its limits, `profile` not 0-2 |
 | `unknown_command` | 400 | `cmd` is not one of the four commands |
+| `invalid_device_name` | 400 | `device_name` is not 1-24 characters of `a-z`, `0-9`, `-`, or starts/ends with a hyphen (uppercase is refused, not folded) |
 | `web_interface_off` | 403 | the Web interface switch on the grinder is off |
 | `bad_host` | 403 | Host header is not a `.local` name or an IP literal |
 | `bad_origin` | 403 | Origin header present and not `http://` + Host |

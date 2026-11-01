@@ -8,6 +8,7 @@
 #include "config/grind_control.h"
 #include "config/user.h"
 #include "network/portal_api.h"
+#include "network/wifi_credentials.h"
 #include "portal_vectors.h"
 #include "system/menu_setting_models.h"
 #include "system/menu_setting_table.h"
@@ -78,6 +79,7 @@ const char* type_name(PortalFieldType t) {
         case PortalFieldType::INT: return "int";
         case PortalFieldType::NUMBER: return "number";
         case PortalFieldType::ENUM: return "enum";
+        case PortalFieldType::STRING: return "string";
     }
     return "";
 }
@@ -117,9 +119,9 @@ static void test_field_table_matches_vectors() {
         const PortalField& f = portal_field(i);
         TEST_ASSERT_EQUAL_STRING(v.at("key").s.c_str(), f.key);
         TEST_ASSERT_EQUAL_STRING(v.at("type").s.c_str(), type_name(f.type));
-        TEST_ASSERT_EQUAL_STRING(v.at("group").s.c_str(), f.is_profile ? "profile" : "settings");
+        TEST_ASSERT_EQUAL_STRING(v.at("group").s.c_str(), portal_field_group(i));
         TEST_ASSERT_EQUAL_STRING(v.find("unit") ? v.at("unit").s.c_str() : "", f.unit);
-        if (f.type == PortalFieldType::INT || f.type == PortalFieldType::NUMBER) {
+        if (f.type == PortalFieldType::INT || f.type == PortalFieldType::NUMBER || f.type == PortalFieldType::STRING) {
             TEST_ASSERT_FLOAT_WITHIN(kEps, static_cast<float>(v.at("min").n), f.min);
             TEST_ASSERT_FLOAT_WITHIN(kEps, static_cast<float>(v.at("max").n), f.max);
             TEST_ASSERT_FLOAT_WITHIN(kEps, v.find("step") ? static_cast<float>(v.at("step").n) : 0.0f, f.step);
@@ -128,6 +130,10 @@ static void test_field_table_matches_vectors() {
             const PJson& choices = v.at("choices");
             TEST_ASSERT_EQUAL_UINT32(f.choice_count, choices.a.size());
             for (size_t c = 0; c < choices.a.size(); c++) TEST_ASSERT_EQUAL_STRING(choices.a[c].s.c_str(), f.choices[c]);
+        }
+        if (f.type == PortalFieldType::STRING) {
+            TEST_ASSERT_EQUAL_STRING(v.at("default").s.c_str(), defaults.device_name);
+            continue;
         }
         TEST_ASSERT_FLOAT_WITHIN(kEps, expected_value(i, v.at("default")), f.def);
         TEST_ASSERT_FLOAT_WITHIN(kEps, f.def, defaults.v[i]);
@@ -169,6 +175,10 @@ static void test_patch_vectors() {
             const int idx = index_of(kv.first.c_str());
             want_present |= 1u << idx;
             TEST_ASSERT_TRUE_MESSAGE(patch.has(idx), name.c_str());
+            if (portal_field(idx).type == PortalFieldType::STRING) {
+                TEST_ASSERT_EQUAL_STRING_MESSAGE(kv.second.s.c_str(), patch.device_name, name.c_str());
+                continue;
+            }
             TEST_ASSERT_FLOAT_WITHIN_MESSAGE(kEps, expected_value(idx, kv.second), patch.v[idx], name.c_str());
         }
         for (const PJson& k : c.at("adjusted").a) want_adjusted |= 1u << index_of(k.s.c_str());
@@ -354,6 +364,75 @@ static void test_load_settings_converts_like_the_menu() {
     TEST_ASSERT_EQUAL_FLOAT(0.0f, v.v[PF_GRIND_MODE]);
 }
 
+static void test_device_name_validator_matches_wifi_manager_rule() {
+    // Same characters and hyphen rule as wifi_validate_hostname (what WiFiManager accepts), but at most 24 long
+    for (int len = 1; len <= 63; len++) {
+        const std::string name(static_cast<size_t>(len), 'a');
+        TEST_ASSERT_TRUE(wifi_validate_hostname(name.c_str()));
+        TEST_ASSERT_EQUAL_MESSAGE(len <= 24, portal_device_name_valid(name.c_str()), name.c_str());
+    }
+    for (int c = 0; c < 256; c++) {
+        const char text[4] = {'a', static_cast<char>(c), 'b', '\0'};
+        if (c == 0) continue;
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+        TEST_ASSERT_EQUAL_MESSAGE(ok, portal_device_name_valid(text), "character set");
+        TEST_ASSERT_EQUAL(wifi_validate_hostname(text), portal_device_name_valid(text));
+    }
+    TEST_ASSERT_FALSE(portal_device_name_valid(nullptr));
+    TEST_ASSERT_FALSE(portal_device_name_valid(""));
+    TEST_ASSERT_FALSE(portal_device_name_valid("-a"));
+    TEST_ASSERT_FALSE(portal_device_name_valid("a-"));
+    TEST_ASSERT_FALSE(portal_device_name_valid("Grind"));  // refused, not folded
+    TEST_ASSERT_TRUE(portal_device_name_valid("a--b"));
+    TEST_ASSERT_TRUE(portal_device_name_valid(WIFI_DEFAULT_HOSTNAME));
+    TEST_ASSERT_EQUAL_UINT32(PORTAL_DEVICE_NAME_MAX_LEN, 24);
+    TEST_ASSERT_TRUE(strlen(WIFI_DEFAULT_HOSTNAME) <= PORTAL_DEVICE_NAME_MAX_LEN);
+}
+
+static void test_device_name_is_a_device_setting_not_a_ui_setting() {
+    TEST_ASSERT_EQUAL_STRING("device", portal_field_group(PF_DEVICE_NAME));
+    TEST_ASSERT_EQUAL_STRING("settings", portal_field_group(PF_GRIND_MODE));
+    TEST_ASSERT_EQUAL_STRING("profile", portal_field_group(PF_SINGLE_WEIGHT_G));
+    TEST_ASSERT_EQUAL_UINT32(PORTAL_FIELD_COUNT - 1, PF_DEVICE_NAME);
+    PortalValues defaults = portal_default_values();
+    TEST_ASSERT_EQUAL_STRING(WIFI_DEFAULT_HOSTNAME, defaults.device_name);
+    // portal_load_settings leaves it to the caller (WiFiManager owns the name)
+    MapStore store;
+    UiSettings settings(store);
+    strcpy(defaults.device_name, "kept");
+    portal_load_settings(settings, &defaults);
+    TEST_ASSERT_EQUAL_STRING("kept", defaults.device_name);
+}
+
+static void test_device_name_patch_sets_only_the_name() {
+    PortalPatch patch;
+    const char* body = "{\"device_name\":\"bar-1\"}";
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_parse_patch(body, strlen(body), &patch)));
+    TEST_ASSERT_EQUAL_UINT32(1u << PF_DEVICE_NAME, patch.present);
+    TEST_ASSERT_EQUAL_UINT32(0, patch.adjusted);  // never clamped
+    TEST_ASSERT_EQUAL_STRING("bar-1", patch.device_name);
+    // A failed patch leaves no name behind
+    const char* bad = "{\"device_name\":\"Bar\"}";
+    patch.device_name[0] = 'x';
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::INVALID_DEVICE_NAME), static_cast<int>(portal_parse_patch(bad, strlen(bad), &patch)));
+    TEST_ASSERT_EQUAL_CHAR('\0', patch.device_name[0]);
+    TEST_ASSERT_EQUAL_INT(400, portal_error_info(PortalError::INVALID_DEVICE_NAME).status);
+    TEST_ASSERT_EQUAL_STRING("invalid_device_name", portal_error_info(PortalError::INVALID_DEVICE_NAME).code);
+}
+
+static void test_patch_reply_carries_the_new_address() {
+    char buf[1024];
+    PortalValues applied = portal_default_values();
+    strcpy(applied.device_name, "bar-1");
+    TEST_ASSERT_TRUE(portal_encode_patch_reply(applied, 0, buf, sizeof(buf), true));
+    PJson j = portal_json_parse(buf);
+    TEST_ASSERT_EQUAL_STRING("bar-1.local", j.at("address").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("bar-1", j.at("values").at("device_name").s.c_str());
+    TEST_ASSERT_TRUE(portal_encode_patch_reply(applied, 0, buf, sizeof(buf)));
+    j = portal_json_parse(buf);
+    TEST_ASSERT_NULL(j.find("address"));  // only when the name changed
+}
+
 static void test_load_settings_off_grid_purge_amount() {
     MapStore store;
     UiSettings settings(store);
@@ -426,6 +505,10 @@ static void test_encode_values_round_trips_the_defaults() {
     TEST_ASSERT_EQUAL_UINT32(PORTAL_FIELD_COUNT, v.o.size());
     for (size_t i = 0; i < PORTAL_FIELD_COUNT; i++) {
         TEST_ASSERT_EQUAL_STRING(portal_field(i).key, v.o[i].first.c_str());  // table order
+        if (portal_field(i).type == PortalFieldType::STRING) {
+            TEST_ASSERT_EQUAL_STRING(values.device_name, v.o[i].second.s.c_str());
+            continue;
+        }
         TEST_ASSERT_FLOAT_WITHIN_MESSAGE(kEps, values.v[i], expected_value(i, v.o[i].second), portal_field(i).key);
     }
     // Typed like the contract says: booleans and strings, not 0/1
@@ -602,6 +685,10 @@ void run_portal_api_tests() {
     RUN_TEST(test_profile_limits_follow_the_firmware_constants);
     RUN_TEST(test_defaults_equal_an_empty_ui_settings_store);
     RUN_TEST(test_load_settings_converts_like_the_menu);
+    RUN_TEST(test_device_name_validator_matches_wifi_manager_rule);
+    RUN_TEST(test_device_name_is_a_device_setting_not_a_ui_setting);
+    RUN_TEST(test_device_name_patch_sets_only_the_name);
+    RUN_TEST(test_patch_reply_carries_the_new_address);
     RUN_TEST(test_load_settings_off_grid_purge_amount);
     RUN_TEST(test_brightness_store_round_trip_is_within_one_percent);
     RUN_TEST(test_encode_error);

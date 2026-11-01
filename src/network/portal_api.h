@@ -27,6 +27,7 @@ enum class PortalError : uint8_t {
     INVALID_VALUE,
     OUT_OF_RANGE,
     UNKNOWN_COMMAND,
+    INVALID_DEVICE_NAME,
     // Browser guards and the web interface gate (403/415)
     WEB_INTERFACE_OFF,
     BAD_HOST,
@@ -65,12 +66,14 @@ enum class PortalFieldType : uint8_t {
     BOOL,    // JSON true/false
     INT,     // JSON number, rounded to a whole number
     NUMBER,  // JSON number
-    ENUM     // JSON string, one of the choices (value = index of the choice)
+    ENUM,    // JSON string, one of the choices (value = index of the choice)
+    STRING   // JSON string (device_name only; PortalValues/PortalPatch::device_name)
 };
 
 constexpr size_t PORTAL_SETTING_COUNT = 11;
 constexpr size_t PORTAL_PROFILE_FIELD_COUNT = 6;  // single/double/custom x weight/time
-constexpr size_t PORTAL_FIELD_COUNT = PORTAL_SETTING_COUNT + PORTAL_PROFILE_FIELD_COUNT;
+constexpr size_t PORTAL_DEVICE_FIELD_COUNT = 1;   // device_name: a "device setting", not a UiSettings value
+constexpr size_t PORTAL_FIELD_COUNT = PORTAL_SETTING_COUNT + PORTAL_PROFILE_FIELD_COUNT + PORTAL_DEVICE_FIELD_COUNT;
 constexpr size_t PORTAL_PROFILE_COUNT = 3;
 constexpr size_t PORTAL_ENUM_MAX_CHOICES = 2;
 
@@ -92,7 +95,8 @@ enum PortalFieldIndex : uint8_t {
     PF_DOUBLE_WEIGHT_G,
     PF_DOUBLE_TIME_S,
     PF_CUSTOM_WEIGHT_G,
-    PF_CUSTOM_TIME_S
+    PF_CUSTOM_TIME_S,
+    PF_DEVICE_NAME  // last: keeps the settings and profile indices stable
 };
 
 struct PortalField {
@@ -109,6 +113,11 @@ struct PortalField {
 };
 
 const PortalField& portal_field(size_t index);  // index must be below PORTAL_FIELD_COUNT
+// "settings", "profile" or "device" (device_name)
+const char* portal_field_group(size_t index);
+// device_name rule: wifi_validate_hostname (lowercase a-z, 0-9, hyphen, no leading/trailing hyphen) and at most
+// PORTAL_DEVICE_NAME_MAX_LEN characters. Uppercase is refused, never folded.
+bool portal_device_name_valid(const char* name);
 // Index of a key, or -1 (exact, case-sensitive match of key_len bytes)
 int portal_field_find(const char* key, size_t key_len);
 // Profile name by index (0 SINGLE, 1 DOUBLE, 2 CUSTOM); "UNKNOWN" for anything else
@@ -120,6 +129,7 @@ const char* portal_profile_name(int profile);
 struct PortalValues {
     float v[PORTAL_FIELD_COUNT] = {0};
     int current_profile = 1;  // read-only here (the selection on the screen)
+    char device_name[PORTAL_DEVICE_NAME_MAX_LEN + 1] = {0};  // v[PF_DEVICE_NAME] is unused
 };
 
 // Values of a successfully parsed PATCH body. Only fields named in the body are present.
@@ -127,6 +137,7 @@ struct PortalPatch {
     uint32_t present = 0;   // bit per field index
     uint32_t adjusted = 0;  // subset of present: the value was clamped or snapped like the menu does
     float v[PORTAL_FIELD_COUNT] = {0};
+    char device_name[PORTAL_DEVICE_NAME_MAX_LEN + 1] = {0};  // valid when has(PF_DEVICE_NAME)
     bool has(size_t index) const { return (present >> index) & 1u; }
 };
 
@@ -163,10 +174,12 @@ void portal_load_settings(const UiSettings& settings, PortalValues* values);
 //------------------------------------------------------------------------------
 // {"error":"code","reason":"text"} (NONE encodes {"ok":true})
 bool portal_encode_error(PortalError error, char* out, size_t cap);
-// {"values":{<17 flat keys>},"current_profile":N}  (GET /api/settings)
+// {"values":{<18 flat keys>},"current_profile":N}  (GET /api/settings)
 bool portal_encode_values(const PortalValues& values, char* out, size_t cap);
-// {"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}  (PATCH reply: the applied state)
-bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_mask, char* out, size_t cap);
+// {"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}  (PATCH reply: the applied state);
+// with device_name_changed also "address":"<name>.local" (the page must be reopened there)
+bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_mask, char* out, size_t cap,
+                               bool device_name_changed = false);
 // {"fields":[{"key","type","unit","min","max","step","default","choices"?,"group"}],"profiles":[{"index","name","weight_key","time_key"}]}
 bool portal_encode_schema(char* out, size_t cap);
 // {"ok":true,"cmd":"start","profile":1,"lead_in_ms":3000} (profile and lead_in_ms only for start)

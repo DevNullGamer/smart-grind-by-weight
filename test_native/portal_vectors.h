@@ -58,8 +58,13 @@ struct Reader {
                 case 'u': {
                     const unsigned code = static_cast<unsigned>(strtoul(t.substr(i, 4).c_str(), nullptr, 16));
                     i += 4;
-                    if (code >= 0x80) TEST_FAIL_MESSAGE("portal_api_vectors.json: non-ASCII escape");
-                    out += static_cast<char>(code);
+                    if (code >= 0x800) TEST_FAIL_MESSAGE("portal_api_vectors.json: escape above U+07FF");
+                    if (code < 0x80) {
+                        out += static_cast<char>(code);
+                    } else {  // UTF-8, so a vector can carry non-ASCII bytes
+                        out += static_cast<char>(0xC0 | (code >> 6));
+                        out += static_cast<char>(0x80 | (code & 0x3F));
+                    }
                     break;
                 }
                 default: out += e;  // " \ /

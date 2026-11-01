@@ -5,6 +5,7 @@
 #include "config/grind_control.h"
 #include "config/hardware.h"
 #include "config/user.h"
+#include "network/wifi_credentials.h"
 #include "system/menu_setting_models.h"
 #include "system/menu_setting_table.h"
 #include "system/ui_settings.h"
@@ -29,6 +30,7 @@ const PortalErrorInfo kErrors[static_cast<size_t>(PortalError::COUNT)] = {
     {400, "invalid_value", "A value is not acceptable."},
     {400, "out_of_range", "A value is outside the allowed range."},
     {400, "unknown_command", "The command is not known."},
+    {400, "invalid_device_name", "The device name must be 1-24 characters of a-z, 0-9 and hyphen, not starting or ending with a hyphen."},
     {403, "web_interface_off", "The web interface is switched off on the grinder."},
     {403, "bad_host", "The Host header is not a .local name or an IP address."},
     {403, "bad_origin", "The Origin header does not match the Host header."},
@@ -85,6 +87,7 @@ const PortalField kFields[PORTAL_FIELD_COUNT] = {
      USER_CUSTOM_PROFILE_WEIGHT_G, {nullptr, nullptr}, 0, true},
     {"custom_time_s", PortalFieldType::NUMBER, "s", USER_MIN_TARGET_TIME_S, USER_MAX_TARGET_TIME_S, 0,
      USER_CUSTOM_PROFILE_TIME_S, {nullptr, nullptr}, 0, true},
+    {"device_name", PortalFieldType::STRING, "", 1, PORTAL_DEVICE_NAME_MAX_LEN, 0, 0, {nullptr, nullptr}, 0, false},
 };
 
 const char* const kProfileNames[PORTAL_PROFILE_COUNT] = {"SINGLE", "DOUBLE", "CUSTOM"};
@@ -356,6 +359,11 @@ PortalError patch_on_value(void* ctx, const Scalar& value) {
             result = static_cast<float>(found);
             break;
         }
+        case PortalFieldType::STRING:
+            if (value.kind != Scalar::STRING) return PortalError::WRONG_TYPE;
+            if (value.str_too_long || !portal_device_name_valid(value.str)) return PortalError::INVALID_DEVICE_NAME;
+            memcpy(p->patch.device_name, value.str, strlen(value.str) + 1);
+            break;
         case PortalFieldType::INT:
         case PortalFieldType::NUMBER:
             if (value.kind != Scalar::NUMBER) return PortalError::WRONG_TYPE;
@@ -500,8 +508,11 @@ struct JsonOut {
     }
 };
 
-void write_field_value(JsonOut& j, const PortalField& f, float value) {
+void write_field_value(JsonOut& j, size_t index, const PortalValues& values) {
+    const PortalField& f = kFields[index];
+    const float value = values.v[index];
     switch (f.type) {
+        case PortalFieldType::STRING: j.str(values.device_name); break;
         case PortalFieldType::BOOL: j.boolean(value >= 0.5f); break;
         case PortalFieldType::INT: j.integer(lroundf(value)); break;
         case PortalFieldType::NUMBER: j.num(value); break;
@@ -520,7 +531,7 @@ void write_values_object(JsonOut& j, const PortalValues& values) {
     for (size_t i = 0; i < PORTAL_FIELD_COUNT; i++) {
         if (i > 0) j.put(',');
         j.key(kFields[i].key);
-        write_field_value(j, kFields[i], values.v[i]);
+        write_field_value(j, i, values);
     }
     j.put('}');
 }
@@ -531,6 +542,7 @@ const char* type_name(PortalFieldType t) {
         case PortalFieldType::INT: return "int";
         case PortalFieldType::NUMBER: return "number";
         case PortalFieldType::ENUM: return "enum";
+        case PortalFieldType::STRING: return "string";
     }
     return "";
 }
@@ -546,6 +558,15 @@ const PortalErrorInfo& portal_error_info(PortalError error) {
 }
 
 const PortalField& portal_field(size_t index) { return kFields[index]; }
+
+const char* portal_field_group(size_t index) {
+    if (index == PF_DEVICE_NAME) return "device";
+    return kFields[index].is_profile ? "profile" : "settings";
+}
+
+bool portal_device_name_valid(const char* name) {
+    return name && strlen(name) <= PORTAL_DEVICE_NAME_MAX_LEN && wifi_validate_hostname(name);
+}
 
 int portal_field_find(const char* key, size_t key_len) {
     if (!key) return -1;
@@ -563,6 +584,7 @@ PortalValues portal_default_values() {
     PortalValues values;
     for (size_t i = 0; i < PORTAL_FIELD_COUNT; i++) values.v[i] = kFields[i].def;
     values.current_profile = 1;
+    memcpy(values.device_name, WIFI_DEFAULT_HOSTNAME, sizeof(WIFI_DEFAULT_HOSTNAME));
     return values;
 }
 
@@ -643,7 +665,8 @@ bool portal_encode_values(const PortalValues& values, char* out, size_t cap) {
     return j.done();
 }
 
-bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_mask, char* out, size_t cap) {
+bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_mask, char* out, size_t cap,
+                               bool device_name_changed) {
     JsonOut j(out, cap);
     j.raw("{\"ok\":true,\"values\":");
     write_values_object(j, applied);
@@ -657,12 +680,20 @@ bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_ma
         first = false;
         j.str(kFields[i].key);
     }
-    j.raw("]}");
+    j.put(']');
+    if (device_name_changed) {
+        j.raw(",\"address\":");
+        char address[PORTAL_DEVICE_NAME_MAX_LEN + 8];
+        snprintf(address, sizeof(address), "%s.local", applied.device_name);
+        j.str(address);
+    }
+    j.put('}');
     return j.done();
 }
 
 bool portal_encode_schema(char* out, size_t cap) {
     JsonOut j(out, cap);
+    const PortalValues defaults = portal_default_values();
     j.raw("{\"fields\":[");
     for (size_t i = 0; i < PORTAL_FIELD_COUNT; i++) {
         const PortalField& f = kFields[i];
@@ -675,7 +706,13 @@ bool portal_encode_schema(char* out, size_t cap) {
         j.str(type_name(f.type));
         j.put(',');
         j.key("group");
-        j.str(f.is_profile ? "profile" : "settings");
+        j.str(portal_field_group(i));
+        if (f.type == PortalFieldType::STRING) {
+            j.raw(",\"min\":");
+            j.num(f.min);
+            j.raw(",\"max\":");
+            j.num(f.max);
+        }
         if (f.type == PortalFieldType::INT || f.type == PortalFieldType::NUMBER) {
             if (f.unit[0]) {
                 j.put(',');
@@ -700,7 +737,7 @@ bool portal_encode_schema(char* out, size_t cap) {
             j.put(']');
         }
         j.raw(",\"default\":");
-        write_field_value(j, f, f.def);
+        write_field_value(j, i, defaults);
         j.put('}');
     }
     j.raw("],\"profiles\":[");
