@@ -58,14 +58,21 @@ private:
     mutable uint32_t flow_stable_since_ms;  // When flow rate first became stable
     mutable bool flow_stability_initialized;
     
-    // Helper methods - using dynamic arrays based on window size
-    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out) const;
+    // Helper methods. All callers use fixed stack arrays of CBM_MAX_WINDOW_SAMPLES (no alloca).
+    // Copies the newest in-window samples (newest first), at most `capacity`; times_out may be null.
+    int collect_window(uint32_t window_ms, int32_t* values_out, uint32_t* times_out, int capacity) const;
+    // Trimmed mean; count must be <= CBM_MAX_WINDOW_SAMPLES (sorts a fixed-size copy)
     int32_t apply_outlier_rejection(const int32_t* samples, int count) const;
     float calculate_standard_deviation(const int32_t* samples, int count) const;
     int32_t get_latest_sample() const;
-    int calculate_max_samples_for_window(uint32_t window_ms) const;
-    
+    // Wrap-safe window membership: age <= window_ms; a timestamp ahead of now has age 0
+    static bool in_window(uint32_t now_ms, uint32_t timestamp_ms, uint32_t window_ms);
+
 public:
+    // Newest in-window samples, newest first, at most `capacity` (the newest are kept when the
+    // window holds more; the first truncation logs one line on firmware). Returns the count.
+    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out, int capacity) const;
+
     explicit CircularBufferMath(ClockFn clock = default_millis);
 
     // Core data input - called from WeightSensor::sample_and_feed_filter()
@@ -100,8 +107,13 @@ public:
     
     // Statistical operations on raw data
     float get_standard_deviation_raw(uint32_t window_ms) const;
+    // Min/max walk the ring in place (no copy, no sample cap). Every window is limited by the
+    // buffer: 1024 samples = ~100 s at 10 SPS, so a longer window (e.g. the 300 s screen-dim
+    // window) effectively covers only what the buffer holds.
     int32_t get_min_raw(uint32_t window_ms) const;
     int32_t get_max_raw(uint32_t window_ms) const;
+    // Both in one pass; false (outputs 0) when no sample is in the window
+    bool get_min_max_raw(uint32_t window_ms, int32_t* min_out, int32_t* max_out) const;
     
     // Reset functions
     void reset_display_filter();

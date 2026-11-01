@@ -55,6 +55,10 @@
 #define HW_LOADCELL_SAMPLE_RATE_SPS 10                                         // Current sample rate setting
 #define HW_LOADCELL_SAMPLE_INTERVAL_MS (1000 / HW_LOADCELL_SAMPLE_RATE_SPS)   // Calculated sample interval
 
+// Most in-window samples CircularBufferMath copies onto the stack for sorting/std dev/percentiles
+// (newest first). 64 = 6.4 s at 10 SPS; truncates only above ~25 SPS for the 2500 ms percentile window.
+#define CBM_MAX_WINDOW_SAMPLES 64
+
 // Sample freshness and settled check (see src/hardware/sensor_health.h)
 #define HW_LOADCELL_STALE_SAMPLE_MS 500                                        // Newest sample older than this = sensor stale/dead (5 missed samples at 10 SPS)
 #define HW_LOADCELL_NO_DATA_DIAG_MS 2000                                       // Stale this long (after the first sample) raises the HX711_NO_DATA diagnostic

@@ -4,6 +4,7 @@
 #include <unity.h>
 #include <math.h>
 #include <stdint.h>
+#include "config/hardware.h"
 #include "hardware/circular_buffer_math/circular_buffer_math.h"
 
 namespace {
@@ -122,42 +123,80 @@ static void test_age_is_wrap_safe_across_millis_rollover() {
     TEST_ASSERT_EQUAL_UINT32(160, age);
 }
 
-static void test_span_is_wrap_safe_but_window_membership_is_not() {
-    // CHARACTERIZATION (surprising): the window start is a plain unsigned compare, so a sample
-    // from before the rollover (160 ms old, outside a 100 ms window) is still counted. The span
-    // helper does handle the wrap, so the delta spans 150 ms.
+static void test_window_membership_is_wrap_safe_across_rollover() {
+    // CHANGED in step 2 (was a characterization of the bug): membership now uses the wrap-safe age,
+    // so the sample from before the rollover (160 ms old) is outside a 100 ms window but inside a
+    // 200 ms window. Step 1 counted it in both.
     g_now_ms = 150;
     CircularBufferMath cbm(fake_clock);
     cbm.add_sample(100, UINT32_MAX - 9);
     cbm.add_sample(200, 140);
 
-    TEST_ASSERT_EQUAL_INT(2, cbm.get_sample_count_in_window(100));
+    TEST_ASSERT_EQUAL_INT(1, cbm.get_sample_count_in_window(100));
+    TEST_ASSERT_EQUAL_INT(2, cbm.get_sample_count_in_window(200));
 
     int32_t delta = 0;
     uint32_t span = 0;
     int count = 0;
-    TEST_ASSERT_TRUE(cbm.get_window_delta(100, &delta, &span, &count));
+    TEST_ASSERT_FALSE(cbm.get_window_delta(100, &delta, &span, &count));  // only one sample in window
+    TEST_ASSERT_EQUAL_INT(1, count);
+    TEST_ASSERT_TRUE(cbm.get_window_delta(200, &delta, &span, &count));
     TEST_ASSERT_EQUAL_INT(2, count);
     TEST_ASSERT_EQUAL_INT32(100, delta);   // 200 - 100
     TEST_ASSERT_EQUAL_UINT32(150, span);   // 140 - (UINT32_MAX - 9) across the wrap
+
+    // Min/max, flow and smoothed use the same membership: the 100 ms window holds only the 200.
+    TEST_ASSERT_EQUAL_INT32(200, cbm.get_min_raw(100));
+    TEST_ASSERT_EQUAL_INT32(200, cbm.get_smoothed_raw(100));
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, cbm.get_raw_flow_rate(100));  // one sample: no rate
+    // 200 ms window: (200 - 100) over 150 ms = 666.67/s
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 666.667f, cbm.get_raw_flow_rate(200));
 }
 
-static void test_window_longer_than_clock_excludes_all_samples() {
-    // CHARACTERIZATION (surprising): while now < window_ms (first window after boot or after a
-    // rollover) the window start wraps to a huge value and every real sample is excluded.
+static void test_window_longer_than_clock_now_includes_samples() {
+    // CHANGED in step 2 (FIX): while now < window_ms (first minutes after boot or a rollover) step 1
+    // excluded every real sample (window start wrapped to a huge value). Age-based membership
+    // includes them: ages are 10 and 0, both within 100 ms.
     g_now_ms = 50;
     CircularBufferMath cbm(fake_clock);
     cbm.add_sample(9, 40);
     cbm.add_sample(11, 50);
 
-    TEST_ASSERT_EQUAL_INT(0, cbm.get_sample_count_in_window(100));
+    TEST_ASSERT_EQUAL_INT(2, cbm.get_sample_count_in_window(100));
 
     int32_t delta = 99;
     uint32_t span = 99;
     int count = 99;
-    TEST_ASSERT_FALSE(cbm.get_window_delta(100, &delta, &span, &count));
-    TEST_ASSERT_EQUAL_INT(0, count);
-    TEST_ASSERT_EQUAL_INT32(11, cbm.get_smoothed_raw(100));  // newest-sample fallback
+    TEST_ASSERT_TRUE(cbm.get_window_delta(100, &delta, &span, &count));
+    TEST_ASSERT_EQUAL_INT(2, count);
+    TEST_ASSERT_EQUAL_INT32(2, delta);     // 11 - 9
+    TEST_ASSERT_EQUAL_UINT32(10, span);    // 50 - 40
+    TEST_ASSERT_EQUAL_INT32(10, cbm.get_smoothed_raw(100));  // two samples: (9 + 11) / 2
+    TEST_ASSERT_EQUAL_INT32(9, cbm.get_min_raw(100));
+    TEST_ASSERT_EQUAL_INT32(11, cbm.get_max_raw(100));
+}
+
+static void test_clock_at_zero_includes_sample_stamped_zero() {
+    g_now_ms = 0;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(5, 0);
+    TEST_ASSERT_EQUAL_INT(1, cbm.get_sample_count_in_window(300));
+    TEST_ASSERT_EQUAL_INT32(5, cbm.get_max_raw(300));
+}
+
+static void test_timestamp_ahead_of_now_is_in_every_window_reader() {
+    // Age 0 for a timestamp ahead of now: in the window for count, min/max and the sample copy.
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(10, 950);
+    cbm.add_sample(30, 1005);
+    TEST_ASSERT_EQUAL_INT(2, cbm.get_sample_count_in_window(100));
+    TEST_ASSERT_EQUAL_INT32(10, cbm.get_min_raw(100));
+    TEST_ASSERT_EQUAL_INT32(30, cbm.get_max_raw(100));
+    int32_t out[4] = {0, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(2, cbm.get_samples_in_window(100, out, 4));
+    TEST_ASSERT_EQUAL_INT32(30, out[0]);  // newest first
+    TEST_ASSERT_EQUAL_INT32(10, out[1]);
 }
 
 static void test_timestamp_ahead_of_now_reports_zero_age_and_counts_in_window() {
@@ -398,11 +437,9 @@ static void test_clear_all_samples_then_reads_are_empty() {
 
 // --- Min / max, window boundary ---
 
-// CHARACTERIZATION (latent, deliberately not triggered): calculate_max_samples_for_window() sizes
-// the alloca at window_ms * SPS / 1000 + 10 (capped by samples_count), but get_samples_in_window()
-// collects every in-window sample with no bound. E.g. 12 samples at the same timestamp with a
-// 100 ms window write 12 ints into an 11-slot buffer. Not reachable at 10 SPS in firmware. The
-// tests in this file stay within the cap on purpose; step 2 replaces the alloca with a 64-sample bound.
+// CHANGED in step 2: the latent alloca overrun (12 samples at one timestamp into an 11-slot buffer)
+// is gone. Collection is bounded by an explicit capacity (CBM_MAX_WINDOW_SAMPLES = 64, newest
+// kept); see the bounded-window tests below.
 
 static void test_min_max_use_only_in_window_samples() {
     // Unordered window: 5, -3, 9, 0 at 1000 ms. Older 99 at 899 ms is outside a 100 ms window.
@@ -432,14 +469,20 @@ static void test_window_boundary_sample_included_and_older_excluded() {
 
 // --- Display filter ---
 
-static void test_display_raw_empty_init_then_small_rise_stays_in_deadband() {
-    // The first call on an empty buffer initialises the filter at 0. A later 50 is inside the
-    // 100 raw deadband, so the display stays at 0.
+static void test_display_raw_empty_does_not_latch_filter_at_zero() {
+    // CHANGED in step 2: step 1 initialised the filter at 0 on an empty buffer, so a first sample
+    // of 50 stayed inside the 100 raw deadband and displayed 0. Now an empty read returns 0 without
+    // initialising, and the first real sample initialises the filter (50).
     g_now_ms = 1000;
     CircularBufferMath cbm(fake_clock);
     TEST_ASSERT_EQUAL_INT32(0, cbm.get_display_raw());
-    cbm.add_sample(50, 1000);
     TEST_ASSERT_EQUAL_INT32(0, cbm.get_display_raw());
+    cbm.add_sample(50, 1000);
+    TEST_ASSERT_EQUAL_INT32(50, cbm.get_display_raw());
+    // A small move afterwards is inside the deadband and ignored: the filter is live.
+    cbm.add_sample(120, 1100);
+    g_now_ms = 1100;
+    TEST_ASSERT_EQUAL_INT32(50, cbm.get_display_raw());  // window 300: samples 50,120 -> (50+120)/2 = 85, |85-50| < 100
 }
 
 static void test_display_raw_rise_immediate_fall_decays_by_alpha() {
@@ -522,10 +565,208 @@ static void test_flowrate_unstable_when_recent_slope_jumps() {
     TEST_ASSERT_FALSE(cbm.raw_flowrate_is_stable(200));
 }
 
+// --- Bounded windows (step 2) ---
+
+namespace {
+
+// 100 samples at 200 SPS (5 ms apart), value = index, ts 1000..1495. Every one is inside a
+// 500 ms window at now = 1495 (oldest age 495).
+void feed_200_sps(CircularBufferMath& cbm) {
+    g_now_ms = 1495;
+    for (int32_t i = 0; i < 100; i++) {
+        cbm.add_sample(i, static_cast<uint32_t>(1000 + 5 * i));
+    }
+}
+
+const int32_t kCanary = 0x7EADBEEF;
+
+}  // namespace
+
+static void test_collect_never_writes_past_capacity_and_keeps_newest() {
+    // The window holds 100 samples; the copy is capped at 64 (newest first) and 8 canary slots
+    // after the array stay untouched. A smaller capacity behaves the same way.
+    CircularBufferMath cbm(fake_clock);
+    feed_200_sps(cbm);
+    TEST_ASSERT_EQUAL_INT(100, cbm.get_sample_count_in_window(500));
+
+    int32_t buf[CBM_MAX_WINDOW_SAMPLES + 8];
+    for (int32_t& v : buf) v = kCanary;
+    TEST_ASSERT_EQUAL_INT(CBM_MAX_WINDOW_SAMPLES, cbm.get_samples_in_window(500, buf, CBM_MAX_WINDOW_SAMPLES));
+    TEST_ASSERT_EQUAL_INT32(99, buf[0]);   // newest
+    TEST_ASSERT_EQUAL_INT32(36, buf[CBM_MAX_WINDOW_SAMPLES - 1]);  // 64th newest: 99 - 63
+    for (int k = CBM_MAX_WINDOW_SAMPLES; k < CBM_MAX_WINDOW_SAMPLES + 8; k++) {
+        TEST_ASSERT_EQUAL_INT32(kCanary, buf[k]);
+    }
+
+    for (int32_t& v : buf) v = kCanary;
+    TEST_ASSERT_EQUAL_INT(10, cbm.get_samples_in_window(500, buf, 10));
+    TEST_ASSERT_EQUAL_INT32(99, buf[0]);
+    TEST_ASSERT_EQUAL_INT32(90, buf[9]);
+    TEST_ASSERT_EQUAL_INT32(kCanary, buf[10]);
+
+    TEST_ASSERT_EQUAL_INT(0, cbm.get_samples_in_window(500, buf, 0));  // zero capacity writes nothing
+}
+
+static void test_capped_readers_use_newest_64_but_min_max_and_flow_are_unbounded() {
+    // Smoothed and std dev see only values 36..99 (newest 64).
+    //  - smoothed: drop 36 and 99, mean of 37..98 = 4185 / 62 = 67 (67.5 truncated)
+    //  - std dev of 64 consecutive integers: sqrt(64 * 65 / 12) = 18.619
+    // Min/max walk all 100 samples in place (0 and 99), and the plain flow rate uses the newest
+    // and oldest in-window samples: 99 raw over 495 ms = 200/s.
+    CircularBufferMath cbm(fake_clock);
+    feed_200_sps(cbm);
+    TEST_ASSERT_EQUAL_INT32(67, cbm.get_smoothed_raw(500));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, static_cast<float>(sqrt(64.0 * 65.0 / 12.0)),
+                             cbm.get_standard_deviation_raw(500));
+    TEST_ASSERT_EQUAL_INT32(0, cbm.get_min_raw(500));
+    TEST_ASSERT_EQUAL_INT32(99, cbm.get_max_raw(500));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 200.0f, cbm.get_raw_flow_rate(500));
+}
+
+static void test_percentile_with_200_sps_stays_in_bounds() {
+    // Effective window 1000 ms holds all 100 samples; collection stops at the newest 64 (ts 1180..1495).
+    // Sub-windows 0..3 reach back far enough to hold 3+ of them and each is a 200/s ramp; sub-windows
+    // 4..7 start older than the oldest kept sample and are invalid. Four valid rates, index
+    // int(4 * 0.95) = 3, all 200.
+    CircularBufferMath cbm(fake_clock);
+    feed_200_sps(cbm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 200.0f, cbm.get_raw_flow_rate_95th_percentile(500));
+}
+
+static void test_min_max_single_pass_matches_separate_calls() {
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(-500, 899);  // age 101: outside
+    cbm.add_sample(40, 900);    // age 100: on the boundary, inside
+    cbm.add_sample(-7, 950);
+    cbm.add_sample(60, 1000);
+
+    int32_t lo = 99, hi = 99;
+    TEST_ASSERT_TRUE(cbm.get_min_max_raw(100, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(-7, lo);
+    TEST_ASSERT_EQUAL_INT32(60, hi);
+    TEST_ASSERT_EQUAL_INT32(lo, cbm.get_min_raw(100));
+    TEST_ASSERT_EQUAL_INT32(hi, cbm.get_max_raw(100));
+
+    // Nothing in the window: false, outputs 0
+    g_now_ms = 5000;
+    lo = 99;
+    hi = 99;
+    TEST_ASSERT_FALSE(cbm.get_min_max_raw(100, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(0, lo);
+    TEST_ASSERT_EQUAL_INT32(0, hi);
+}
+
+static void test_min_max_after_ring_wrap_and_window_longer_than_buffer() {
+    // 1029 samples (value i at 1000 + i): survivors are 5..1028. A huge window is limited by the
+    // buffer, not by the window (documented ~100 s limit at 10 SPS): min 5, max 1028.
+    g_now_ms = 2100;
+    CircularBufferMath cbm(fake_clock);
+    for (int32_t i = 0; i < 1029; i++) {
+        cbm.add_sample(i, static_cast<uint32_t>(1000 + i));
+    }
+    int32_t lo = 0, hi = 0;
+    TEST_ASSERT_TRUE(cbm.get_min_max_raw(300000, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(5, lo);
+    TEST_ASSERT_EQUAL_INT32(1028, hi);
+
+    // Narrow window across the wrap point: newest 11 samples (ages 0..10) = values 1018..1028
+    g_now_ms = 2028;
+    TEST_ASSERT_TRUE(cbm.get_min_max_raw(10, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(1018, lo);
+    TEST_ASSERT_EQUAL_INT32(1028, hi);
+}
+
+// --- Residual characterization gaps ---
+
+static void run_irregular_ramp(CircularBufferMath& cbm, uint32_t first_ts) {
+    // Oldest to newest. After the first sample the ramp is 1 raw/ms until 2800, then jumps
+    // 1000 raw in the last 200 ms.
+    cbm.add_sample(0, first_ts);
+    for (int32_t k = 1; k <= 8; k++) {
+        cbm.add_sample(100 * k, static_cast<uint32_t>(2000 + 100 * k));
+    }
+    cbm.add_sample(1800, 3000);
+}
+
+static void test_percentile_collection_boundary_with_irregular_ramp() {
+    // now = 3000, window 1000. Newest first: 3000:1800, 2800:800, 2700:700 ... 2100:100, 2000:0.
+    // Sample at 2000 has age 1000 (on the boundary): kept, 10 samples collected, percentile path.
+    //  Sub-window i holds ages [100 i, 100 i + 300]. i = 0: ts 3000, 2800, 2700 -> 1100 raw / 300 ms
+    //  = 3666.67/s. i = 1 starts at age 100, so it skips the sample at 3000 and holds 2800..2600
+    //  -> 1000/s (this is what a missing step would break). i = 2..7 are all 1000/s.
+    //  Eight rates sorted: seven 1000s then 3666.67; index int(8 * 0.95) = 7 picks 3666.67.
+    g_now_ms = 3000;
+    CircularBufferMath on_boundary(fake_clock);
+    run_irregular_ramp(on_boundary, 2000);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 3666.667f, on_boundary.get_raw_flow_rate_95th_percentile(1000));
+
+    // Same data with the oldest sample at 1999 (age 1001): only 9 collected, so the percentile
+    // falls back to the plain flow rate over 1000 ms: (1800 - 100) over 900 ms = 1888.89/s.
+    CircularBufferMath just_outside(fake_clock);
+    run_irregular_ramp(just_outside, 1999);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1888.889f, just_outside.get_raw_flow_rate_95th_percentile(1000));
+}
+
+static void test_percentile_sub_window_needs_three_samples() {
+    // now = 3000, window 1000, ten samples (ts:value, ages 1000..0): 2000:-4000 (outlier), 2100:100,
+    // 2350:350, 2400:400, 2500:500, 2600:600, 2700:700, 2800:800, 2900:900, 3000:1000 (value = ts - 2000,
+    // a 1000/s ramp, except the outlier). Sub-windows 0..6 each hold 3+ samples on the ramp: 1000/s.
+    // Sub-window 7 (ages 700..1000) holds only 2100 and 2000: two samples, below the minimum of 3, so
+    // it is dropped even though its rate would be 4100 raw / 100 ms = 41000/s. Seven valid rates, all
+    // 1000, index int(7 * 0.95) = 6 -> 1000. Without the minimum the result would be 41000.
+    g_now_ms = 3000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(-4000, 2000);
+    cbm.add_sample(100, 2100);
+    cbm.add_sample(350, 2350);
+    for (int32_t v = 400; v <= 1000; v += 100) cbm.add_sample(v, static_cast<uint32_t>(2000 + v));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1000.0f, cbm.get_raw_flow_rate_95th_percentile(1000));
+}
+
+static void test_flow_stability_threshold_small_nonzero_difference() {
+    // now = 1000. Window 200 ms flow = (200 - 0) / 200 ms = 1000/s. Last 100 ms flow = (200 - v) / 100 ms.
+    // Threshold is 10% of 1000 = 100. v = 91 -> 1090/s, difference 90: stable.
+    // v = 89 -> 1110/s, difference 110: unstable.
+    g_now_ms = 1000;
+    CircularBufferMath near_stable(fake_clock);
+    near_stable.add_sample(0, 800);
+    near_stable.add_sample(91, 900);
+    near_stable.add_sample(200, 1000);
+    TEST_ASSERT_TRUE(near_stable.raw_flowrate_is_stable(200));
+
+    CircularBufferMath near_unstable(fake_clock);
+    near_unstable.add_sample(0, 800);
+    near_unstable.add_sample(89, 900);
+    near_unstable.add_sample(200, 1000);
+    TEST_ASSERT_FALSE(near_unstable.raw_flowrate_is_stable(200));
+}
+
+static void test_is_settled_threshold_between_std_dev_neighbours() {
+    // Alternating 1000 / 1100, 14 samples: sample std dev = sqrt(35000 / 13) = 51.89.
+    // settle_check is std_dev <= threshold: 51 fails, 52 passes.
+    g_now_ms = 2800;
+    CircularBufferMath cbm(fake_clock);
+    feed_steady(cbm, 14, 1000, 1000, 100);
+    TEST_ASSERT_FALSE(cbm.is_settled(2000, 51));
+    TEST_ASSERT_TRUE(cbm.is_settled(2000, 52));
+}
+
 void run_circular_buffer_math_tests() {
+    RUN_TEST(test_collect_never_writes_past_capacity_and_keeps_newest);
+    RUN_TEST(test_capped_readers_use_newest_64_but_min_max_and_flow_are_unbounded);
+    RUN_TEST(test_percentile_with_200_sps_stays_in_bounds);
+    RUN_TEST(test_min_max_single_pass_matches_separate_calls);
+    RUN_TEST(test_min_max_after_ring_wrap_and_window_longer_than_buffer);
+    RUN_TEST(test_percentile_collection_boundary_with_irregular_ramp);
+    RUN_TEST(test_percentile_sub_window_needs_three_samples);
+    RUN_TEST(test_flow_stability_threshold_small_nonzero_difference);
+    RUN_TEST(test_is_settled_threshold_between_std_dev_neighbours);
+    RUN_TEST(test_clock_at_zero_includes_sample_stamped_zero);
+    RUN_TEST(test_timestamp_ahead_of_now_is_in_every_window_reader);
     RUN_TEST(test_min_max_use_only_in_window_samples);
     RUN_TEST(test_window_boundary_sample_included_and_older_excluded);
-    RUN_TEST(test_display_raw_empty_init_then_small_rise_stays_in_deadband);
+    RUN_TEST(test_display_raw_empty_does_not_latch_filter_at_zero);
     RUN_TEST(test_display_raw_rise_immediate_fall_decays_by_alpha);
     RUN_TEST(test_flow_95th_percentile_steady_ramp_equals_flow_rate);
     RUN_TEST(test_flow_95th_percentile_picks_index_floor_95_percent);
@@ -540,8 +781,8 @@ void run_circular_buffer_math_tests() {
     RUN_TEST(test_window_start_is_inclusive_and_older_sample_excluded);
     RUN_TEST(test_smoothed_falls_back_to_newest_when_window_is_empty);
     RUN_TEST(test_age_is_wrap_safe_across_millis_rollover);
-    RUN_TEST(test_span_is_wrap_safe_but_window_membership_is_not);
-    RUN_TEST(test_window_longer_than_clock_excludes_all_samples);
+    RUN_TEST(test_window_membership_is_wrap_safe_across_rollover);
+    RUN_TEST(test_window_longer_than_clock_now_includes_samples);
     RUN_TEST(test_timestamp_ahead_of_now_reports_zero_age_and_counts_in_window);
     RUN_TEST(test_standard_deviation_uses_n_minus_1);
     RUN_TEST(test_standard_deviation_of_single_sample_is_zero);

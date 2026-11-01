@@ -471,10 +471,9 @@ float WeightSensor::get_weight_range(uint32_t window_ms) const {
         return 0.0f;
     }
 
-    int32_t min_raw = raw_filter.get_min_raw(window_ms);
-    int32_t max_raw = raw_filter.get_max_raw(window_ms);
-
-    if (max_raw == min_raw) {
+    int32_t min_raw = 0;
+    int32_t max_raw = 0;
+    if (!raw_filter.get_min_max_raw(window_ms, &min_raw, &max_raw) || max_raw == min_raw) {
         return 0.0f;
     }
 
