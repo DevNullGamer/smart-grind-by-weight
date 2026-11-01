@@ -19,16 +19,6 @@ volatile int64_t Grinder::selftest_done_us = 0;
 volatile int64_t Grinder::selftest_first_us = 0;
 volatile uint32_t Grinder::selftest_done_count = 0;
 
-bool IRAM_ATTR Grinder::selftest_on_trans_done(rmt_channel_handle_t, const rmt_tx_done_event_data_t*, void*) {
-    const int64_t now = esp_timer_get_time();
-    if (selftest_first_us == 0) {
-        selftest_first_us = now;
-    }
-    selftest_done_us = now;
-    selftest_done_count = selftest_done_count + 1;
-    return false;  // No higher-priority task woken
-}
-
 namespace {
 
 struct PulseResult {
@@ -38,6 +28,7 @@ struct PulseResult {
     int64_t first_us;   // Relative to pulse start
     int64_t last_us;    // Relative to pulse start
     int64_t pin_low_us; // Relative to pulse start, 0 = not seen
+    int64_t complete_us; // First time is_pulse_complete() returned true, relative to pulse start, 0 = never
 };
 
 float error_pct(int64_t measured_us, int64_t requested_us) {
@@ -105,6 +96,9 @@ void Grinder::run_pulse_selftest() {
             } else if (pin_seen_high && r.pin_low_us == 0) {
                 r.pin_low_us = now - start_us;
             }
+            if (r.complete_us == 0 && is_pulse_complete()) {
+                r.complete_us = now - start_us;
+            }
             if (selftest_done_count > 0 &&
                 (r.pin_low_us != 0 || (now - selftest_first_us) > kPinLowGraceUs)) {
                 break;
@@ -125,6 +119,15 @@ void Grinder::run_pulse_selftest() {
                     (long long)requested_us, (long long)r.last_us, error_pct(r.last_us, requested_us),
                     (long long)r.first_us, (long long)r.pin_low_us, (unsigned long)r.callbacks,
                     r.callbacks > 1 ? " UNRELIABLE (cb>1)" : "");
+            // Callback-driven completion vs the first callback (polled with ~1 ms resolution)
+            if (r.complete_us != 0) {
+                LOG_BLE("[RMT-SELFTEST] req=%lldus is_pulse_complete=%lldus callback_first=%lldus delta=%+lldus\n",
+                        (long long)requested_us, (long long)r.complete_us, (long long)r.first_us,
+                        (long long)(r.complete_us - r.first_us));
+            } else {
+                LOG_BLE("[RMT-SELFTEST] req=%lldus is_pulse_complete=NEVER (callback_first=%lldus)\n",
+                        (long long)requested_us, (long long)r.first_us);
+            }
         } else {
             LOG_BLE("[RMT-SELFTEST] req=%lldus TIMEOUT (no completion callback)\n", (long long)d_ms * 1000);
         }

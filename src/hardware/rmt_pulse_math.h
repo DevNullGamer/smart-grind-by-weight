@@ -34,3 +34,7 @@ size_t rmt_pulse_symbol_count(uint32_t high_us);
 // RMT_PULSE_TAIL_US. Returns the symbol count, or 0 (out untouched) if high_us is 0 or the
 // payload would not fit in capacity.
 size_t rmt_build_pulse_symbols(uint32_t high_us, RmtSymbol* out, size_t capacity);
+
+// Completion of a finite pulse: the RMT on_trans_done callback flag is authoritative; the motor
+// pin reading LOW is the fallback should the callback ever not arrive (e.g. after an IDF change).
+bool rmt_pulse_complete(bool trans_done_flag, bool pin_is_high);

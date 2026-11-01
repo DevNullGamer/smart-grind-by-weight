@@ -147,15 +147,14 @@ void Grinder::init(int pin, int alt_pin) {
     };
     
     if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) == ESP_OK) {
-#if DEBUG_RMT_PULSE_SELFTEST
-        // Must be registered before rmt_enable
-        rmt_tx_event_callbacks_t selftest_callbacks = {};
-        selftest_callbacks.on_trans_done = selftest_on_trans_done;
-        const esp_err_t cb_err = rmt_tx_register_event_callbacks(rmt_channel, &selftest_callbacks, nullptr);
+        // Must be registered before rmt_enable. On failure the pin readback fallback still works.
+        rmt_tx_event_callbacks_t callbacks = {};
+        callbacks.on_trans_done = on_trans_done;
+        const esp_err_t cb_err = rmt_tx_register_event_callbacks(rmt_channel, &callbacks, this);
         if (cb_err != ESP_OK) {
-            LOG_BLE("[Grinder] Self-test callback registration failed: %d (%s)\n", (int)cb_err, esp_err_to_name(cb_err));
+            LOG_BLE("[Grinder] Completion callback registration failed: %d (%s) - using pin readback\n",
+                    (int)cb_err, esp_err_to_name(cb_err));
         }
-#endif
         rmt_enable(rmt_channel);
         rmt_initialized = true;
         initialized = true;
@@ -408,6 +407,7 @@ bool Grinder::start_pulse_locked(uint32_t duration_ms) {
     }
 
     rmt_transmit_config_t tx_config = {.loop_count = 0};
+    pulse_done_flag_ = false;  // Before the transmit, so the callback of this pulse is not lost
     pulse_active = true;
     grinding = true;
 
@@ -424,6 +424,22 @@ bool Grinder::start_pulse_locked(uint32_t duration_ms) {
 }
 #endif
 
+// ISR context: no logging, no mutex, no allocation
+bool IRAM_ATTR Grinder::on_trans_done(rmt_channel_handle_t, const rmt_tx_done_event_data_t*, void* user_ctx) {
+    if (user_ctx) {
+        static_cast<Grinder*>(user_ctx)->pulse_done_flag_.store(true);
+    }
+#if DEBUG_RMT_PULSE_SELFTEST
+    const int64_t now = esp_timer_get_time();
+    if (selftest_first_us == 0) {
+        selftest_first_us = now;
+    }
+    selftest_done_us = now;
+    selftest_done_count = selftest_done_count + 1;
+#endif
+    return false;  // No higher-priority task woken
+}
+
 bool Grinder::is_pulse_complete() {
     bool complete = false;
     {
@@ -438,8 +454,9 @@ bool Grinder::is_pulse_complete() {
 #else
         if (!pulse_active || !initialized || motor_pin < 0) return true;
 
-        // RMT handles the pulse timing in hardware, so the GPIO state is the completion indicator
-        if (digitalRead(motor_pin) != LOW) return false;
+        // RMT handles the pulse timing in hardware: the transmission-done callback is the primary
+        // completion signal, the GPIO level (LOW) the fallback
+        if (!rmt_pulse_complete(pulse_done_flag_, digitalRead(motor_pin) == HIGH)) return false;
         complete = true;
 #endif
         pulse_active = false;
