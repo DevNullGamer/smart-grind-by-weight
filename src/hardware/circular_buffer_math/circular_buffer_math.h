@@ -1,8 +1,6 @@
 #pragma once
 
-#include <Arduino.h>
-#include <algorithm>
-#include "../../config/constants.h"
+#include <stdint.h>
 
 /**
  * CircularBufferMath - Generic time-based mathematical operations on raw ADC data
@@ -25,7 +23,11 @@
  */
 class CircularBufferMath {
 public:
-    
+    // Millisecond clock for window and age calculations. Firmware uses millis();
+    // host tests inject their own clock.
+    using ClockFn = uint32_t (*)();
+    static uint32_t default_millis();
+
     struct RawDataReading {
         int32_t raw_value;
         float confidence;        // 0.0-1.0 stability confidence  
@@ -42,7 +44,8 @@ private:
     // Large fixed buffer - sized for 10+ seconds at 80 SPS = 800+ samples
     // Using 1024 for power-of-2 efficiency and future headroom
     static const uint16_t MAX_BUFFER_SIZE = 1024;
-    
+
+    ClockFn clock_;
     AdcSample circular_buffer[MAX_BUFFER_SIZE];
     uint16_t write_index;
     uint16_t samples_count;
@@ -63,8 +66,8 @@ private:
     int calculate_max_samples_for_window(uint32_t window_ms) const;
     
 public:
-    CircularBufferMath();
-    
+    explicit CircularBufferMath(ClockFn clock = default_millis);
+
     // Core data input - called from WeightSensor::sample_and_feed_filter()
     void add_sample(int32_t raw_adc_value, uint32_t timestamp_ms);
     

@@ -1,10 +1,36 @@
 #include "circular_buffer_math.h"
-#include "../../config/constants.h"
+#include "../../config/debug.h"
+#include "../../config/hardware.h"
+#include "../../config/system.h"
 #include "../sensor_health.h"
+#if defined(_WIN32)
+#include <malloc.h>  // alloca on MinGW (no alloca.h)
+#else
+#include <alloca.h>
+#endif
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include <algorithm>
 
-CircularBufferMath::CircularBufferMath() {
+#ifdef ARDUINO
+#include <Arduino.h>
+#endif
+
+#if DEBUG_LOAD_CELL
+#include "../../config/constants.h"
+#include <stdio.h>
+#endif
+
+uint32_t CircularBufferMath::default_millis() {
+#ifdef ARDUINO
+    return millis();
+#else
+    return 0; // Host builds have no millis(); tests inject a clock
+#endif
+}
+
+CircularBufferMath::CircularBufferMath(ClockFn clock) : clock_(clock) {
     write_index = 0;
     samples_count = 0;
     display_filtered_raw = 0;
@@ -75,7 +101,7 @@ int32_t CircularBufferMath::get_smoothed_raw(uint32_t window_ms) const {
 int CircularBufferMath::get_samples_in_window(uint32_t window_ms, int32_t* samples_out) const {
     if (samples_count == 0) return 0;
     
-    uint32_t current_time = millis();
+    uint32_t current_time = clock_();
     uint32_t window_start = current_time - window_ms;
     int collected_samples = 0;
     
@@ -190,7 +216,7 @@ uint32_t CircularBufferMath::get_buffer_time_span_ms() const {
 }
 
 int CircularBufferMath::get_sample_count_in_window(uint32_t window_ms) const {
-    uint32_t window_start = millis() - window_ms;
+    uint32_t window_start = clock_() - window_ms;
     int count = 0;
     for (int i = 0; i < samples_count; i++) {
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
@@ -203,7 +229,7 @@ int CircularBufferMath::get_sample_count_in_window(uint32_t window_ms) const {
 bool CircularBufferMath::get_newest_sample_age_ms(uint32_t* age_out) const {
     if (samples_count == 0) return false;
     uint16_t latest_index = (write_index - 1 + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
-    if (age_out) *age_out = sensor_sample_age_ms(millis(), circular_buffer[latest_index].timestamp_ms);
+    if (age_out) *age_out = sensor_sample_age_ms(clock_(), circular_buffer[latest_index].timestamp_ms);
     return true;
 }
 
@@ -222,7 +248,7 @@ bool CircularBufferMath::get_window_delta(uint32_t window_ms, int32_t* delta_out
         return false;
     }
 
-    uint32_t current_time = millis();
+    uint32_t current_time = clock_();
     uint32_t window_start = current_time - window_ms;
 
     int collected = 0;
@@ -285,34 +311,36 @@ bool CircularBufferMath::is_settled(uint32_t window_ms, int32_t threshold_raw_un
     bool settled = settle_check((uint32_t)get_sample_count_in_window(window_ms), min_samples, stale,
                                 std_dev, (float)threshold_raw_units);
     
+#if DEBUG_LOAD_CELL
     // Debug output every 1s during settling checks
     static uint32_t last_debug_time = 0;
-    if (millis() - last_debug_time > 1000) {
+    if (clock_() - last_debug_time > 1000) {
         // Get raw samples for display
         int max_samples = calculate_max_samples_for_window(window_ms);
         if (max_samples > 0) {
             int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
             int actual_samples = get_samples_in_window(window_ms, samples);
-            
+
             // Format raw samples on one line (limit to first 10 samples to avoid spam)
             char sample_str[256] = {0};
             int offset = 0;
             int samples_to_show = std::min(actual_samples, 10);
             for (int i = 0; i < samples_to_show; i++) {
-                offset += snprintf(sample_str + offset, sizeof(sample_str) - offset, 
+                offset += snprintf(sample_str + offset, sizeof(sample_str) - offset,
                                  "%ld%s", (long)samples[i], (i < samples_to_show - 1) ? "," : "");
             }
             if (actual_samples > 10) {
                 offset += snprintf(sample_str + offset, sizeof(sample_str) - offset, "...");
             }
-            
+
             LOG_LOADCELL_DEBUG("[SETTLING] Window:%lums Samples:%d Raw:[%s] StdDev:%.2f Threshold:%ld Settled:%s\n",
-                             window_ms, actual_samples, sample_str, std_dev, (long)threshold_raw_units, 
+                             window_ms, actual_samples, sample_str, std_dev, (long)threshold_raw_units,
                              settled ? "YES" : "NO");
         }
-        last_debug_time = millis();
+        last_debug_time = clock_();
     }
-    
+#endif
+
     return settled;
 }
 
@@ -374,7 +402,7 @@ float CircularBufferMath::get_raw_flow_rate(uint32_t window_ms) const {
     
     // Get samples and timestamps within window
     int collected = 0;
-    uint32_t current_time = millis();
+    uint32_t current_time = clock_();
     uint32_t window_start = current_time - window_ms;
     
     for (int i = 0; i < (int)samples_count && collected < max_samples; i++) {
@@ -427,7 +455,7 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
     int32_t* sample_values = (int32_t*)alloca(max_samples * sizeof(int32_t));
     uint32_t* sample_times = (uint32_t*)alloca(max_samples * sizeof(uint32_t));
     int collected_samples = 0;
-    uint32_t current_time = millis();
+    uint32_t current_time = clock_();
     uint32_t window_start_time = current_time - effective_window_ms;
 
     for (int i = 0; i < (int)samples_count && collected_samples < max_samples; ++i) {
