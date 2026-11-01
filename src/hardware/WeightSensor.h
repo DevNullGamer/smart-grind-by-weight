@@ -157,7 +157,7 @@ public:
     // Primary weight readings using CircularBufferMath with single conversion point
     float get_instant_weight() const;                        // Latest single sample converted to weight
     float get_weight_low_latency() const;                    // 100ms window - for real-time control
-    float get_display_weight();                              // 300ms + asymmetric filter - for UI
+    float get_display_weight();                              // Stored 300ms + asymmetric filter value (advanced per sample on Core 0) - for UI
     float get_weight_high_latency() const;                   // 300ms window - for final measurements
     bool get_weight_delta(uint32_t window_ms, float* delta_out,
                           int* sample_count_out = nullptr,

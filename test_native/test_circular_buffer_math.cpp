@@ -752,7 +752,215 @@ static void test_is_settled_threshold_between_std_dev_neighbours() {
     TEST_ASSERT_TRUE(cbm.is_settled(2000, 52));
 }
 
+// --- Step 3: leftovers from the step 2 audit ---
+
+static void test_min_max_all_negative_values() {
+    // The first in-window sample seeds both min and max; a "start from 0" bug would report max 0.
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(-50, 900);
+    cbm.add_sample(-10, 950);
+    cbm.add_sample(-300, 1000);
+    int32_t lo = 99, hi = 99;
+    TEST_ASSERT_TRUE(cbm.get_min_max_raw(100, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(-300, lo);
+    TEST_ASSERT_EQUAL_INT32(-10, hi);
+    TEST_ASSERT_EQUAL_INT32(-300, cbm.get_min_raw(100));
+    TEST_ASSERT_EQUAL_INT32(-10, cbm.get_max_raw(100));
+}
+
+static void test_percentile_pins_sub_window_step_spacing() {
+    // Values k^2 at ts 1000 + 100 k (k = 0..30), now = 4000, window 3000 (31 samples, under the cap).
+    // Sub-windows: 1 + (3000 - 300) / 100 = 28, sub-window i spans ages [100 i, 100 i + 300] = 4
+    // samples k = 27-i .. 30-i, rate (k_new^2 - k_old^2) / 300 ms. Rates rise as i falls, so the
+    // sorted array ends with i = 0 and index int(28 * 0.95) = 26 is i = 1:
+    // (29^2 - 26^2) = 165 raw / 300 ms = 550/s. A different STEP changes the sub-window count and
+    // therefore both the index and the picked sub-window.
+    g_now_ms = 4000;
+    CircularBufferMath cbm(fake_clock);
+    for (int32_t k = 0; k <= 30; k++) {
+        cbm.add_sample(k * k, static_cast<uint32_t>(1000 + 100 * k));
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 550.0f, cbm.get_raw_flow_rate_95th_percentile(3000));
+}
+
+static void test_percentile_pins_the_64_sample_cap() {
+    // 100 samples at 200 SPS (5 ms), value 400 k - 2 k^2 (rate falls with age), ts 1000 + 5 k,
+    // now = 1495, window 1000 (all 100 in the window). Collection keeps the newest 64: ages 0..315.
+    // Valid sub-windows are i = 0..3 (i = 3 holds ages 300..315, k = 39..36); i >= 4 start beyond
+    // the kept samples. Rates: i0 24800, i1 34000, i2 42000, i3 (750 raw / 15 ms) 50000/s;
+    // index int(4 * 0.95) = 3 -> 50000. Without the cap sub-window 4 (k = 19..0, 6878 raw / 95 ms
+    // = 72400/s) would be valid and win.
+    g_now_ms = 1495;
+    CircularBufferMath cbm(fake_clock);
+    for (int32_t k = 0; k < 100; k++) {
+        cbm.add_sample(400 * k - 2 * k * k, static_cast<uint32_t>(1000 + 5 * k));
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 50000.0f, cbm.get_raw_flow_rate_95th_percentile(1000));
+}
+
+// --- Step 3: locking and the writer-owned display filter ---
+// These run against the no-op lock shim (host builds are single-threaded), so they pin the
+// single-threaded behaviour of the locked paths only. They cannot prove thread safety; that needs
+// the firmware's portMUX spinlock and a hardware run.
+
+static void test_display_value_changes_only_through_add_sample() {
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(1000, 1000);
+    TEST_ASSERT_EQUAL_INT32(1000, cbm.get_display_raw());
+
+    // Time passes and every reader runs; with no new sample the display value must not move,
+    // even though the sample is long outside the 300 ms window.
+    g_now_ms = 5000;
+    cbm.get_smoothed_raw(300);
+    cbm.get_raw_low_latency();
+    cbm.get_raw_high_latency();
+    cbm.get_standard_deviation_raw(300);
+    cbm.get_raw_flow_rate(200);
+    TEST_ASSERT_EQUAL_INT32(1000, cbm.get_display_raw());
+
+    // A new sample advances the filter once: window at ts 1100 holds 1000 and 3000 -> 2000, a rise.
+    g_now_ms = 1100;
+    cbm.add_sample(3000, 1100);
+    TEST_ASSERT_EQUAL_INT32(2000, cbm.get_display_raw());
+}
+
+static void test_get_display_raw_is_const_and_idempotent() {
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(5000, 1000);
+    g_now_ms = 2000;
+    cbm.add_sample(0, 2000);  // fall: 0.9 * 0 + 0.1 * 5000 = 500 (alpha is applied once, here)
+
+    const CircularBufferMath& view = cbm;  // compiles only while get_display_raw() is const
+    int32_t first = view.get_display_raw();
+    int32_t second = view.get_display_raw();
+    TEST_ASSERT_EQUAL_INT32(500, first);
+    TEST_ASSERT_EQUAL_INT32(first, second);  // a read does not decay the filter further
+    TEST_ASSERT_EQUAL_INT32(500, view.get_display_raw());
+}
+
+static void test_reset_display_filter_reseeds_on_next_sample() {
+    g_now_ms = 1000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(1000, 1000);
+    TEST_ASSERT_EQUAL_INT32(1000, cbm.get_display_raw());
+
+    cbm.reset_display_filter();
+    TEST_ASSERT_EQUAL_INT32(0, cbm.get_display_raw());  // nothing until the next sample
+    TEST_ASSERT_EQUAL_UINT16(1, cbm.get_sample_count());  // samples are untouched
+
+    // -500 is a fall from the reset value 0: a filter that stayed initialised would decay it to
+    // 0.9 * -500 + 0.1 * 0 = -450 (and from the old 1000 to a different value). Only a re-seed from
+    // the first new sample shows exactly -500.
+    g_now_ms = 3000;
+    cbm.add_sample(-500, 3000);
+    TEST_ASSERT_EQUAL_INT32(-500, cbm.get_display_raw());
+}
+
+// Fresh buffer seeded with 1000 at ts 1000; one more sample far later (window holds only it, so the
+// smoothed value is exactly `value`); returns the display value.
+static int32_t display_after_second_sample(int32_t value) {
+    g_now_ms = 5000;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(1000, 1000);
+    cbm.add_sample(value, 5000);
+    return cbm.get_display_raw();
+}
+
+static void test_display_window_edge_is_300ms_inclusive_at_sample_timestamp() {
+    // Seed 1000 @1000, 2000 @1200 (window {1000, 2000} -> 1500, a rise). Third sample 5000:
+    //  - at 1300 the sample at 1000 has age exactly 300: inside; window {1000, 2000, 5000},
+    //    trimmed mean keeps the middle one = 2000, a rise from 1500 -> 2000
+    //  - at 1301 it has age 301: outside; window {2000, 5000} -> 3500
+    g_now_ms = 0;  // far from the sample timestamps: the clock must not matter
+    CircularBufferMath inside(fake_clock);
+    inside.add_sample(1000, 1000);
+    inside.add_sample(2000, 1200);
+    TEST_ASSERT_EQUAL_INT32(1500, inside.get_display_raw());
+    inside.add_sample(5000, 1300);
+    TEST_ASSERT_EQUAL_INT32(2000, inside.get_display_raw());
+
+    CircularBufferMath outside(fake_clock);
+    outside.add_sample(1000, 1000);
+    outside.add_sample(2000, 1200);
+    outside.add_sample(5000, 1301);
+    TEST_ASSERT_EQUAL_INT32(3500, outside.get_display_raw());
+}
+
+static void test_display_deadband_boundaries_99_and_100() {
+    TEST_ASSERT_EQUAL_INT32(1000, display_after_second_sample(1000));  // equal: unchanged
+    TEST_ASSERT_EQUAL_INT32(1000, display_after_second_sample(1099));  // rise by 99: inside deadband
+    TEST_ASSERT_EQUAL_INT32(1100, display_after_second_sample(1100));  // rise by 100: taken at once
+    TEST_ASSERT_EQUAL_INT32(1000, display_after_second_sample(901));   // fall by 99: inside deadband
+    // Fall by 100 is filtered: 0.9 * 900 + 0.1 * 1000 = 910 (float rounding may truncate to 909)
+    TEST_ASSERT_INT32_WITHIN(1, 910, display_after_second_sample(900));
+}
+
+static void test_display_filter_anchors_window_at_new_sample_timestamp() {
+    // The clock is nowhere near the samples. Anchored at the sample timestamp (1100) the window holds
+    // 1000 and 3000 -> 2000. Anchored at the clock it would hold nothing and fall back to the newest
+    // sample, showing 3000.
+    g_now_ms = 999999;
+    CircularBufferMath cbm(fake_clock);
+    cbm.add_sample(1000, 1000);
+    cbm.add_sample(3000, 1100);
+    TEST_ASSERT_EQUAL_INT32(2000, cbm.get_display_raw());
+}
+
+static void test_clear_all_samples_is_logically_empty_after_many_wraps() {
+    // Fill the ring twice over with non-zero data, clear (O(1): entries are not zeroed), and check
+    // that no reader sees a stale entry.
+    g_now_ms = 5000;
+    CircularBufferMath cbm(fake_clock);
+    for (int32_t i = 0; i < 2100; i++) {
+        cbm.add_sample(1000 + i, static_cast<uint32_t>(3000 + i));
+    }
+    TEST_ASSERT_EQUAL_UINT16(1024, cbm.get_sample_count());
+    cbm.clear_all_samples();
+
+    TEST_ASSERT_EQUAL_UINT16(0, cbm.get_sample_count());
+    TEST_ASSERT_EQUAL_INT32(0, cbm.get_instant_raw());
+    TEST_ASSERT_EQUAL_INT32(0, cbm.get_smoothed_raw(300));
+    TEST_ASSERT_EQUAL_INT32(0, cbm.get_display_raw());
+    TEST_ASSERT_EQUAL_INT(0, cbm.get_sample_count_in_window(100000));
+    int32_t lo = 99, hi = 99;
+    TEST_ASSERT_FALSE(cbm.get_min_max_raw(100000, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(0, lo);
+    TEST_ASSERT_EQUAL_INT32(0, hi);
+    int32_t out[4] = {0, 0, 0, 0};
+    TEST_ASSERT_EQUAL_INT(0, cbm.get_samples_in_window(100000, out, 4));
+    int32_t delta = 99;
+    TEST_ASSERT_FALSE(cbm.get_window_delta(100000, &delta));
+    TEST_ASSERT_EQUAL_UINT32(0, cbm.get_buffer_time_span_ms());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, cbm.get_raw_flow_rate_95th_percentile(1000));
+
+    // New writes start at slot 0 again and only they are visible.
+    g_now_ms = 5100;
+    cbm.add_sample(-7, 5000);
+    cbm.add_sample(-9, 5100);
+    TEST_ASSERT_EQUAL_UINT16(2, cbm.get_sample_count());
+    TEST_ASSERT_EQUAL_INT(2, cbm.get_sample_count_in_window(100000));
+    TEST_ASSERT_TRUE(cbm.get_min_max_raw(100000, &lo, &hi));
+    TEST_ASSERT_EQUAL_INT32(-9, lo);
+    TEST_ASSERT_EQUAL_INT32(-7, hi);
+    TEST_ASSERT_EQUAL_UINT32(100, cbm.get_buffer_time_span_ms());
+    // Seeded by the first new sample (-7); the second (window mean -8) is inside the deadband.
+    TEST_ASSERT_EQUAL_INT32(-7, cbm.get_display_raw());
+}
+
 void run_circular_buffer_math_tests() {
+    RUN_TEST(test_min_max_all_negative_values);
+    RUN_TEST(test_percentile_pins_sub_window_step_spacing);
+    RUN_TEST(test_percentile_pins_the_64_sample_cap);
+    RUN_TEST(test_display_window_edge_is_300ms_inclusive_at_sample_timestamp);
+    RUN_TEST(test_display_deadband_boundaries_99_and_100);
+    RUN_TEST(test_display_filter_anchors_window_at_new_sample_timestamp);
+    RUN_TEST(test_display_value_changes_only_through_add_sample);
+    RUN_TEST(test_get_display_raw_is_const_and_idempotent);
+    RUN_TEST(test_reset_display_filter_reseeds_on_next_sample);
+    RUN_TEST(test_clear_all_samples_is_logically_empty_after_many_wraps);
     RUN_TEST(test_collect_never_writes_past_capacity_and_keeps_newest);
     RUN_TEST(test_capped_readers_use_newest_64_but_min_max_and_flow_are_unbounded);
     RUN_TEST(test_percentile_with_200_sps_stays_in_bounds);

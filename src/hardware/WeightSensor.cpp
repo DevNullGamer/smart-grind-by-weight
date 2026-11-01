@@ -252,9 +252,9 @@ void WeightSensor::tare() {
     if (doTare) {
         LOG_BLE("ERROR: Blocking tare operation failed or timed out\n");
     } else {
-        // Clear buffer after tare completes for clean measurements
+        // Clear buffer after tare completes for clean measurements. Locked against the Core 0
+        // writer, O(1), and it resets the display filter too (the next sample re-seeds it).
         raw_filter.clear_all_samples();
-        raw_filter.reset_display_filter();
 
         // Ensure at least one sample is in the buffer after taring
         unsigned long sample_start = millis();
@@ -307,9 +307,8 @@ void WeightSensor::calibrate(float known_weight) {
     save_calibration();
     save_calibration_weight(known_weight);
     
-    // Clear buffer after calibration operation for clean measurements
+    // Clear buffer after calibration operation for clean measurements (also resets the display filter)
     raw_filter.clear_all_samples();
-    raw_filter.reset_display_filter();
     
     LOG_BLE("Calibration completed. New factor: %.2f\n", cal_factor);
 }
@@ -416,6 +415,11 @@ float WeightSensor::get_weight_low_latency() const {
 }
 
 float WeightSensor::get_display_weight() {
+    // Empty buffer (just after tare/calibrate, before the next sample re-seeds the filter): the stored
+    // display raw is 0, which would show (0 - tare_offset) / cal as a huge weight for ~100 ms
+    if (raw_filter.get_sample_count() == 0) {
+        return 0.0f;
+    }
     float weight = raw_to_weight(raw_filter.get_display_raw());
     // Clamp tiny values around zero to prevent -0.0g display
     if (weight > -0.05f && weight < 0.05f) {
@@ -728,7 +732,8 @@ bool WeightSensor::sample_and_feed_filter() {
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
-            // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
+            // Single writer (this Core 0 task); CircularBufferMath locks internally against the
+            // Core 0 / Core 1 readers and the UI-thread clear, and advances the display filter here
             raw_filter.add_sample(raw_adc, timestamp);
             
             // Tare logic (hardware-independent)

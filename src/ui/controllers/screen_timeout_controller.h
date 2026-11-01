@@ -20,5 +20,11 @@ public:
 private:
     UIManager* ui_manager_;
     bool screen_dimmed_;
+    // The 300 s weight-range check walks the whole sample ring under the buffer lock, so it runs at
+    // most once per WEIGHT_ACTIVITY_CHECK_INTERVAL_MS and the result is cached (UI task only).
+    static constexpr uint32_t WEIGHT_ACTIVITY_CHECK_INTERVAL_MS = 1000;
+    bool weight_activity_valid_ = false;
+    bool recent_weight_activity_ = false;
+    uint32_t weight_activity_checked_ms_ = 0;
     volatile bool held_awake_ = false;
 };
