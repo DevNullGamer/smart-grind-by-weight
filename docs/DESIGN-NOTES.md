@@ -527,3 +527,43 @@ Before = baseline `f6c1347` (built and booted on the bench board for the compari
 | `[TASK_HEARTBEAT_UIRender]` on READY, cycles per 10 s | 453 | 453 |
 | Menu `show()` duration | not logged | not logged (the walk has no timing line; boot captures show the "Showing menu" and "shown" lines 5 ms apart, with no baseline to pair) |
 | Native host tests | 313 | 352 |
+
+## Tuning batch (chg004)
+
+Steps 1-5 of chg004 (step 6 deferred). Goal: load cell reads that are safe across the Core 0 sampler and the Core 1 control and UI tasks, no per-frame cost from the screen timeout, tare and calibrate that fail visibly, and pulse completion that does not rest on the GPIO level alone.
+
+### CircularBufferMath (steps 1-3)
+
+- **Clock and membership:** the constructor takes a `ClockFn` (`millis()` on firmware, injected by host tests). Window membership is wrap-safe (`in_window()` uses the sample-age rule). Before, it was wrong while `now < window_ms` (first minutes after boot, and after a `millis()` rollover).
+- **Bounded windows:** readers copy at most `CBM_MAX_WINDOW_SAMPLES` (64, `src/config/hardware.h`) of the newest samples into fixed stack arrays; `alloca` is gone. A window holding more uses the newest 64 and logs one `[CBM]` truncation line.
+- **Window length:** the ring holds 1024 samples, about 100 s at 10 SPS. The 300 s screen-dim window therefore covers about 100 s. This is kept on purpose (chg004 plan).
+- **Single pass:** `get_min_max_raw()` takes min and max in one walk of the ring.
+- **Locking:** one `portMUX` spinlock guards the ring, its indices and the display filter. Core 0 is the only sample writer (`add_sample()`); `clear_all_samples()` and `reset_display_filter()` also change state from the UI task. Readers copy at most 64 samples under the lock (or do a bounded walk in place, such as min/max) and sort or compute outside it. Critical sections never log, allocate or call other locked methods.
+- **O(1) clear:** `clear_all_samples()` resets the indices and count and bumps `reset_epoch`. An `add_sample()` that raced with a reset does not re-seed the display filter from a value computed before it.
+- **Display filter:** writer-owned. `add_sample()` advances it once per new sample (fast rise, slow fall, deadband), so a falling display value moves one step per sample: up to about 100 ms per step at 10 SPS. Readers only load it.
+- **Empty buffer:** `WeightSensor::get_display_weight()` returns 0 while the buffer is empty (after a tare or calibrate, until the next sample), so the reset value is never shown as a weight.
+- **Screen timeout:** `ScreenTimeoutController` re-evaluates weight activity at most once per `WEIGHT_ACTIVITY_CHECK_INTERVAL_MS` (1 s) and caches the result. Before, every frame ran two collect-and-scan passes (min and max, each copying into a stack array of up to 1024 entries, about 4 KB each, one after the other, about 4000 iterations). The cost was largest once the ring held 1024 samples (about 100 s after boot).
+- **Stack cost** (estimated at step 2, not measured): about +270 B on the GrindControl task and about +450 B on the 4 KB WeightSampling task during tare. Step 3 added a 64-sample stack window to `add_sample()` on the WeightSampling task (about 512 B together with the sort array of `apply_outlier_rejection()`, on every sample). The stack high-water mark has not been measured.
+
+### Tare and calibration (step 4)
+
+- **Factor validation:** `calibration_compute_factor()` (`src/hardware/calibration_math.*`, host-tested) rejects a known weight that is not (finite and > 0), a raw delta from the tare offset below `HW_LOADCELL_CAL_MIN_ADC_VALUE` (1000, `SIGNAL_TOO_SMALL`), and a factor that is not finite or zero (`INVALID_FACTOR`). Either sign is accepted, so a reversed cell gives a negative factor. On any failure the old factor and the saved calibration stay unchanged.
+- **Result and thread:** `WeightSensor::calibrate()` returns a `CalibrationResult`. It no longer calls `update_async()` from the UI task, which had made the UI task a second HX711 reader beside Core 0; it reads only the filter. A settle timeout is a failure (`SETTLE_TIMEOUT`), not a factor from an unsettled reading.
+- **Notice:** a failed calibration leaves the calibration screen and hands its notice to `show_notice_after_dialog()`, a 50 ms one-shot LVGL timer. It shows the notice only if the UI state is MENU at that moment; otherwise the notice is silently dropped. Dialogs are never opened inside a confirm callback.
+- **Tare timeout:** `tare()` cancels a request that times out with `doTare.exchange(false)`, so it cannot complete silently later. `doTare`, `tareTimes` and `tareStatus` are atomics; the counter is reset before the flag is set.
+- **Known gap (open, optional follow-up):** `UIOperations::execute_tare()` ignores the return value of `tare()`. After a timed-out tare, calibration still advances to the weight step and uses the old tare offset. The fix is to branch on the result in the UI; not done.
+- **Open question (chg004 plan):** the tare offset is `get_smoothed_raw(250)`, taken once 18 samples (`DATA_SET`) are counted. At 10 SPS a 250 ms window holds only about 2-3 samples, so most of the 18 are not used. Deliberately not changed; revisit after the user's hardware pass.
+
+### Pulse completion (step 5)
+
+- `Grinder::is_pulse_complete()` uses the RMT `on_trans_done` flag as the primary signal. The pin readback is only a fallback for a callback that never arrives: `rmt_pulse_complete(flag, pin_high)` is `flag || !pin_high`.
+- The fallback has no seen-HIGH guard, so a LOW pin before the first HIGH would count as complete. This exposure is the same as the old pin-only check, which had no seen-HIGH guard either. The flag is set only when the transmission ends, so an early completion can only come from the pin fallback. The 13/13 bench run below saw no early completion. The only other residual window is a late callback from an earlier pulse, judged negligible in review.
+- **Bench result** (V2, `...-rmt-selftest-v2`, build #491): 13/13 pulses, one callback each. Callback and pin readback agree within about 0.9-1 ms (1 ms poll), and the callback span is within 0.4 % of the requested time.
+
+### Not hardware-verified
+
+Steps 3 and 4 (lock contention and timing, tare and calibrate behaviour) need a load cell. Host tests cover `calibration_math` and the single-threaded paths of `CircularBufferMath`; the spinlock is a no-op on host. Also not hardware-verified:
+
+- step 2 behaviour with real samples and its stack use (only a boot check on the bench board was done);
+- the screen-dim throttle with a live cell;
+- `is_pulse_complete()` inside a real grind. Pulse completion is bench-verified only through the `...-rmt-selftest-v2` env on a V2 board, not in a grind.

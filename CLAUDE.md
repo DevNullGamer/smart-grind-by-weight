@@ -72,6 +72,8 @@ python3 tools/grinder.py analyze
 
 **Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
 
+**Load cell reads (chg004):** control code reads the load cell only through `CircularBufferMath` (spinlock; readers copy at most `CBM_MAX_WINDOW_SAMPLES` newest samples, other passes are bounded in-place walks of the 1024-entry ring; no logging or allocation inside the lock). `update_async()` and `get_raw_adc_data()` belong to the Core 0 sampling task only; `calibrate()` reads only the filter, never the HX711 (details in `docs/DESIGN-NOTES.md` "Tuning batch (chg004)").
+
 **Grind Phases:**
 - Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
 - `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
