@@ -510,6 +510,10 @@ bool TaskManager::are_tasks_healthy() const {
            task_handles.file_io_task;
 }
 
+bool TaskManager::is_weight_sampling_running() const {
+    return task_handles.weight_sampling_task != nullptr;
+}
+
 void TaskManager::print_task_status() const {
     LOG_BLE("=== TaskManager Status ===\n");
     LOG_BLE("Tasks initialized: %s\n", tasks_initialized ? "YES" : "NO");

@@ -85,6 +85,7 @@ public:
     
     // Task monitoring
     bool are_tasks_healthy() const;
+    bool is_weight_sampling_running() const;
     void print_task_status() const;
     
     // Static task function wrappers

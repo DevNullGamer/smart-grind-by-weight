@@ -45,6 +45,30 @@ static uint32_t core1_cycle_time_sum_ms = 0;
 static uint32_t core1_cycle_time_min_ms = UINT32_MAX;
 static uint32_t core1_cycle_time_max_ms = 0;
 static uint32_t core1_last_heartbeat_time = 0;
+
+// Heartbeat "Tasks" field. Without a load cell the WeightSampling task ends by design,
+// so that case is reported as DEGRADED with the fault instead of ERROR.
+static const char* load_cell_fault_name(WeightSensor::HardwareFault fault) {
+    switch (fault) {
+        case WeightSensor::HardwareFault::NOT_CONNECTED: return "NOT_CONNECTED";
+        case WeightSensor::HardwareFault::NO_DATA: return "NO_DATA";
+        case WeightSensor::HardwareFault::INVALID_SAMPLE_RATE: return "INVALID_SAMPLE_RATE";
+        default: return "NONE";
+    }
+}
+
+static void format_tasks_status(char* out, size_t out_size) {
+    if (task_manager.are_tasks_healthy()) {
+        snprintf(out, out_size, "HEALTHY");
+        return;
+    }
+    const WeightSensor::HardwareFault fault = hardware_manager.get_weight_sensor()->get_hardware_fault();
+    if (!task_manager.is_weight_sampling_running() && fault != WeightSensor::HardwareFault::NONE) {
+        snprintf(out, out_size, "DEGRADED (WeightSampling stopped: %s)", load_cell_fault_name(fault));
+        return;
+    }
+    snprintf(out, out_size, "ERROR");
+}
 #endif
 
 static void log_internal_heap(const char* stage) {
@@ -257,7 +281,8 @@ void loop() {
         const char* ble_state = bluetooth_manager.is_enabled() ? 
                                (bluetooth_manager.is_connected() ? "CONN" : "ADV") : "OFF";
         const char* grinder_state = is_grinding ? "ACTIVE" : "IDLE";
-        const char* tasks_status = task_manager.are_tasks_healthy() ? "HEALTHY" : "ERROR";
+        char tasks_status[64];
+        format_tasks_status(tasks_status, sizeof(tasks_status));
         size_t free_heap_kb = ESP.getFreeHeap() / 1024;
         
         LOG_BLE("[%lums MAIN_LOOP_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | Tasks: %s | BLE: %s | Grinder: %s | Mem: %zuKB | Build: #%d\n",
