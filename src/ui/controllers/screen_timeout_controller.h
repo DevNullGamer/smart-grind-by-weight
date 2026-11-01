@@ -17,6 +17,10 @@ public:
     // screen must stay visible). Call with false on every resolution; dimming then resumes from the last touch.
     void hold_awake(bool hold) { held_awake_ = hold; }
 
+    // Puts the display at the stored brightness of the level it is at now (normal, or dimmed while the screen
+    // saver is on). For a brightness setting changed from outside the menu (web panel); a dimmed screen stays dim.
+    void reapply_brightness();
+
 private:
     UIManager* ui_manager_;
     bool screen_dimmed_;

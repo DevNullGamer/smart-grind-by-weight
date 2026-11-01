@@ -240,6 +240,7 @@ public:
     
     bool is_active() const;
     bool is_grind_running() const; // A grind may still drive the motor (not IDLE/COMPLETED/TIMEOUT)
+    int phase_value() const { return static_cast<int>(phase); }  // GrindPhase as a number (web panel status)
     bool is_control_loop_paused() const { return control_loop_paused_; }
     float get_target_weight() const { return target_weight; }
     uint32_t get_target_time_ms() const { return target_time_ms; }

@@ -270,6 +270,7 @@ PortalError portal_command_decide(PortalCommand cmd, const PortalDecisionInput& 
 
 PortalError portal_write_decide(const PortalDecisionInput& in) {
     if (in.command_in_flight) return PortalError::COMMAND_IN_FLIGHT;
+    if (in.update_held) return PortalError::UPDATE_IN_PROGRESS;  // an update owns the flash: no NVS writes now
     if (in.busy) return PortalError::BUSY;
     return in.ui == PortalUiMode::OTHER ? PortalError::NOT_READY : PortalError::NONE;
 }

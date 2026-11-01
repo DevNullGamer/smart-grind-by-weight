@@ -39,4 +39,5 @@
 
 #define WIFI_AUTH_RETRY_MS 30000                                               // Minimum retry delay after an authentication failure (wrong password)
 #define WIFI_CONNECT_TIMEOUT_MS 30000                                          // A connect attempt with neither IP nor disconnect event counts as failed
+#define WIFI_MDNS_RETRY_MS 10000                                               // Retry interval while connected and the mDNS responder is not running
 #define WIFI_REAPPLY_DELAY_MS 300                                              // Pause between dropping the old connection and connecting with new credentials

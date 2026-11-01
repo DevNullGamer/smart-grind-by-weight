@@ -305,8 +305,10 @@ def test_document_names_every_key_error_and_command():
         assert text in doc
 
 
-@pytest.mark.parametrize("module", ["src/network/portal_api.h", "src/network/portal_api.cpp",
-                                    "src/network/portal_guard.h", "src/network/portal_guard.cpp"])
+PURE_MODULES = ["portal_api", "portal_guard", "portal_mailbox", "portal_apply", "portal_snapshot"]
+
+
+@pytest.mark.parametrize("module", [f"src/network/{name}.{ext}" for name in PURE_MODULES for ext in ("h", "cpp")])
 def test_portal_modules_stay_pure(module):
     includes = re.findall(r'#include\s+[<"]([^>"]+)[>"]', read(module))
     for include in includes:
@@ -318,8 +320,118 @@ def test_portal_modules_stay_pure(module):
 
 def test_portal_modules_are_in_the_native_build_and_registered():
     ini = read("platformio-native.ini")
-    for source in ("network/portal_api.cpp", "network/portal_guard.cpp"):
-        assert f"+<{source}>" in ini
+    for name in PURE_MODULES:
+        assert f"+<network/{name}.cpp>" in ini
     main = read("test_native/test_main.cpp")
-    for name in ("run_portal_api_tests", "run_portal_guard_tests"):
+    for name in ("run_portal_api_tests", "run_portal_guard_tests", "run_portal_mailbox_tests",
+                 "run_portal_apply_tests", "run_portal_snapshot_tests"):
         assert main.count(name) == 2
+
+
+# ---- step 4: status names, UI-task wiring, thread rules ----------------------------------------------------
+
+def test_status_names_follow_the_firmware_enums_and_the_document():
+    snapshot = read("src/network/portal_snapshot.cpp")
+    doc = read("docs/PORTAL-API.md")
+    # UIState: one lower-case name per enumerator, in the document
+    for member in enum_members(read("src/system/state_machine.h"), "UIState"):
+        assert f'case UIState::{member}: return "{member.lower()}";' in snapshot, member
+        assert f"`{member.lower()}`" in doc, f"ui_state {member.lower()} missing in PORTAL-API.md"
+    # GrindPhase: the name table is in declaration order and the count constant matches
+    phases = enum_members(read("src/controllers/grind_controller.h"), "GrindPhase")
+    table = re.search(r"kGrindPhaseNames\[PORTAL_GRIND_PHASE_COUNT\] = \{(.*?)\};", snapshot, re.S).group(1)
+    assert re.findall(r'"([a-z_]+)"', table) == [p.lower() for p in phases]
+    assert re.search(r"PORTAL_GRIND_PHASE_COUNT\s*=\s*(\d+)", read("src/network/portal_snapshot.h")).group(1) == str(len(phases))
+    for phase in phases:
+        assert f"`{phase.lower()}`" in doc, f"grind_phase {phase.lower()} missing in PORTAL-API.md"
+
+
+def test_http_task_code_stays_off_the_ui_side():
+    # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
+    # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
+    for module in ("src/network/portal_routes.cpp", "src/network/portal_routes.h", "src/network/portal_command_gate.cpp",
+                   "src/network/portal_command_gate.h"):
+        text = read(module)
+        for include in re.findall(r'#include\s+[<"]([^>"]+)[>"]', text):
+            for forbidden in ("lvgl", "ui_manager", "profile_controller", "grind_controller", "ui_settings",
+                              "nvs_settings_store", "Preferences", "hardware_manager", "menu_screen"):
+                assert forbidden not in include, f"{module} (HTTP task) includes {include}"
+        for token in ("Preferences", "ui_settings", "lv_", "profile_controller", "set_device_name", "nvs_"):
+            assert token not in text, f"{module} (HTTP task) mentions {token}"
+
+
+def test_ui_task_wiring():
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    # every write goes through the shared apply logic and the touchscreen's own handlers
+    assert "portal_apply_patch(" in controller and "portal_write_decide(" in controller
+    assert "wifi_manager.set_device_name(" in controller and "set_grind_mode(" in controller
+    assert "slider_setting_def(" in controller and "toggle_setting_def(" in controller
+    assert "reapply_brightness()" in controller and "refresh_auto_action_settings()" in controller
+    # the field order and the grind phase order are pinned at compile time
+    assert controller.count("static_assert") >= 6
+    # the controller is polled on the UI task, before the update screens can consume the frame
+    ui = read("src/ui/ui_manager.cpp")
+    assert ui.index("portal_controller_->update()") < ui.index("wifi_update_controller_->update()")
+    # the routes are registered with the methods the document names
+    server = read("src/network/update_server.cpp")
+    for uri, method in (("/api/status", "HTTP_GET"), ("/api/schema", "HTTP_GET"), ("/api/settings", "HTTP_GET"),
+                        ("/api/settings", "HTTP_PATCH")):
+        assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
+    max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")
+    assert len(re.findall(r'\{"/[^"]*", HTTP_', server)) <= max_handlers
+
+
+def test_rename_restarts_only_mdns_and_keeps_the_http_service():
+    manager = read("src/network/wifi_manager.cpp")
+    # a rename is applied from tick(): stop + start mDNS, both of which forget the registered "http" service so the
+    # tick() block advertises it again under the new name
+    tick = manager[manager.index("void WiFiManager::tick()"):]
+    assert "mdns_restart_requested" in tick
+    restart = tick[tick.index("if (mdns_restart_requested)"):tick.index("if (apply_requested)")]
+    assert "stop_mdns();" in restart and "start_mdns();" in restart
+    assert "WiFi.disconnect" not in restart and "stop_radio" not in restart
+    for fn in ("void WiFiManager::start_mdns()", "void WiFiManager::stop_mdns()"):
+        body = manager[manager.index(fn):]
+        body = body[:body.index("\n}\n")]
+        assert "http_service_registered = false;" in body, fn
+    # the UI-task writer: NVS key shared with load_host_name(), name switched through two buffers
+    setter = manager[manager.index("bool WiFiManager::set_device_name"):]
+    setter = setter[:setter.index("\n}\n")]
+    assert "WIFI_NVS_KEY_NAME" in setter and "wifi_validate_hostname" in setter and "host_name_index" in setter
+
+
+def test_document_states_apply_order_and_partial_failure():
+    doc = read("docs/PORTAL-API.md")
+    for phrase in ("ascending field index", "device name last", "stops at the first", "`store_failed`",
+                   "shortened to 24 characters"):
+        assert phrase in doc, phrase
+
+
+def test_profile_controller_reports_store_failures():
+    header = read("src/controllers/profile_controller.h")
+    for signature in ("bool set_profile_weight(", "bool set_profile_time(", "bool set_grind_mode(", "bool save_profiles("):
+        assert signature in header, signature
+
+
+def test_address_flag_wiring_and_ram_rollback():
+    # outcome -> mailbox result -> JSON are pure functions; both call sites must use them
+    assert "portal_result_from_outcome(outcome, patch.adjusted, values_)" in read("src/ui/controllers/portal_ui_controller.cpp")
+    assert "portal_encode_patch_result(result, " in read("src/network/portal_routes.cpp")
+    apply_cpp = read("src/network/portal_apply.cpp")
+    assert "result.device_name_changed = outcome.device_name_changed;" in apply_cpp
+    assert "result.device_name_changed)" in apply_cpp
+    # a store that fails rolls the RAM value back (screen and next start agree with what is saved)
+    profiles = read("src/controllers/profile_controller.cpp")
+    assert profiles.count("not stored: RAM keeps matching") == 3
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    assert "if (!profiles->set_grind_mode(mode)) return false;" in controller
+
+
+def test_touchscreen_grind_mode_paths_use_the_store_result():
+    menu = read("src/ui/controllers/menu_controller_settings.cpp")
+    assert "if (!ui_manager_->profile_controller->set_grind_mode(new_mode))" in menu
+    ready = read("src/ui/controllers/ready_controller.cpp")
+    assert "!ui_manager_->profile_controller->set_grind_mode(new_mode)" in ready
+    manager = read("src/network/wifi_manager.cpp")
+    start = manager[manager.index("void WiFiManager::start_mdns()"):]
+    assert "MDNS.end();" in start[:start.index("\n}\n")]

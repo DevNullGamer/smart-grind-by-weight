@@ -143,6 +143,12 @@ void UIManager::update() {
         screen_timeout_controller_->update();
     }
 
+    // Web panel: serves the settings mailbox and publishes the snapshot (before the update screens, so a write
+    // during an update is answered with update_in_progress instead of timing out)
+    if (portal_controller_) {
+        portal_controller_->update();
+    }
+
     // WiFi update: Accept dialog and progress screen (consumes the frame while the progress screen is up)
     if (wifi_update_controller_ && wifi_update_controller_->update()) {
         return;
@@ -468,6 +474,7 @@ void UIManager::init_controllers() {
     screen_timeout_controller_ = std::make_unique<ScreenTimeoutController>(this);
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
     wifi_update_controller_ = std::make_unique<WifiUpdateUIController>(this);
+    portal_controller_ = std::make_unique<PortalUIController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller

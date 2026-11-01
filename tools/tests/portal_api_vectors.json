@@ -206,8 +206,8 @@
     {"name": "enum_wrong_case", "body": "{\"grind_mode\":\"Weight\"}", "error": "invalid_value"},
     {"name": "enum_empty_string", "body": "{\"grind_mode\":\"\"}", "error": "invalid_value"},
     {"name": "enum_stored_value_name", "body": "{\"purge_mode\":\"prime\"}", "error": "invalid_value"},
-    {"name": "enum_too_long", "body": "{\"grind_mode\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}", "error": "invalid_value"},
-    {"name": "enum_exactly_17_chars", "body": "{\"grind_mode\":\"aaaaaaaaaaaaaaaaa\"}", "error": "invalid_value"},
+    {"name": "enum_24_chars_unknown", "body": "{\"grind_mode\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}", "error": "invalid_value"},
+    {"name": "enum_17_chars_unknown", "body": "{\"grind_mode\":\"aaaaaaaaaaaaaaaaa\"}", "error": "invalid_value"},
     {"name": "enum_25_chars", "body": "{\"grind_mode\":\"aaaaaaaaaaaaaaaaaaaaaaaaa\"}", "error": "invalid_value"},
     {"name": "number_overflow_setting", "body": "{\"brightness_normal\":1e999}", "error": "invalid_value"},
     {"name": "number_overflow_negative", "body": "{\"purge_amount_g\":-1e999}", "error": "invalid_value"},
@@ -236,7 +236,7 @@
     {"name": "unknown_command", "body": "{\"cmd\":\"launch\"}", "error": "unknown_command"},
     {"name": "command_case_sensitive", "body": "{\"cmd\":\"START\",\"profile\":1}", "error": "unknown_command"},
     {"name": "command_empty", "body": "{\"cmd\":\"\"}", "error": "unknown_command"},
-    {"name": "command_too_long", "body": "{\"cmd\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}", "error": "unknown_command"},
+    {"name": "command_24_chars_unknown", "body": "{\"cmd\":\"aaaaaaaaaaaaaaaaaaaaaaaa\"}", "error": "unknown_command"},
     {"name": "command_as_number", "body": "{\"cmd\":1}", "error": "wrong_type"},
     {"name": "command_as_null", "body": "{\"cmd\":null}", "error": "wrong_type"},
     {"name": "profile_as_string", "body": "{\"cmd\":\"start\",\"profile\":\"1\"}", "error": "wrong_type"},
@@ -466,6 +466,11 @@
     {"name": "busy", "ui": "READY", "busy": true, "in_flight": false, "error": "busy"},
     {"name": "in_flight", "ui": "READY", "busy": false, "in_flight": true, "error": "command_in_flight"},
     {"name": "in_flight_beats_busy", "ui": "READY", "busy": true, "in_flight": true, "error": "command_in_flight"},
-    {"name": "busy_beats_not_ready", "ui": "OTHER", "busy": true, "in_flight": false, "error": "busy"}
+    {"name": "busy_beats_not_ready", "ui": "OTHER", "busy": true, "in_flight": false, "error": "busy"},
+    {"name": "update_held_in_ready", "ui": "READY", "busy": false, "in_flight": false, "update_held": true, "error": "update_in_progress"},
+    {"name": "update_held_in_menu", "ui": "MENU", "busy": false, "in_flight": false, "update_held": true, "error": "update_in_progress"},
+    {"name": "update_held_beats_busy", "ui": "READY", "busy": true, "in_flight": false, "update_held": true, "error": "update_in_progress"},
+    {"name": "update_held_beats_not_ready", "ui": "OTHER", "busy": false, "in_flight": false, "update_held": true, "error": "update_in_progress"},
+    {"name": "in_flight_beats_update_held", "ui": "READY", "busy": false, "in_flight": true, "update_held": true, "error": "command_in_flight"}
   ]
 }

@@ -31,6 +31,9 @@ void run_menu_setting_radios_tests();
 void run_portal_api_tests();
 void run_portal_guard_tests();
 void run_portal_page_logic_tests();
+void run_portal_mailbox_tests();
+void run_portal_apply_tests();
+void run_portal_snapshot_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -66,5 +69,8 @@ int main() {
     run_portal_api_tests();
     run_portal_guard_tests();
     run_portal_page_logic_tests();
+    run_portal_mailbox_tests();
+    run_portal_apply_tests();
+    run_portal_snapshot_tests();
     return UNITY_END();
 }

@@ -22,3 +22,11 @@ int portal_send_error(httpd_req* req, PortalError error);
 
 // GET / and GET /index.html: the embedded gzip page (200, or 304 on a matching If-None-Match)
 int portal_handle_page(httpd_req* req);
+
+// The JSON API. Reads copy the snapshot the UI task publishes (503 ui_busy when there is none or it is stale);
+// the write hands the parsed patch to the UI task through portal_command_gate and waits for its answer. The
+// HTTP task never touches LVGL, the controllers, the profiles or NVS.
+int portal_handle_status(httpd_req* req);          // GET /api/status
+int portal_handle_settings_get(httpd_req* req);    // GET /api/settings
+int portal_handle_schema(httpd_req* req);          // GET /api/schema (constant, no snapshot needed)
+int portal_handle_settings_patch(httpd_req* req);  // PATCH /api/settings

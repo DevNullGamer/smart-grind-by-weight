@@ -69,13 +69,13 @@ void ReadyUIController::toggle_mode() {
         return;
     }
 
-    ui_manager_->current_mode = (ui_manager_->current_mode == GrindMode::WEIGHT)
-                                    ? GrindMode::TIME
-                                    : GrindMode::WEIGHT;
+    const GrindMode new_mode = (ui_manager_->current_mode == GrindMode::WEIGHT) ? GrindMode::TIME : GrindMode::WEIGHT;
 
-    if (ui_manager_->profile_controller) {
-        ui_manager_->profile_controller->set_grind_mode(ui_manager_->current_mode);
+    // Not stored: the profile controller kept the old mode, so the UI keeps it too
+    if (ui_manager_->profile_controller && !ui_manager_->profile_controller->set_grind_mode(new_mode)) {
+        return;
     }
+    ui_manager_->current_mode = new_mode;
 
     refresh_profiles();
     ui_manager_->edit_target = get_current_profile_target(*ui_manager_->profile_controller, ui_manager_->current_mode);

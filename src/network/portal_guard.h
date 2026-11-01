@@ -79,7 +79,8 @@ struct PortalDecisionInput {
 // command in flight, update held, busy, UI mode (tare/start need READY, motor test READY or MENU), then the
 // command's own block (start: start_block, motor test: motor_test_block).
 PortalError portal_command_decide(PortalCommand cmd, const PortalDecisionInput& in);
-// Settings/profile writes: command in flight, busy, then READY or MENU only (never over an EDIT screen).
+// Settings/profile writes: command in flight, update held (it owns the flash), busy, then READY or MENU only
+// (never over an EDIT screen).
 PortalError portal_write_decide(const PortalDecisionInput& in);
 // Block -> refusal (NONE -> NONE)
 PortalError portal_error_from_start_block(GrindStartBlock block);

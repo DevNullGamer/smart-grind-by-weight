@@ -78,3 +78,15 @@ void ScreenTimeoutController::update() {
         screen_dimmed_ = false;
     }
 }
+
+void ScreenTimeoutController::reapply_brightness() {
+    if (!ui_manager_ || !ui_manager_->hardware_manager || !ui_manager_->menu_controller_) {
+        return;
+    }
+    auto* display = ui_manager_->hardware_manager->get_display();
+    if (!display) {
+        return;
+    }
+    display->set_brightness(screen_dimmed_ ? ui_manager_->menu_controller_->get_screensaver_brightness()
+                                           : ui_manager_->menu_controller_->get_normal_brightness());
+}

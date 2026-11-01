@@ -5,6 +5,7 @@
 #include "config/grind_control.h"
 #include "config/hardware.h"
 #include "config/user.h"
+#include "config/wifi.h"
 #include "network/wifi_credentials.h"
 #include "system/menu_setting_models.h"
 #include "system/menu_setting_table.h"

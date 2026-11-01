@@ -222,6 +222,8 @@ static void test_write_vectors() {
         in.ui = ui_from_name(c.at("ui").s);
         in.busy = c.at("busy").b;
         in.command_in_flight = c.at("in_flight").b;
+        const PJson* held = c.find("update_held");  // optional, false when absent
+        in.update_held = held && held->b;
         // Blocks that matter to commands never matter to settings writes
         in.start_block = GrindStartBlock::MOTOR_DISABLED;
         in.motor_test_block = MotorTestBlock::MOTOR_FAULT;

@@ -68,6 +68,13 @@ which the grinder never answers.
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
+`POST /api/command` is part of the contract but is delivered with the command steps of chg014 (stop/tare, start,
+motor test); a firmware that does not have it yet answers 404 there. Everything else in this table is served.
+
+The reads (`/api/status`, `/api/settings`) copy a snapshot the UI task publishes (see section 7); with no fresh
+snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
+needs no snapshot.
+
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
 needs are 1 KB for the values and patch reply, 4 KB for the schema.
@@ -134,9 +141,16 @@ side of the mailbox like every other write (the HTTP task never touches NVS or W
   contains `"address":"<name>.local"` and the page must be reopened at that address (the old name stops
   answering). `GET /api/settings` and `GET /api/schema` include `device_name` (schema group `device`, type
   `string`, `min`/`max` are the length limits).
-- Setting the name it already has is accepted and changes nothing.
-- **Duplicate names on the LAN are the user's responsibility.** The grinder does not detect them; with two grinders
-  on one name, use the IP address or give them different names.
+- Setting the name it already has is accepted and changes nothing (no write, no mDNS restart, no `address` in the
+  reply).
+- A stored name longer than 24 characters (the WiFi code accepts up to 63, so it can only come from outside this
+  API) is reported shortened to 24 characters with trailing hyphens removed, so the value `GET` returns always
+  passes the validator. Sending that value renames the grinder to the shortened name.
+- **Duplicate names on the LAN are the user's responsibility.** The grinder does not look for them and does not
+  tell the page about them; with two grinders on one name, use the IP address or give them different names. The
+  mDNS responder may itself pick another name when it finds a conflict (for example `<name>-2`), so the address in
+  the reply is the name that was stored, and the WiFi page and the IP address are the reliable ways to find the
+  grinder. The DHCP host name registered at the router only changes at the next WiFi reconnect.
 
 ## 5. Request body rules (`PATCH /api/settings`, `POST /api/command`)
 
@@ -179,7 +193,21 @@ handled is refused with `command_in_flight`. If the UI task does not pick a requ
 is 503 `ui_busy`. A value that could not be persisted is 500 `store_failed`.
 
 **Settings/profile writes** (`PATCH`) are refused unless the grinder is on the READY screen or a menu page (never
-while an EDIT screen, a dialog, a grind or an update is active). Decision order: `command_in_flight`, `busy`, `not_ready`.
+while an EDIT screen, a dialog, a grind or an update is active). Decision order: `command_in_flight`, `update_in_progress`
+(a firmware update owns the flash, so nothing is written), `busy`, `not_ready`.
+
+**Apply order and partial failure.** The body is validated completely first (all or nothing, section 5). Then the
+fields it names are written one by one in a fixed order: ascending field index (the order of the table in section
+4: the settings, then `grind_mode`, then the six profile targets) and the **device name last**, whatever the order
+in the body. A field whose value already equals the stored one is not written. The device name goes last because it
+is the disruptive change (the page must be reopened at the new address), so it only happens when every other field
+of the patch was stored. The write **stops at the first** field that cannot be persisted: the fields before it stay
+applied, the failing one and everything after it are not touched (the grinder keeps the value it had: a profile target or
+grind mode that could not be stored is rolled back in memory too, so the screen and the next start agree with what is saved), and the reply is 500 `store_failed` (no `values`
+in it). After a `store_failed` or a `ui_busy` the page must read `GET /api/settings` to see what is stored. The
+grinder's screen follows what was applied (brightness, auto actions, the READY tab values and grind mode, an open
+menu page) before the reply is sent. The `values` of a successful reply are re-read from the stored state, so a
+brightness reads back as the menu would show it (section 4).
 
 **Commands** (`POST /api/command`, body `{"cmd":"<name>"[,"profile":0..2]}`). Unknown members (a free weight or
 time, for example) are `unknown_key`: a start only takes a stored profile.
@@ -221,7 +249,9 @@ the normal log line. Time mode has no sensor checks: a start without a cup runs 
 
 ## 7. Status
 
-`GET /api/status` is a snapshot published by the UI task (RAM, no hardware access):
+`GET /api/status` is a snapshot published by the UI task (RAM, no hardware access), refreshed about every 250 ms
+(`GET /api/settings` shows the stored settings as of the last publish: at most 10 s old, or right after a write
+through this API or when the menu is left; a change made on the touchscreen shows up within that time):
 
 ```
 {"ui_state":"ready","grind_phase":"idle","busy":false,"weight_g":0.0,"motor_available":true,
@@ -231,7 +261,7 @@ the normal log line. Time mode has no sensor checks: a start without a cup runs 
 | Field | Type | Meaning |
 |---|---|---|
 | `ui_state` | string | lower-case name of the screen state (`ready`, `grinding`, `grind_complete`, `grind_timeout`, `edit`, `menu`, `calibration`, `confirm`, `purge_confirm`, `autotuning`, `ota_update`, `ota_update_failed`) |
-| `grind_phase` | string | lower-case name of the grind phase (`idle`, `predictive`, ...) |
+| `grind_phase` | string | lower-case name of the grind phase: `idle`, `initializing`, `setup`, `taring`, `tare_confirm`, `predictive`, `pulse_decision`, `pulse_execute`, `pulse_settling`, `final_settling`, `time_grinding`, `time_additional_pulse`, `completed`, `timeout`, `prime`, `prime_settling`, `purge_confirm` |
 | `busy` | bool | grind, autotune or motor output active |
 | `weight_g` | number or null | current weight; null while the reading is not valid |
 | `motor_available` | bool | the board is established and the motor can be driven |
@@ -275,8 +305,8 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `load_cell_not_connected` | 409 | load cell not connected (start) |
 | `load_cell_no_data` | 409 | load cell delivers no data (start) |
 | `load_cell_rate_invalid` | 409 | load cell sample rate invalid (start) |
-| `ui_busy` | 503 | the UI task did not pick the request up within about 500 ms |
-| `store_failed` | 500 | a value could not be persisted |
+| `ui_busy` | 503 | the UI task did not pick a write up within about 500 ms or finish it within 2 s (the write may still complete in the second case), or a read found no fresh snapshot |
+| `store_failed` | 500 | a value could not be persisted; fields before it in the apply order stay applied (section 6) |
 
 ## 9. Change rules
 
