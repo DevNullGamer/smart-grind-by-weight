@@ -249,6 +249,10 @@ PortalError portal_error_from_motor_test_block(MotorTestBlock block) {
     return PortalError::BUSY;
 }
 
+bool portal_command_supported(PortalCommand cmd) {
+    return cmd == PortalCommand::STOP || cmd == PortalCommand::TARE;
+}
+
 PortalError portal_command_decide(PortalCommand cmd, const PortalDecisionInput& in) {
     if (cmd == PortalCommand::STOP) return PortalError::NONE;
     if (in.command_in_flight) return PortalError::COMMAND_IN_FLIGHT;

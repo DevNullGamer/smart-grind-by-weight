@@ -68,8 +68,10 @@ which the grinder never answers.
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
-`POST /api/command` is part of the contract but is delivered with the command steps of chg014 (stop/tare, start,
-motor test); a firmware that does not have it yet answers 404 there. Everything else in this table is served.
+`POST /api/command` is served with `stop` and `tare`. `start` and `motor_test` are part of the contract but are
+delivered by later steps of chg014: until then this firmware answers them with 400 `unknown_command` (after the body
+checks of section 5, so a malformed body still gets its own error). A firmware older than the command route answers
+404 there. Everything else in this table is served.
 
 The reads (`/api/status`, `/api/settings`) copy a snapshot the UI task publishes (see section 7); with no fresh
 snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
@@ -214,8 +216,8 @@ time, for example) are `unknown_key`: a start only takes a stored profile.
 
 | `cmd` | Body | Effect | Success reply |
 |---|---|---|---|
-| `stop` | no `profile` | Same as the STOP button: stops a running grind, autotune or motor run, and cancels a pending remote start. | 200 |
-| `tare` | no `profile` | Tares the scale (zeroes the reading); only while idle on the READY screen. | 200 |
+| `stop` | no `profile` | Same as the STOP button: stops a running grind, autotune or motor run, and cancels a pending remote start. | 200 `{"ok":true,"cmd":"stop"}` |
+| `tare` | no `profile` | Tares the scale (zeroes the reading); only while idle on the READY screen. Same as the Scale page's TARE button: the TARING overlay appears and the tare itself runs a moment later. | 200 `{"ok":true,"cmd":"tare"}`: the tare was started (it takes at most `GRIND_TARE_TIMEOUT_MS`, 3 s, and the reading is zero when it is done). Until then every other command and write is refused: `not_ready` if it arrives before the UI task starts the tare, otherwise `ui_busy` after about 500 ms (the UI task is blocked in the tare). `stop` is never refused. |
 | `start` | `profile` (0-2) required | Starts a grind with that stored profile's weight/time in the **current grind mode**, like the START button, after the touch-to-cancel lead-in below. | 202 `{"ok":true,"cmd":"start","profile":1,"lead_in_ms":3000}` |
 | `motor_test` | no `profile` | Runs the same motor test as Menu -> Motor Test (same refusals, same result handling). | 202 |
 
@@ -235,7 +237,36 @@ that applies is the refusal):
    for `motor_test` `UIManager::motor_pulse_block()` (`motor_disabled`, `update_in_progress`, `busy`, `motor_fault`).
 
 **`stop` is always accepted** (while the Web interface is on): it skips the whole decision, is never blocked by
-`command_in_flight`, `busy`, a lock-out or a fault, and only ever stops things.
+`command_in_flight`, `busy`, a lock-out or a fault, and only ever stops things. Stopping while nothing runs is a
+harmless 200. The browser guards of section 2 still apply (a stop is a `POST`).
+
+**How stop reaches the grinder.** `stop` is not a mailbox request and does not wait for the UI task, which may be
+busy (a blocking screen operation such as a tare) and would otherwise delay or lose it. The HTTP task itself calls
+`portal_stop_now()` (`src/network/portal_stop.*`), which does three things, in this order, using only entry points
+built to be called from any task:
+
+1. `GrindController::request_stop()` sets an atomic flag. The grind control task (Core 0, its own task, independent of
+   the UI task) consumes it at the top of every control cycle (20 ms) and runs the same `stop_grind()` as the STOP
+   button, so the control loop cannot restart the motor behind the stop. A request made while no grind runs is
+   discarded in the same cycle and never stops a later grind.
+2. `Grinder::stop()` cuts the motor output at once. It is mutex-serialised and, like the deadman, carries on without
+   the lock if it cannot get it quickly. This also ends a Motor Test pulse (the test screen notices the output has
+   ended and finishes itself) and a pulse of the autotune. Worst case between the request and a grind that is
+   really stopped: one control cycle, during which the control task could issue one more pulse, which the next
+   cycle's `stop_grind()` cuts.
+3. A counter in `portal_command_gate` is bumped. The UI task notices it on its next frame and cancels an autotune run
+   (the autotune is driven from the UI task, exactly like its CANCEL button). If the UI task is stuck, the motor and the grind
+   are stopped anyway; only the autotune screen change waits.
+
+Two edge cases:
+
+- A web stop during a Motor Test ends the pulse early, and the test is recorded with the full 1000 ms runtime, the
+  same as a lock-out stop (the test screen only sees that the output ended).
+- A stop that arrives in the roughly 20 ms while `start_grind()` is being processed on the UI task, before the phase
+  is set, is consumed (nothing was running yet) and the grind then starts.
+
+The HTTP task still never calls LVGL, profiles, settings or NVS. The `UpdateGuard` lock-out needs no special case: it
+already holds the motor off, and `stop` never checks it.
 
 **Lead-in counts as in flight (rule for step 7):** while the lead-in runs, the remote start must count as an in-flight
 command (or the overlay must classify the UI as `OTHER`), so `motor_test`, `tare`, a second `start` and `PATCH` are
@@ -289,7 +320,7 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `wrong_type` | 400 | JSON type does not match the field |
 | `invalid_value` | 400 | enum choice unknown/too long, number not finite, `profile` not a whole number |
 | `out_of_range` | 400 | profile target outside its limits, `profile` not 0-2 |
-| `unknown_command` | 400 | `cmd` is not one of the four commands |
+| `unknown_command` | 400 | `cmd` is not one of the four commands (also, until their steps of chg014 land, `start` and `motor_test` on a firmware that does not execute them yet) |
 | `invalid_device_name` | 400 | `device_name` is not 1-24 characters of `a-z`, `0-9`, `-`, or starts/ends with a hyphen (uppercase is refused, not folded) |
 | `web_interface_off` | 403 | the Web interface switch on the grinder is off |
 | `bad_host` | 403 | Host header is not a `.local` name or an IP literal |

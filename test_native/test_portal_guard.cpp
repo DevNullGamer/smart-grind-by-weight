@@ -247,6 +247,39 @@ static void test_stop_is_accepted_in_every_state() {
     }
 }
 
+// The full tare table (step 6): only an idle READY screen tares, the first applicable refusal wins, and the
+// start/motor-test blocks never matter to it
+static void test_tare_decision_table() {
+    const PortalUiMode modes[] = {PortalUiMode::READY, PortalUiMode::MENU, PortalUiMode::OTHER};
+    for (PortalUiMode ui : modes) {
+        for (int bits = 0; bits < 8; bits++) {
+            PortalDecisionInput in;
+            in.ui = ui;
+            in.busy = bits & 1;
+            in.update_held = bits & 2;
+            in.command_in_flight = bits & 4;
+            in.start_block = GrindStartBlock::MOTOR_DISABLED;
+            in.motor_test_block = MotorTestBlock::MOTOR_FAULT;
+            PortalError expected = PortalError::NONE;
+            if (in.command_in_flight) expected = PortalError::COMMAND_IN_FLIGHT;
+            else if (in.update_held) expected = PortalError::UPDATE_IN_PROGRESS;
+            else if (in.busy) expected = PortalError::BUSY;  // refused while grinding (grind, autotune or motor active)
+            else if (ui != PortalUiMode::READY) expected = PortalError::NOT_READY;
+            TEST_ASSERT_EQUAL(static_cast<int>(expected), static_cast<int>(portal_command_decide(PortalCommand::TARE, in)));
+        }
+    }
+    // the refusals are the documented 409s
+    TEST_ASSERT_EQUAL_INT(409, portal_error_info(PortalError::BUSY).status);
+    TEST_ASSERT_EQUAL_INT(409, portal_error_info(PortalError::NOT_READY).status);
+}
+
+static void test_only_stop_and_tare_are_executed_for_now() {
+    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::STOP));
+    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::TARE));
+    TEST_ASSERT_FALSE(portal_command_supported(PortalCommand::START));       // chg014 step 7
+    TEST_ASSERT_FALSE(portal_command_supported(PortalCommand::MOTOR_TEST));  // chg014 step 8
+}
+
 static void test_every_start_and_motor_block_maps_to_a_distinct_refusal() {
     const GrindStartBlock starts[] = {GrindStartBlock::MOTOR_DISABLED, GrindStartBlock::UPDATE_IN_PROGRESS,
                                       GrindStartBlock::LOAD_CELL_NOT_CONNECTED, GrindStartBlock::LOAD_CELL_NO_DATA,
@@ -366,6 +399,8 @@ void run_portal_guard_tests() {
     RUN_TEST(test_decision_vectors);
     RUN_TEST(test_write_vectors);
     RUN_TEST(test_stop_is_accepted_in_every_state);
+    RUN_TEST(test_tare_decision_table);
+    RUN_TEST(test_only_stop_and_tare_are_executed_for_now);
     RUN_TEST(test_every_start_and_motor_block_maps_to_a_distinct_refusal);
     RUN_TEST(test_decision_agrees_with_the_firmware_block_functions);
     RUN_TEST(test_lead_in_runs_three_seconds);

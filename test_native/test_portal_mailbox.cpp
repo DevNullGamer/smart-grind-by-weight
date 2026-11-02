@@ -175,6 +175,104 @@ static void test_snapshot_freshness() {
     TEST_ASSERT_FALSE(portal_snapshot_fresh(true, 0xFFFFFFF0u, 0xFFFFFFF0u + PORTAL_SNAPSHOT_STALE_MS, PORTAL_SNAPSHOT_STALE_MS));
 }
 
+static PortalCommandRequest tare_request() {
+    PortalCommandRequest r;
+    r.cmd = PortalCommand::TARE;
+    return r;
+}
+
+static void test_a_command_travels_through_the_mailbox() {
+    PortalMailbox box;
+    TEST_ASSERT_EQUAL(PortalError::NONE, portal_mailbox_submit_command(&box, tare_request(), 100));
+    TEST_ASSERT_EQUAL(PortalMailboxState::QUEUED, box.state);
+    PortalMailboxResult out;
+    TEST_ASSERT_EQUAL(PortalMailboxWait::WAITING, portal_mailbox_poll(&box, 101, kPickup, kRun, &out));
+
+    PortalCommandRequest taken;
+    TEST_ASSERT_TRUE(portal_mailbox_take_command(&box, &taken, 105));
+    TEST_ASSERT_EQUAL(PortalCommand::TARE, taken.cmd);
+    PortalMailboxResult refusal;
+    refusal.error = PortalError::BUSY;
+    portal_mailbox_complete(&box, refusal);
+    TEST_ASSERT_EQUAL(PortalMailboxWait::DONE, portal_mailbox_poll(&box, 106, kPickup, kRun, &out));
+    TEST_ASSERT_EQUAL(PortalError::BUSY, out.error);
+    TEST_ASSERT_EQUAL(PortalMailboxState::IDLE, box.state);
+}
+
+static void test_each_take_only_accepts_its_own_kind() {
+    PortalMailbox box;
+    portal_mailbox_submit_command(&box, tare_request(), 0);
+    PortalPatch patch;
+    TEST_ASSERT_FALSE(portal_mailbox_take(&box, &patch, 1));  // a command is not a patch
+    TEST_ASSERT_EQUAL(PortalMailboxState::QUEUED, box.state);  // and stays queued for the right taker
+    TEST_ASSERT_TRUE(portal_mailbox_take_command(&box, nullptr, 2));
+    portal_mailbox_complete(&box, PortalMailboxResult());
+    portal_mailbox_poll(&box, 3, kPickup, kRun, nullptr);
+
+    portal_mailbox_submit(&box, patch_with_brightness(50), 4);
+    PortalCommandRequest command;
+    TEST_ASSERT_FALSE(portal_mailbox_take_command(&box, &command, 5));  // a patch is not a command
+    TEST_ASSERT_EQUAL(PortalMailboxState::QUEUED, box.state);
+    TEST_ASSERT_TRUE(portal_mailbox_take(&box, &patch, 6));
+}
+
+static void test_patches_and_commands_share_the_one_request_in_flight() {
+    PortalMailbox box;
+    TEST_ASSERT_EQUAL(PortalError::NONE, portal_mailbox_submit(&box, patch_with_brightness(10), 0));
+    TEST_ASSERT_EQUAL(PortalError::COMMAND_IN_FLIGHT, portal_mailbox_submit_command(&box, tare_request(), 1));
+    portal_mailbox_take(&box, nullptr, 2);
+    portal_mailbox_complete(&box, ok_result(10));
+    PortalMailboxResult out;
+    portal_mailbox_poll(&box, 3, kPickup, kRun, &out);
+
+    TEST_ASSERT_EQUAL(PortalError::NONE, portal_mailbox_submit_command(&box, tare_request(), 4));
+    TEST_ASSERT_EQUAL(PortalError::COMMAND_IN_FLIGHT, portal_mailbox_submit_command(&box, tare_request(), 5));
+    TEST_ASSERT_EQUAL(PortalError::COMMAND_IN_FLIGHT, portal_mailbox_submit(&box, patch_with_brightness(20), 6));
+}
+
+static void test_an_unclaimed_command_is_withdrawn_and_a_taken_one_abandoned() {
+    PortalMailbox box;
+    PortalMailboxResult out;
+    portal_mailbox_submit_command(&box, tare_request(), 1000);
+    TEST_ASSERT_EQUAL(PortalMailboxWait::TIMEOUT, portal_mailbox_poll(&box, 1000 + kPickup, kPickup, kRun, &out));
+    TEST_ASSERT_FALSE(portal_mailbox_take_command(&box, nullptr, 2000));  // withdrawn: nothing to run late
+
+    portal_mailbox_submit_command(&box, tare_request(), 3000);
+    TEST_ASSERT_TRUE(portal_mailbox_take_command(&box, nullptr, 3001));
+    TEST_ASSERT_EQUAL(PortalMailboxWait::TIMEOUT, portal_mailbox_poll(&box, 3001 + kRun, kPickup, kRun, &out));
+    TEST_ASSERT_EQUAL(PortalError::COMMAND_IN_FLIGHT, portal_mailbox_submit_command(&box, tare_request(), 6000));
+    portal_mailbox_complete(&box, PortalMailboxResult());
+    TEST_ASSERT_EQUAL(PortalMailboxState::IDLE, box.state);
+}
+
+static void test_stop_pending_reports_each_request_once() {
+    uint32_t seen = 0;
+    TEST_ASSERT_FALSE(portal_stop_pending(0, &seen));  // nothing requested
+    TEST_ASSERT_TRUE(portal_stop_pending(1, &seen));
+    TEST_ASSERT_FALSE(portal_stop_pending(1, &seen));  // already handled
+    TEST_ASSERT_TRUE(portal_stop_pending(3, &seen));   // two requests in one poll count as one handling
+    TEST_ASSERT_EQUAL_UINT32(3, seen);
+    TEST_ASSERT_FALSE(portal_stop_pending(3, &seen));
+    seen = 0xFFFFFFFFu;
+    TEST_ASSERT_TRUE(portal_stop_pending(0, &seen));   // the counter wrapped
+}
+
+static void test_every_command_reply_fits_the_reply_buffer() {
+    const PortalCommand all[] = {PortalCommand::STOP, PortalCommand::TARE, PortalCommand::START, PortalCommand::MOTOR_TEST};
+    for (PortalCommand cmd : all) {
+        PortalCommandRequest request;
+        request.cmd = cmd;
+        request.profile = cmd == PortalCommand::START ? 2 : -1;
+        char json[PORTAL_COMMAND_REPLY_MAX];
+        TEST_ASSERT_TRUE(portal_encode_command_reply(request, json, sizeof(json)));
+        TEST_ASSERT_TRUE(strstr(json, portal_command_name(cmd)) != nullptr);
+    }
+    PortalCommandRequest stop;
+    char json[PORTAL_COMMAND_REPLY_MAX];
+    portal_encode_command_reply(stop, json, sizeof(json));
+    TEST_ASSERT_EQUAL_STRING("{\"ok\":true,\"cmd\":\"stop\"}", json);
+}
+
 void run_portal_mailbox_tests() {
     RUN_TEST(test_happy_path_returns_the_answer_and_goes_idle);
     RUN_TEST(test_a_refusal_travels_in_the_result);
@@ -185,4 +283,10 @@ void run_portal_mailbox_tests() {
     RUN_TEST(test_timeouts_survive_the_millis_wrap);
     RUN_TEST(test_the_patch_and_result_are_copies);
     RUN_TEST(test_snapshot_freshness);
+    RUN_TEST(test_a_command_travels_through_the_mailbox);
+    RUN_TEST(test_each_take_only_accepts_its_own_kind);
+    RUN_TEST(test_patches_and_commands_share_the_one_request_in_flight);
+    RUN_TEST(test_an_unclaimed_command_is_withdrawn_and_a_taken_one_abandoned);
+    RUN_TEST(test_stop_pending_reports_each_request_once);
+    RUN_TEST(test_every_command_reply_fits_the_reply_buffer);
 }

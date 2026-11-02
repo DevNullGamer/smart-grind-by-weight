@@ -375,10 +375,34 @@ def test_ui_task_wiring():
     # the routes are registered with the methods the document names
     server = read("src/network/update_server.cpp")
     for uri, method in (("/api/status", "HTTP_GET"), ("/api/schema", "HTTP_GET"), ("/api/settings", "HTTP_GET"),
-                        ("/api/settings", "HTTP_PATCH")):
+                        ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
         assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
     max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")
     assert len(re.findall(r'\{"/[^"]*", HTTP_', server)) <= max_handlers
+
+
+def test_stop_path_does_not_depend_on_the_ui_task():
+    # stop is never queued: the route calls portal_stop_now() before (and instead of) the mailbox ...
+    routes = read("src/network/portal_routes.cpp")
+    handler = routes[routes.index("int portal_handle_command("):]
+    stop_branch = handler[handler.index("PortalCommand::STOP"):handler.index("} else {")]
+    assert "portal_stop_now()" in stop_branch and "submit_command" not in stop_branch
+    # ... and portal_stop.cpp, the one HTTP-task file that reaches the controllers, touches only the narrow
+    # thread-safe entry points (no LVGL, UI manager, profiles, settings, NVS)
+    stop = read("src/network/portal_stop.cpp")
+    for call in ("grind_controller.request_stop()", "grinder->stop()", "portal_command_gate.request_stop()"):
+        assert call in stop, call
+    for token in ("lv_", "ui_manager", "profile_controller", "ui_settings", "Preferences", "nvs_", "stop_grind"):
+        assert token not in stop, f"portal_stop.cpp mentions {token}"
+    # the grind control task consumes the flag on every cycle, before anything can return early
+    grind = read("src/controllers/grind_controller.cpp")
+    update = grind[grind.index("void GrindController::update()"):]
+    assert update.index("stop_requested_.exchange(false)") < update.index("if (!is_active())")
+    # the UI task only cancels the autotune it drives and never gates the stop on the mailbox
+    ui = read("src/ui/controllers/portal_ui_controller.cpp")
+    assert "portal_stop_pending(" in ui and "handle_cancel()" in ui
+    doc = read("docs/PORTAL-API.md")
+    assert "portal_stop_now" in doc and "does not wait for the UI task" in doc
 
 
 def test_rename_restarts_only_mdns_and_keeps_the_http_service():

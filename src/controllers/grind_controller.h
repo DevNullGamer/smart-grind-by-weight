@@ -13,6 +13,7 @@
 #include <LittleFS.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <atomic>
 
 class DiagnosticsController;
 
@@ -205,6 +206,7 @@ public:
 
 private:
     GrindSessionResult last_session_result_ = GrindSessionResult::UNKNOWN;
+    std::atomic<bool> stop_requested_{false};  // set by request_stop() from any task, consumed by update()
 
 public:
     void init(WeightSensor* lc, Grinder* gr, Preferences* prefs);
@@ -215,6 +217,9 @@ public:
     void user_tare_request();
     void return_to_idle(); // Called by UI to acknowledge completion/timeout
     void stop_grind();
+    // Any task: asks the control task to stop a running grind (same effect as stop_grind()). Consumed at the top of
+    // update() within one control cycle; ignored if no grind is running by then. Used by the web panel's stop.
+    void request_stop() { stop_requested_.store(true); }
     void continue_from_purge(); // Called by UI to continue from PURGE_CONFIRM to PREDICTIVE
     void update(); // Core 0 main control method - runs at fixed RTOS interval
     

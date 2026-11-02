@@ -30,3 +30,6 @@ int portal_handle_status(httpd_req* req);          // GET /api/status
 int portal_handle_settings_get(httpd_req* req);    // GET /api/settings
 int portal_handle_schema(httpd_req* req);          // GET /api/schema (constant, no snapshot needed)
 int portal_handle_settings_patch(httpd_req* req);  // PATCH /api/settings
+// POST /api/command. stop goes straight to the motor and the grind control task (portal_stop.h, never waits for the
+// UI task); tare goes through the mailbox; start and motor_test are refused as unknown_command until their steps.
+int portal_handle_command(httpd_req* req);

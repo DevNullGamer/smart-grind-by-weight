@@ -30,6 +30,20 @@ PortalError PortalCommandGate::submit_patch(const PortalPatch& patch, PortalMail
         const PortalError filed = portal_mailbox_submit(&mailbox_, patch, millis());
         if (filed != PortalError::NONE) return filed;
     }
+    return wait_for_answer(result);
+}
+
+PortalError PortalCommandGate::submit_command(const PortalCommandRequest& command, PortalMailboxResult* result) {
+    if (!ui_attached_) return PortalError::UI_BUSY;
+    {
+        Section section(&mux_);
+        const PortalError filed = portal_mailbox_submit_command(&mailbox_, command, millis());
+        if (filed != PortalError::NONE) return filed;
+    }
+    return wait_for_answer(result);
+}
+
+PortalError PortalCommandGate::wait_for_answer(PortalMailboxResult* result) {
     while (true) {
         PortalMailboxWait wait;
         {
@@ -45,6 +59,11 @@ PortalError PortalCommandGate::submit_patch(const PortalPatch& patch, PortalMail
 bool PortalCommandGate::take_patch(PortalPatch* out) {
     Section section(&mux_);
     return portal_mailbox_take(&mailbox_, out, millis());
+}
+
+bool PortalCommandGate::take_command(PortalCommandRequest* out) {
+    Section section(&mux_);
+    return portal_mailbox_take_command(&mailbox_, out, millis());
 }
 
 void PortalCommandGate::complete(const PortalMailboxResult& result) {

@@ -20,6 +20,7 @@
 #define PORTAL_VALUES_JSON_MAX 1024                                            // GET /api/settings and the PATCH reply
 #define PORTAL_SCHEMA_JSON_MAX 4096                                            // GET /api/schema
 #define PORTAL_STATUS_JSON_MAX 320                                             // GET /api/status
+#define PORTAL_COMMAND_REPLY_MAX 96                                            // POST /api/command reply (the start reply with lead_in_ms is the longest)
 #define PORTAL_PICKUP_TIMEOUT_MS 500                                           // A write the UI task has not picked up by then is answered 503 ui_busy
 #define PORTAL_RUN_TIMEOUT_MS 2000                                             // A write the UI task picked up but did not finish by then is answered 503 ui_busy
 #define PORTAL_WAIT_POLL_MS 10                                                 // The HTTP task polls the mailbox at this interval

@@ -307,6 +307,14 @@ void GrindController::continue_from_purge() {
 }
 
 void GrindController::update() {
+    // A stop requested from another task (web panel). Consumed on every cycle so a request made while no grind
+    // runs is dropped within one cycle and cannot stop the next grind. stop_grind() leaves the phase IDLE, so the
+    // rest of this update returns early.
+    if (stop_requested_.exchange(false) && is_grind_running()) {
+        LOG_BLE("[%lums CONTROLLER] Stop requested remotely\n", millis());
+        stop_grind();
+    }
+
     // Consume before the idle check so a trip outside a grind (e.g. Motor Test) is not carried into the next one
     const bool motor_deadman_tripped = grinder && grinder->consume_deadman_trip();
 

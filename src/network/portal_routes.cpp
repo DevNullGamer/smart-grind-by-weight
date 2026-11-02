@@ -2,6 +2,7 @@
 #include "portal_apply.h"
 #include "portal_command_gate.h"
 #include "portal_page_logic.h"
+#include "portal_stop.h"
 #include "wifi_manager.h"
 #include "../config/constants.h"
 #include <Arduino.h>
@@ -93,6 +94,32 @@ void discard_request_body(httpd_req_t* req) {
         if (n <= 0) break;  // body complete, closed or no more data
         discarded += static_cast<size_t>(n);
     }
+}
+
+// Reads the whole request body (at most PORTAL_BODY_MAX bytes) into body. False with *error set: the refusal to send
+// (EMPTY_BODY, BODY_TOO_LARGE); false with *error NONE: the client timed out or went away, nothing more to answer.
+bool read_body(httpd_req_t* req, char* body, size_t* length, PortalError* error) {
+    *error = PortalError::NONE;
+    const size_t total = req->content_len;
+    if (total == 0) {
+        *error = PortalError::EMPTY_BODY;
+        return false;
+    }
+    if (total > PORTAL_BODY_MAX) {
+        *error = PortalError::BODY_TOO_LARGE;
+        return false;
+    }
+    size_t got = 0;
+    while (got < total) {
+        const int n = httpd_req_recv(req, body + got, total - got);
+        if (n <= 0) {
+            if (n == HTTPD_SOCK_ERR_TIMEOUT) httpd_resp_send_408(req);
+            return false;
+        }
+        got += static_cast<size_t>(n);
+    }
+    *length = total;
+    return true;
 }
 
 // Headers every page reply carries (200 and 304)
@@ -210,18 +237,11 @@ int portal_handle_settings_patch(httpd_req* req) {
     const PortalError refused = portal_route_admit(req, PortalRoute::API_WRITE);
     if (refused != PortalError::NONE) return portal_send_error(req, refused);
 
-    const size_t length = req->content_len;
-    if (length == 0) return portal_send_error(req, PortalError::EMPTY_BODY);
-    if (length > PORTAL_BODY_MAX) return portal_send_error(req, PortalError::BODY_TOO_LARGE);
     char body[PORTAL_BODY_MAX];
-    size_t got = 0;
-    while (got < length) {
-        const int n = httpd_req_recv(req, body + got, length - got);
-        if (n <= 0) {
-            if (n == HTTPD_SOCK_ERR_TIMEOUT) httpd_resp_send_408(req);
-            return ESP_FAIL;  // timeout or closed: nothing more to answer
-        }
-        got += static_cast<size_t>(n);
+    size_t length = 0;
+    PortalError body_error = PortalError::NONE;
+    if (!read_body(req, body, &length, &body_error)) {
+        return body_error == PortalError::NONE ? ESP_FAIL : portal_send_error(req, body_error);
     }
 
     PortalPatch patch;
@@ -239,5 +259,44 @@ int portal_handle_settings_patch(httpd_req* req) {
     static bool stack_logged = false;
     const int sent = send_json_ok(req, json.data);
     log_stack_once(&stack_logged, "PATCH /api/settings");
+    return sent;
+}
+
+int portal_handle_command(httpd_req* req) {
+    const PortalError refused = portal_route_admit(req, PortalRoute::API_COMMAND);
+    if (refused != PortalError::NONE) return portal_send_error(req, refused);
+
+    char body[PORTAL_BODY_MAX];
+    size_t length = 0;
+    PortalError body_error = PortalError::NONE;
+    if (!read_body(req, body, &length, &body_error)) {
+        return body_error == PortalError::NONE ? ESP_FAIL : portal_send_error(req, body_error);
+    }
+
+    PortalCommandRequest request;
+    const PortalError invalid = portal_parse_command(body, length, &request);
+    if (invalid != PortalError::NONE) return portal_send_error(req, invalid);
+    if (!portal_command_supported(request.cmd)) return portal_send_error(req, PortalError::UNKNOWN_COMMAND);
+
+    if (request.cmd == PortalCommand::STOP) {
+        // Never queued and never waits for the UI task (portal_stop.h): accepted whatever else is going on
+        portal_stop_now();
+    } else {
+        // The UI task decides and runs it through the same handlers as the touchscreen (portal_ui_controller.cpp)
+        PortalMailboxResult result;
+        const PortalError submitted = portal_command_gate.submit_command(request, &result);
+        if (submitted != PortalError::NONE) return portal_send_error(req, submitted);
+        if (result.error != PortalError::NONE) return portal_send_error(req, result.error);
+    }
+
+    char json[PORTAL_COMMAND_REPLY_MAX];
+    if (!portal_encode_command_reply(request, json, sizeof(json))) return send_internal_error(req);
+    // Separate once-flags: the stop branch and the mailbox branch reach different depths
+    static bool stop_stack_logged = false;
+    static bool mailbox_stack_logged = false;
+    const bool is_stop = request.cmd == PortalCommand::STOP;
+    const int sent = send_json_ok(req, json);
+    log_stack_once(is_stop ? &stop_stack_logged : &mailbox_stack_logged,
+                   is_stop ? "POST /api/command stop" : "POST /api/command (mailbox)");
     return sent;
 }

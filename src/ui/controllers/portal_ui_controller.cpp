@@ -13,6 +13,7 @@
 #include "../../system/nvs_settings_store.h"
 #include "../../system/update_guard.h"
 #include "../ui_manager.h"
+#include "autotune_controller.h"
 
 // The API field order is the menu table order, and the pure snapshot module names grind phases by position
 static_assert(PF_BLE_STARTUP == static_cast<size_t>(ToggleSetting::BLE_STARTUP), "portal field order != toggle order");
@@ -66,6 +67,7 @@ void PortalUIController::update() {
     // First frame: the UI exists and is polled, so requests can be answered from here on
     if (!attached_) {
         attached_ = true;
+        stop_seen_ = portal_command_gate.stop_seq();  // a stop from before the UI existed is not ours to replay
         portal_command_gate.attach_ui(true);
     }
 
@@ -158,8 +160,54 @@ PortalDecisionInput PortalUIController::gather_decision() const {
 // Mailbox: PATCH /api/settings
 //------------------------------------------------------------------------------
 void PortalUIController::serve_mailbox() {
+    // A stop first: it is about the motor, whatever else is queued
+    if (portal_stop_pending(portal_command_gate.stop_seq(), &stop_seen_)) handle_stop();
+
     PortalPatch patch;
-    if (portal_command_gate.take_patch(&patch)) handle_patch(patch);
+    PortalCommandRequest command;
+    if (portal_command_gate.take_patch(&patch)) {
+        handle_patch(patch);
+    } else if (portal_command_gate.take_command(&command)) {
+        handle_command(command);
+    }
+}
+
+// The motor and the grind are already stopped by portal_stop_now() (HTTP task) and the grind control task; this
+// is the part only the UI task can do: the autotune run is driven from here, cancel it like its CANCEL button.
+void PortalUIController::handle_stop() {
+    auto* hardware = ui_manager_->hardware_manager;
+    auto* autotune = hardware ? hardware->get_autotune_controller() : nullptr;
+    if (autotune && autotune->is_active() && ui_manager_->autotune_controller_) {
+        LOG_BLE("[PORTAL] stop: cancelling autotune\n");
+        ui_manager_->autotune_controller_->handle_cancel();
+    }
+}
+
+void PortalUIController::handle_command(const PortalCommandRequest& command) {
+    PortalMailboxResult result;
+    result.error = portal_command_decide(command.cmd, gather_decision());
+    if (result.error == PortalError::NONE) {
+        switch (command.cmd) {
+            case PortalCommand::TARE:
+                if (!run_tare()) result.error = PortalError::NOT_READY;
+                break;
+            // stop never gets here; start and motor_test are refused by the route until steps 7 and 8
+            default: result.error = PortalError::UNKNOWN_COMMAND; break;
+        }
+    }
+    portal_command_gate.complete(result);
+    LOG_BLE("[PORTAL] command %s: %s\n", portal_command_name(command.cmd), portal_error_info(result.error).code);
+}
+
+// Same as the Scale page's TARE button: the TARING overlay, then the blocking tare on the next LVGL timer tick. The
+// overlay is up from here on, so any other command or write is refused (not_ready) until it is done. 200 means the
+// tare was started.
+bool PortalUIController::run_tare() {
+    auto* hardware = ui_manager_->hardware_manager;
+    if (!hardware) return false;
+    UIManager* ui = ui_manager_;
+    UIOperations::execute_tare(hardware, [ui]() { ui->refresh_auto_action_settings(); });
+    return true;
 }
 
 void PortalUIController::handle_patch(const PortalPatch& patch) {

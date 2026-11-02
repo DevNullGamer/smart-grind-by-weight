@@ -22,17 +22,24 @@ struct PortalMailboxResult {
     bool device_name_changed = false;   // the reply carries the new address
 };
 
+// What the one request in the mailbox is: a settings patch or a command (never stop: stop does not use the mailbox)
+enum class PortalRequestKind : uint8_t { PATCH, COMMAND };
+
 struct PortalMailbox {
     PortalMailboxState state = PortalMailboxState::IDLE;
     bool abandoned = false;             // the waiting side gave up on a TAKEN request
     uint32_t queued_at_ms = 0;
     uint32_t taken_at_ms = 0;
-    PortalPatch patch;                  // the request (QUEUED, TAKEN)
+    PortalRequestKind kind = PortalRequestKind::PATCH;
+    PortalPatch patch;                  // the request when kind is PATCH (QUEUED, TAKEN)
+    PortalCommandRequest command;       // the request when kind is COMMAND (QUEUED, TAKEN)
     PortalMailboxResult result;         // the answer (DONE)
 };
 
 // HTTP side: COMMAND_IN_FLIGHT unless the mailbox is IDLE, else files the patch (QUEUED) and returns NONE.
 PortalError portal_mailbox_submit(PortalMailbox* box, const PortalPatch& patch, uint32_t now_ms);
+// Same for a command (tare, start, motor test). One request of either kind at a time.
+PortalError portal_mailbox_submit_command(PortalMailbox* box, const PortalCommandRequest& command, uint32_t now_ms);
 
 enum class PortalMailboxWait : uint8_t {
     WAITING,  // keep polling
@@ -42,13 +49,19 @@ enum class PortalMailboxWait : uint8_t {
 PortalMailboxWait portal_mailbox_poll(PortalMailbox* box, uint32_t now_ms, uint32_t pickup_timeout_ms,
                                       uint32_t run_timeout_ms, PortalMailboxResult* out);
 
-// UI side: QUEUED -> TAKEN and copies the request (false when nothing is queued).
+// UI side: QUEUED -> TAKEN and copies the request (false when nothing is queued, or when the queued request is
+// not a patch: the command variant below takes those).
 bool portal_mailbox_take(PortalMailbox* box, PortalPatch* out, uint32_t now_ms);
+bool portal_mailbox_take_command(PortalMailbox* box, PortalCommandRequest* out, uint32_t now_ms);
 // UI side: TAKEN -> DONE (or straight to IDLE when the waiting side has abandoned it). Ignored in any other state.
 void portal_mailbox_complete(PortalMailbox* box, const PortalMailboxResult& result);
 
 // True while a request is queued, being handled or waiting to be collected
 inline bool portal_mailbox_busy(const PortalMailbox& box) { return box.state != PortalMailboxState::IDLE; }
+
+// Stop requests do not use the mailbox (they must work while it is busy and while the UI task is slow). The HTTP
+// task bumps a counter; every consumer (the UI task) remembers the value it last saw. True once per new request.
+bool portal_stop_pending(uint32_t current, uint32_t* seen);
 
 // A snapshot published at published_ms is still good at now_ms (never published = not fresh; wrap-safe)
 bool portal_snapshot_fresh(bool published, uint32_t published_ms, uint32_t now_ms, uint32_t stale_ms);

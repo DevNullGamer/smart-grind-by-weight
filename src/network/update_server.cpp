@@ -187,6 +187,7 @@ esp_err_t status_trampoline(httpd_req_t* req) { return portal_handle_status(req)
 esp_err_t schema_trampoline(httpd_req_t* req) { return portal_handle_schema(req); }
 esp_err_t settings_get_trampoline(httpd_req_t* req) { return portal_handle_settings_get(req); }
 esp_err_t settings_patch_trampoline(httpd_req_t* req) { return portal_handle_settings_patch(req); }
+esp_err_t command_trampoline(httpd_req_t* req) { return portal_handle_command(req); }
 
 }  // namespace
 
@@ -254,6 +255,7 @@ void UpdateServer::start_server() {
         {"/api/schema", HTTP_GET, schema_trampoline},
         {"/api/settings", HTTP_GET, settings_get_trampoline},
         {"/api/settings", HTTP_PATCH, settings_patch_trampoline},
+        {"/api/command", HTTP_POST, command_trampoline},
         {"/api/update/begin", HTTP_POST, begin_trampoline},
         {"/api/update/data", HTTP_PUT, data_trampoline},
     };

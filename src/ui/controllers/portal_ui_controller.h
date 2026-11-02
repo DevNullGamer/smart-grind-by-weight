@@ -18,7 +18,11 @@ class UIManager;
 //  - Mailbox: takes a PATCH /api/settings request, decides it (portal_write_decide: READY or MENU only, never
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
-//    the READY tab values and grind mode, the open menu page.
+//    the READY tab values and grind mode, the open menu page. A command (tare) is decided by
+//    portal_command_decide and started like the Scale page's TARE button.
+//  - Stop: not a mailbox request (it must work while the UI task is slow). The motor and the grind are stopped on
+//    the HTTP task and the grind control task (portal_stop.h); here only the counter is noticed, to cancel an
+//    autotune run, which this task drives.
 // Decisions and conversions are pure functions in network/portal_*.
 class PortalUIController : private PortalApplyTarget {
 public:
@@ -34,6 +38,9 @@ private:
 
     void serve_mailbox();
     void handle_patch(const PortalPatch& patch);
+    void handle_command(const PortalCommandRequest& command);
+    void handle_stop();
+    bool run_tare();
     void apply_to_screen(uint32_t written_mask);
     void publish_snapshot(uint32_t now_ms, bool reload_values);
     void load_values(PortalValues* out) const;
@@ -43,6 +50,7 @@ private:
 
     UIManager* ui_manager_;
     bool attached_ = false;
+    uint32_t stop_seen_ = 0;         // portal_command_gate.stop_seq() as last handled
     bool web_was_enabled_ = false;
     UIState last_state_ = UIState::READY;
     bool publish_due_ = false;       // a write just finished: publish at once
