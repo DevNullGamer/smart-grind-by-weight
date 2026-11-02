@@ -38,7 +38,7 @@ What it simulates:
   `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s (firmware: 1.0 s). `tare` zeroes the weight.
   Settings live in memory only; a restart resets them.
 
-Not simulated: real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply).
+Not simulated: real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply), the touch cancel of the lead-in and the overlay.
 
 ### Flags and dev-only controls
 

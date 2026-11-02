@@ -16,9 +16,9 @@ firmware sources (menu tables, `UiSettings`, `user.h`, `ProfileController`).
 
 - HTTP (no TLS), port 80, `http://grindbyweight.local` (mDNS name, see `wifi/name`) or the grinder's IP address,
   which the WiFi page shows. Requests and replies are UTF-8 JSON. API replies carry `Cache-Control: no-store`.
-- The panel is enabled only by the **Web interface** toggle on the on-screen WiFi page (own NVS key, default
-  **off**, changed only on the touchscreen, independent of **Receive** = firmware push). Nothing can switch it on
-  remotely.
+- The panel is enabled only by the **Web interface** toggle on the on-screen WiFi page (Menu -> WiFi, the "Web" row
+  under "Web interface"; greyed out until WiFi is set up; own NVS key, default **off**, changed only on the
+  touchscreen, independent of **Receive** = firmware push). Nothing can switch it on remotely.
 - The HTTP server runs while WiFi is connected and (Web interface on **or** Receive on). Every route checks its own
   switch, so Receive keeps protecting firmware pushes whether or not the panel is on, and the panel does not
   need Receive:
@@ -68,8 +68,7 @@ which the grinder never answers.
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
-`POST /api/command` is served with `stop`, `tare`, `start` and `motor_test`. A firmware older than the command
-route answers 404 there. Everything else in this table is served.
+All four commands are served by `POST /api/command`: `stop`, `tare`, `start` and `motor_test`.
 
 The reads (`/api/status`, `/api/settings`) copy a snapshot the UI task publishes (see section 7); with no fresh
 snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
@@ -239,8 +238,9 @@ the request itself is the confirmation, and the output runs for 1 s, so the risk
 made on the UI task and `UIManager::motor_pulse_block()` is checked once more inside the run, immediately before the
 pulse, so a lock-out, a fault or a disabled motor that appeared in between still refuses it (a pulse that cannot
 be started after that check is answered `busy`). It is accepted on the READY screen and on a menu page, never over a
-dialog or an overlay. While it runs the grinder counts as `busy` (`not_ready` for up to about 100 ms after the pulse ends, while the overlay is still up), so a second `motor_test`, `start`, `tare` or
-`PATCH` is refused) and the overlay ends it with its STOP button like the touch run. When it ends the result notice
+dialog or an overlay. While it runs the grinder counts as `busy`, and until the 100 ms poll notices the end it still counts as `not_ready`
+(the overlay is up), so a second `motor_test`, `start`, `tare` or `PATCH` is refused. The overlay ends it with its
+STOP button, like the touch run. When it ends the result notice
 is shown only if a menu page is the current screen (as on the touch run, which can only start there); started from
 the READY screen the overlay simply goes away and the run is recorded in the statistics. There is no cooldown:
 repeated runs are allowed, each one through the same timer and `finish_motor_test()` path, which always deletes its
@@ -294,8 +294,8 @@ lead-in (auto start, a firmware update, a load cell fault, another screen) the s
 same "can't start" notice as the START button. The 202 therefore means "accepted, will start unless cancelled", not "the
 grind is running": read `GET /api/status` for the outcome. There is no confirmation tap, no cooldown and no extra
 marker beyond the normal log lines (`[PORTAL] remote start ...`). Time mode has no sensor checks: a start without a
-cup runs the set time (at most 25 s). If the touch controller is unavailable the lead-in is always cancelled
-(fail-safe).
+cup runs the set time (at most 25 s). If the touch driver is not available, the lead-in is always cancelled
+(fail-safe: nobody could cancel it by touch), so the start is dropped and logged (`remote start cancelled: no touch driver`). This is host-reviewed only, not tested on hardware.
 
 - The overlay names the profile ("Remote start: DOUBLE in 3 s, touch to cancel") and keeps the screen awake; the
   grinding and complete screens show the name of the profile that was started, not the one selected on READY.

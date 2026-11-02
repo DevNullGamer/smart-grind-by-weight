@@ -265,7 +265,11 @@ void PortalUIController::run_lead_in() {
     auto* hardware = ui_manager_->hardware_manager;
     auto* display = hardware ? hardware->get_display() : nullptr;
     auto* touch = display ? display->get_touch_driver() : nullptr;
-    if (touch && portal_lead_in_touched(lead_in_, now, touch->get_ms_since_last_touch())) {
+    if (!touch) {
+        // Nobody could cancel by touch: fail safe, the start is dropped (logged once, the lead-in ends below)
+        LOG_BLE("[PORTAL] remote start cancelled: no touch driver\n");
+        portal_lead_in_cancel(&lead_in_);
+    } else if (portal_lead_in_touched(lead_in_, now, touch->get_ms_since_last_touch())) {
         portal_lead_in_cancel(&lead_in_);
     }
 
