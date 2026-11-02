@@ -273,13 +273,6 @@ static void test_tare_decision_table() {
     TEST_ASSERT_EQUAL_INT(409, portal_error_info(PortalError::NOT_READY).status);
 }
 
-static void test_only_motor_test_is_not_executed_yet() {
-    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::STOP));
-    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::TARE));
-    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::START));        // chg014 step 7
-    TEST_ASSERT_FALSE(portal_command_supported(PortalCommand::MOTOR_TEST));  // chg014 step 8
-}
-
 static void test_command_success_status() {
     TEST_ASSERT_EQUAL_INT(200, portal_command_success_status(PortalCommand::STOP));
     TEST_ASSERT_EQUAL_INT(200, portal_command_success_status(PortalCommand::TARE));
@@ -440,7 +433,6 @@ void run_portal_guard_tests() {
     RUN_TEST(test_write_vectors);
     RUN_TEST(test_stop_is_accepted_in_every_state);
     RUN_TEST(test_tare_decision_table);
-    RUN_TEST(test_only_motor_test_is_not_executed_yet);
     RUN_TEST(test_command_success_status);
     RUN_TEST(test_lead_in_touch_cancels_only_a_touch_after_the_start);
     RUN_TEST(test_lead_in_counts_as_in_flight_for_every_other_command);

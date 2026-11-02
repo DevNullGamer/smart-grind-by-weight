@@ -18,6 +18,10 @@ public:
     void handle_reset();
     void handle_purge();
     void handle_motor_test();
+    // Starts the motor test without the confirm dialog (web panel): re-checks motor_pulse_block(), starts the pulse,
+    // shows the overlay and the poll timer. NONE = running; anything else = refused, nothing started and no notice
+    // shown. UI task only.
+    MotorTestBlock begin_motor_test();
     void handle_scale_open();
     void handle_scale_tare();
     void handle_autotune();

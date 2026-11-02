@@ -244,13 +244,9 @@ PortalError portal_error_from_motor_test_block(MotorTestBlock block) {
         case MotorTestBlock::UPDATE_IN_PROGRESS: return PortalError::UPDATE_IN_PROGRESS;
         case MotorTestBlock::BUSY: return PortalError::BUSY;
         case MotorTestBlock::MOTOR_FAULT: return PortalError::MOTOR_FAULT;
-        case MotorTestBlock::START_FAILED: return PortalError::BUSY;  // never produced by motor_test_block()
+        case MotorTestBlock::START_FAILED: return PortalError::BUSY;  // produced by begin_motor_test(), not by motor_test_block()
     }
     return PortalError::BUSY;
-}
-
-bool portal_command_supported(PortalCommand cmd) {
-    return cmd == PortalCommand::STOP || cmd == PortalCommand::TARE || cmd == PortalCommand::START;
 }
 
 PortalError portal_command_decide(PortalCommand cmd, const PortalDecisionInput& in) {

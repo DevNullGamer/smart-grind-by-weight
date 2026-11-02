@@ -35,7 +35,7 @@ What it simulates:
   and `stop` always accepted.
 - A grind: `start` is accepted with `lead_in_ms` 3000 (the lead-in counts as in flight; `stop` cancels it), then
   runs at about 3 g/s (weight mode) or for the profile time (time mode), shows `grind_complete` for 3 s (writes get
-  `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s. `tare` zeroes the weight.
+  `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s (firmware: 1.0 s). `tare` zeroes the weight.
   Settings live in memory only; a restart resets them.
 
 Not simulated: real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply).

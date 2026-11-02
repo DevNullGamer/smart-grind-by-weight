@@ -19,7 +19,8 @@ class UIManager;
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
 //    the READY tab values and grind mode, the open menu page. A command (tare, start) is decided by
-//    portal_command_decide and started like the Scale page's TARE / the READY screen's START button. A start
+//    portal_command_decide and started like the Scale page's TARE / the READY screen's START button / the Motor Test
+//    RUN button (motor_test: no dialog and no lead-in, MenuUIController::begin_motor_test). A start
 //    answers 202 at once and first runs a PORTAL_LEAD_IN_MS "Remote start" overlay that a touch, its STOP button
 //    or a web stop cancels; the lead-in counts as in flight (other commands and writes are refused) and the
 //    start is decided again when it ends.
@@ -44,6 +45,7 @@ private:
     void handle_command(const PortalCommandRequest& command);
     void handle_stop();
     bool run_tare();
+    PortalError run_motor_test();
     void begin_remote_start(int profile);
     void run_lead_in();
     void end_lead_in();

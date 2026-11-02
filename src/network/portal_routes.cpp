@@ -278,7 +278,6 @@ int portal_handle_command(httpd_req* req) {
     PortalCommandRequest request;
     const PortalError invalid = portal_parse_command(body, length, &request);
     if (invalid != PortalError::NONE) return portal_send_error(req, invalid);
-    if (!portal_command_supported(request.cmd)) return portal_send_error(req, PortalError::UNKNOWN_COMMAND);
 
     if (request.cmd == PortalCommand::STOP) {
         // Never queued and never waits for the UI task (portal_stop.h): accepted whatever else is going on

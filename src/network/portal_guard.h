@@ -75,9 +75,6 @@ struct PortalDecisionInput {
     MotorTestBlock motor_test_block = MotorTestBlock::NONE;    // UIManager::motor_pulse_block()
 };
 
-// Commands this firmware executes: stop, tare and start (chg014 step 7). motor_test (step 8) is parsed and has a
-// decision table but no executor yet: the route answers it with UNKNOWN_COMMAND until it is added here.
-bool portal_command_supported(PortalCommand cmd);
 // NONE when the command may run, else the refusal. STOP is always accepted. Otherwise, in this order:
 // command in flight, update held, busy, UI mode (tare/start need READY, motor test READY or MENU), then the
 // command's own block (start: start_block, motor test: motor_test_block).

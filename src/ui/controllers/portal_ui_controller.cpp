@@ -199,7 +199,8 @@ void PortalUIController::handle_command(const PortalCommandRequest& command) {
                 if (!run_tare()) result.error = PortalError::NOT_READY;
                 break;
             case PortalCommand::START: begin_remote_start(command.profile); break;
-            // stop never gets here; motor_test is refused by the route until step 8
+            case PortalCommand::MOTOR_TEST: result.error = run_motor_test(); break;
+            // stop never gets here (it is not a mailbox request)
             default: result.error = PortalError::UNKNOWN_COMMAND; break;
         }
     }
@@ -216,6 +217,15 @@ bool PortalUIController::run_tare() {
     UIManager* ui = ui_manager_;
     UIOperations::execute_tare(hardware, [ui]() { ui->refresh_auto_action_settings(); });
     return true;
+}
+
+// Same run as Menu -> Motor Test after its RUN tap: the pulse, the MOTOR RUNNING overlay with STOP, the poll timer and
+// finish_motor_test() (stats, background indicator). No confirm dialog and no lead-in: the request is the confirmation
+// (docs/PORTAL-API.md). motor_pulse_block() is checked again inside, immediately before the pulse. 202 means the pulse
+// is running (a start that fails after that check is reported as busy).
+PortalError PortalUIController::run_motor_test() {
+    if (!ui_manager_->menu_controller_) return PortalError::MOTOR_DISABLED;
+    return portal_error_from_motor_test_block(ui_manager_->menu_controller_->begin_motor_test());
 }
 
 // Remote start, step 1: the command was decided (READY, not busy, no update, start_block NONE). Show the
