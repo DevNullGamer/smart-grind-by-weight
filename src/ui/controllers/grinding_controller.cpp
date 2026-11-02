@@ -201,25 +201,12 @@ void GrindingUIController::handle_grind_button() {
             return;
         }
 
-        if (ui_manager_->grind_controller && ui_manager_->profile_controller) {
-            ui_manager_->grind_controller->set_grind_profile_id(ui_manager_->profile_controller->get_current_profile());
-        }
-
-        LOG_BLE("[%lums GRIND_START] About to call start_grind()\n", millis());
-        error_message_[0] = '\0';
-        error_grind_weight_ = 0.0f;
-        error_grind_progress_ = 0;
-
-        GrindStartBlock start_block = GrindStartBlock::NONE;
-        if (ui_manager_->profile_controller && ui_manager_->grind_controller) {
-            float target_weight = ui_manager_->profile_controller->get_current_weight();
-            float target_time_seconds = ui_manager_->profile_controller->get_current_time();
-            uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
-            start_block = ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
-        }
-        LOG_BLE("[%lums GRIND_START] start_grind() returned\n", millis());
-        if (start_block != GrindStartBlock::NONE) {
-            ui_manager_->show_start_blocked_notice(start_block);  // The controller already logged the refusal
+        if (ui_manager_->profile_controller) {
+            const GrindStartBlock start_block =
+                start_profile_grind(ui_manager_->profile_controller->get_current_profile());
+            if (start_block != GrindStartBlock::NONE) {
+                ui_manager_->show_start_blocked_notice(start_block);  // The controller already logged the refusal
+            }
         }
     } else if (ui_manager_->state_machine->is_state(UIState::GRINDING)) {
         if (ui_manager_->grind_controller) {
@@ -231,6 +218,29 @@ void GrindingUIController::handle_grind_button() {
             ui_manager_->grind_controller->return_to_idle();
         }
     }
+}
+
+// The start of the START button (READY screen), also used by the web panel's remote start: the stored target of the
+// profile in the current grind mode. Does not change the profile selected on the screen.
+GrindStartBlock GrindingUIController::start_profile_grind(int profile) {
+    if (!ui_manager_ || !ui_manager_->grind_controller || !ui_manager_->profile_controller) {
+        return GrindStartBlock::MOTOR_DISABLED;
+    }
+
+    ui_manager_->grind_controller->set_grind_profile_id(static_cast<uint8_t>(profile));
+
+    LOG_BLE("[%lums GRIND_START] About to call start_grind()\n", millis());
+    error_message_[0] = '\0';
+    error_grind_weight_ = 0.0f;
+    error_grind_progress_ = 0;
+
+    const float target_weight = ui_manager_->profile_controller->get_profile_weight(profile);
+    const float target_time_seconds = ui_manager_->profile_controller->get_profile_time(profile);
+    const uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
+    const GrindStartBlock start_block =
+        ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
+    LOG_BLE("[%lums GRIND_START] start_grind() returned\n", millis());
+    return start_block;
 }
 
 void GrindingUIController::handle_pulse_button() {
@@ -422,7 +432,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 LOG_UI_DEBUG("[%lums UI_TRANSITION] Switching to GRINDING state due to phase: %s\n",
                              millis(), event_data.phase_display_text);
                 WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
-                ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+                ui_manager_->grinding_screen.update_profile_name(session_profile_name());
                 ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
                 chart_updates_enabled_ = true;
                 update_grinding_targets();
@@ -569,10 +579,18 @@ void GrindingUIController::enter_edit_state() {
     }
 }
 
+// Name of the profile the grind session was started with (a remote start may use one that is not selected on READY;
+// for a touch start it is the selected one)
+const char* GrindingUIController::session_profile_name() const {
+    const uint8_t profile_id = ui_manager_->grind_controller ? ui_manager_->grind_controller->get_session_descriptor().profile_id
+                                                             : ui_manager_->profile_controller->get_current_profile();
+    return ui_manager_->profile_controller->get_profile_name(profile_id);
+}
+
 void GrindingUIController::enter_grinding_state() {
     WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
     ui_manager_->grinding_screen.reset_chart_data();
-    ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+    ui_manager_->grinding_screen.update_profile_name(session_profile_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     chart_updates_enabled_ = true;
     update_grinding_targets();
@@ -589,7 +607,7 @@ void GrindingUIController::enter_grind_complete_state() {
     if (grind_button_) {
         lv_obj_set_hidden(grind_button_, false);
     }
-    ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
+    ui_manager_->grinding_screen.update_profile_name(session_profile_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
     ui_manager_->grinding_screen.update_progress(final_grind_progress_);

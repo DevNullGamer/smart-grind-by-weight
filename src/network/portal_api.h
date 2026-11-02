@@ -184,6 +184,9 @@ bool portal_encode_patch_reply(const PortalValues& applied, uint32_t adjusted_ma
 bool portal_encode_schema(char* out, size_t cap);
 // {"ok":true,"cmd":"start","profile":1,"lead_in_ms":3000} (profile and lead_in_ms only for start)
 bool portal_encode_command_reply(const PortalCommandRequest& request, char* out, size_t cap);
+// HTTP status of an accepted command: 202 for start and motor_test (the action begins after the reply), 200 for
+// stop and tare
+int portal_command_success_status(PortalCommand cmd);
 
 // GET /api/status snapshot (published by the UI task)
 struct PortalStatus {

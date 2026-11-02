@@ -772,6 +772,10 @@ bool portal_encode_command_reply(const PortalCommandRequest& request, char* out,
     return j.done();
 }
 
+int portal_command_success_status(PortalCommand cmd) {
+    return (cmd == PortalCommand::START || cmd == PortalCommand::MOTOR_TEST) ? 202 : 200;
+}
+
 bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
     JsonOut j(out, cap);
     j.put('{');

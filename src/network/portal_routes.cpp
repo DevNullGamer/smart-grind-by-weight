@@ -31,6 +31,7 @@ HeaderRead read_header(httpd_req_t* req, const char* name, char* out, size_t cap
 const char* status_line(int status) {
     switch (status) {
         case 200: return "200 OK";
+        case 202: return "202 Accepted";
         case 400: return "400 Bad Request";
         case 403: return "403 Forbidden";
         case 409: return "409 Conflict";
@@ -55,7 +56,8 @@ struct ReplyBuffer {
     ReplyBuffer& operator=(const ReplyBuffer&) = delete;
 };
 
-int send_json_ok(httpd_req_t* req, const char* json) {
+int send_json_ok(httpd_req_t* req, const char* json, int status = 200) {
+    if (status != 200) httpd_resp_set_status(req, status_line(status));
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Connection", "close");  // two sockets only: do not let a browser keep them idle
@@ -295,7 +297,7 @@ int portal_handle_command(httpd_req* req) {
     static bool stop_stack_logged = false;
     static bool mailbox_stack_logged = false;
     const bool is_stop = request.cmd == PortalCommand::STOP;
-    const int sent = send_json_ok(req, json);
+    const int sent = send_json_ok(req, json, portal_command_success_status(request.cmd));
     log_stack_once(is_stop ? &stop_stack_logged : &mailbox_stack_logged,
                    is_stop ? "POST /api/command stop" : "POST /api/command (mailbox)");
     return sent;

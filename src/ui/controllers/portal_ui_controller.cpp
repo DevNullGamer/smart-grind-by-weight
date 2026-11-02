@@ -6,6 +6,7 @@
 
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../hardware/display_manager.h"
 #include "../../network/portal_command_gate.h"
 #include "../../network/wifi_manager.h"
 #include "../../system/menu_setting_models.h"
@@ -72,6 +73,7 @@ void PortalUIController::update() {
     }
 
     serve_mailbox();
+    run_lead_in();  // before the web gate below: a lead-in that began runs to its end even if the switch goes off
 
     // Nobody reads the snapshot while the web routes are closed: no work, and no NVS reads
     if (!wifi_manager.web_enabled()) {
@@ -152,7 +154,11 @@ PortalDecisionInput PortalUIController::gather_decision() const {
                            BlockingOperationOverlay::getInstance().is_operation_active());
     in.busy = grinder_busy();
     in.update_held = UpdateGuard::is_held();
-    in.command_in_flight = false;  // the mailbox itself admits one request at a time
+    // The mailbox itself admits one request at a time; a remote start in its lead-in still counts as in flight
+    in.command_in_flight = lead_in_.active;
+    auto* grind = ui_manager_->grind_controller;
+    in.start_block = grind ? grind->start_block() : GrindStartBlock::MOTOR_DISABLED;
+    in.motor_test_block = ui_manager_->motor_pulse_block();
     return in;
 }
 
@@ -175,6 +181,7 @@ void PortalUIController::serve_mailbox() {
 // The motor and the grind are already stopped by portal_stop_now() (HTTP task) and the grind control task; this
 // is the part only the UI task can do: the autotune run is driven from here, cancel it like its CANCEL button.
 void PortalUIController::handle_stop() {
+    portal_lead_in_cancel(&lead_in_);  // a stop also cancels a remote start that has not begun yet (no-op otherwise)
     auto* hardware = ui_manager_->hardware_manager;
     auto* autotune = hardware ? hardware->get_autotune_controller() : nullptr;
     if (autotune && autotune->is_active() && ui_manager_->autotune_controller_) {
@@ -191,7 +198,8 @@ void PortalUIController::handle_command(const PortalCommandRequest& command) {
             case PortalCommand::TARE:
                 if (!run_tare()) result.error = PortalError::NOT_READY;
                 break;
-            // stop never gets here; start and motor_test are refused by the route until steps 7 and 8
+            case PortalCommand::START: begin_remote_start(command.profile); break;
+            // stop never gets here; motor_test is refused by the route until step 8
             default: result.error = PortalError::UNKNOWN_COMMAND; break;
         }
     }
@@ -208,6 +216,104 @@ bool PortalUIController::run_tare() {
     UIManager* ui = ui_manager_;
     UIOperations::execute_tare(hardware, [ui]() { ui->refresh_auto_action_settings(); });
     return true;
+}
+
+// Remote start, step 1: the command was decided (READY, not busy, no update, start_block NONE). Show the
+// touch-to-cancel overlay and answer 202; the grind itself starts when the lead-in ends (run_lead_in).
+void PortalUIController::begin_remote_start(int profile) {
+    lead_in_profile_ = profile;
+    portal_lead_in_begin(&lead_in_, millis());
+    lead_in_shown_s_ = portal_lead_in_remaining_s(lead_in_, millis());
+    char text[64];
+    lead_in_text(text, sizeof(text), lead_in_shown_s_);
+    if (ui_manager_->screen_timeout_controller_) ui_manager_->screen_timeout_controller_->hold_awake_remote_start(true);
+    PortalLeadIn* lead_in = &lead_in_;  // the overlay's STOP button cancels like a touch anywhere
+    BlockingOperationOverlay::getInstance().show_with_stop(text, [lead_in]() { portal_lead_in_cancel(lead_in); });
+    LOG_BLE("[PORTAL] remote start: profile %d (%s), grind starts in %u ms unless cancelled\n", profile,
+            portal_profile_name(profile), static_cast<unsigned>(PORTAL_LEAD_IN_MS));
+}
+
+void PortalUIController::lead_in_text(char* out, size_t cap, uint32_t remaining_s) const {
+    const char* name = ui_manager_->profile_controller ? ui_manager_->profile_controller->get_profile_name(lead_in_profile_)
+                                                       : portal_profile_name(lead_in_profile_);
+    snprintf(out, cap, "Remote start: %s in %u s, touch to cancel", name, static_cast<unsigned>(remaining_s));
+}
+
+void PortalUIController::end_lead_in() {
+    if (ui_manager_->screen_timeout_controller_) ui_manager_->screen_timeout_controller_->hold_awake_remote_start(false);
+    BlockingOperationOverlay::getInstance().hide();
+    lead_in_ = PortalLeadIn();
+}
+
+// Remote start, step 2: counts the lead-in down and, when it ends, decides again on the current state and starts
+// the grind through the same path as the START button.
+void PortalUIController::run_lead_in() {
+    if (!lead_in_.active) return;
+    const uint32_t now = millis();
+
+    // Any touch since the lead-in began cancels (the overlay swallows the touch, so the screen cannot be used)
+    auto* hardware = ui_manager_->hardware_manager;
+    auto* display = hardware ? hardware->get_display() : nullptr;
+    auto* touch = display ? display->get_touch_driver() : nullptr;
+    if (touch && portal_lead_in_touched(lead_in_, now, touch->get_ms_since_last_touch())) {
+        portal_lead_in_cancel(&lead_in_);
+    }
+
+    const PortalLeadInState state = portal_lead_in_poll(&lead_in_, now);  // clears lead_in_ on CANCELLED and GO
+    if (state == PortalLeadInState::CANCELLED) {
+        end_lead_in();
+        LOG_BLE("[PORTAL] remote start cancelled\n");
+        return;
+    }
+
+    if (state == PortalLeadInState::WAITING) {
+        // Something else took over the grinder meanwhile (auto start, a firmware update, a load cell fault): give up
+        // now. The overlay is ours, so it is left out of the screen classification.
+        PortalDecisionInput in = gather_decision();
+        in.command_in_flight = false;
+        in.ui = portal_ui_mode(ui_manager_->state_machine->get_current_state(), false);
+        const PortalError refused = portal_command_decide(PortalCommand::START, in);
+        if (refused != PortalError::NONE) {
+            end_lead_in();
+            LOG_BLE("[PORTAL] remote start dropped: %s\n", portal_error_info(refused).code);
+            return;
+        }
+        const uint32_t remaining_s = portal_lead_in_remaining_s(lead_in_, now);
+        if (remaining_s != lead_in_shown_s_) {
+            lead_in_shown_s_ = remaining_s;
+            char text[64];
+            lead_in_text(text, sizeof(text), remaining_s);
+            BlockingOperationOverlay::getInstance().set_message(text);
+        }
+        return;
+    }
+
+    if (state != PortalLeadInState::GO) return;
+
+    // A stop that came in after the last frame's check but before the grind starts still wins
+    if (portal_stop_pending(portal_command_gate.stop_seq(), &stop_seen_)) {
+        handle_stop();
+        end_lead_in();
+        LOG_BLE("[PORTAL] remote start cancelled by stop\n");
+        return;
+    }
+
+    // Time is up: the overlay goes first (it classifies the screen as busy), then the decision is made on what
+    // is true right now, exactly as the START button would
+    end_lead_in();
+    const PortalDecisionInput in = gather_decision();
+    const PortalError refused = portal_command_decide(PortalCommand::START, in);
+    if (refused != PortalError::NONE) {
+        LOG_BLE("[PORTAL] remote start refused: %s\n", portal_error_info(refused).code);
+        if (in.ui == PortalUiMode::READY && in.start_block != GrindStartBlock::NONE) {
+            ui_manager_->show_start_blocked_notice(in.start_block);
+        }
+        return;
+    }
+    if (!ui_manager_->grinding_controller_) return;
+    LOG_BLE("[PORTAL] remote start: starting grind, profile %d\n", lead_in_profile_);
+    const GrindStartBlock block = ui_manager_->grinding_controller_->start_profile_grind(lead_in_profile_);
+    if (block != GrindStartBlock::NONE) ui_manager_->show_start_blocked_notice(block);
 }
 
 void PortalUIController::handle_patch(const PortalPatch& patch) {

@@ -68,8 +68,8 @@ which the grinder never answers.
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
-`POST /api/command` is served with `stop` and `tare`. `start` and `motor_test` are part of the contract but are
-delivered by later steps of chg014: until then this firmware answers them with 400 `unknown_command` (after the body
+`POST /api/command` is served with `stop`, `tare` and `start`. `motor_test` is part of the contract but is
+delivered by a later step of chg014: until then this firmware answers it with 400 `unknown_command` (after the body
 checks of section 5, so a malformed body still gets its own error). A firmware older than the command route answers
 404 there. Everything else in this table is served.
 
@@ -268,15 +268,33 @@ Two edge cases:
 The HTTP task still never calls LVGL, profiles, settings or NVS. The `UpdateGuard` lock-out needs no special case: it
 already holds the motor off, and `stop` never checks it.
 
-**Lead-in counts as in flight (rule for step 7):** while the lead-in runs, the remote start must count as an in-flight
-command (or the overlay must classify the UI as `OTHER`), so `motor_test`, `tare`, a second `start` and `PATCH` are
-refused during it (`command_in_flight` or `not_ready`); only `stop` and a touch are accepted. This is an explicit
-acceptance test for step 7.
+**Lead-in counts as in flight:** while the lead-in runs, the remote start counts as an in-flight command, so
+`motor_test`, `tare`, a second `start` and `PATCH` are refused during it with `command_in_flight` (the overlay also
+classifies the screen as not ready, so `not_ready` is the answer if the in-flight flag were ever missing); only
+`stop` and a touch are accepted.
 
-**Remote start lead-in:** after an accepted `start` the grinder screen shows "Remote start in N s, touch to cancel"
-for 3 seconds (`lead_in_ms`). A touch on the grinder or a `stop` request cancels it; otherwise the normal grind
-starts, with all of its own safety checks. There is no confirmation tap, no cooldown and no extra marker beyond
-the normal log line. Time mode has no sensor checks: a start without a cup runs the set time (at most 25 s).
+**Remote start lead-in:** after an accepted `start` the grinder screen shows an overlay "Remote start in N s, touch
+to cancel" for 3 seconds (`lead_in_ms`; the reply is sent at once, 202). Any touch on the grinder (the overlay also
+has a STOP button) or a `stop` request cancels it; a cancelled start is logged and nothing else happens. When the
+time is up the grinder decides again on what is true then (READY screen, not busy, no update, `start_block` NONE)
+and, if it still passes, starts through the START button's path with the profile's stored target and the current
+grind mode (the profile selected on the screen does not change). If something took the grinder over during the
+lead-in (auto start, a firmware update, a load cell fault, another screen) the start is dropped and only logged
+(`remote start dropped: <code>`); when the lead-in runs out and a start block applies then, the grinder shows the
+same "can't start" notice as the START button. The 202 therefore means "accepted, will start unless cancelled", not "the
+grind is running": read `GET /api/status` for the outcome. There is no confirmation tap, no cooldown and no extra
+marker beyond the normal log lines (`[PORTAL] remote start ...`). Time mode has no sensor checks: a start without a
+cup runs the set time (at most 25 s). If the touch controller is unavailable the lead-in is always cancelled
+(fail-safe).
+
+- The overlay names the profile ("Remote start: DOUBLE in 3 s, touch to cancel") and keeps the screen awake; the
+  grinding and complete screens show the name of the profile that was started, not the one selected on READY.
+- A stop that was accepted before the start was queued does not cancel it. A stop that arrives during the lead-in,
+  including just before it ends, does.
+- The lead-in itself is not visible in `GET /api/status`: for those 3 seconds it still reads `ui_state` `ready` and
+  `busy` false, and `start_block` is unchanged. A page should wait out `lead_in_ms` and then watch for `grinding`.
+- A weight-mode remote start with purge set to remove stops at `purge_confirm` until someone taps at the grinder,
+   exactly like a touch start (the purge itself runs; the main grind waits for the tap).
 
 ## 7. Status
 
@@ -320,7 +338,7 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `wrong_type` | 400 | JSON type does not match the field |
 | `invalid_value` | 400 | enum choice unknown/too long, number not finite, `profile` not a whole number |
 | `out_of_range` | 400 | profile target outside its limits, `profile` not 0-2 |
-| `unknown_command` | 400 | `cmd` is not one of the four commands (also, until their steps of chg014 land, `start` and `motor_test` on a firmware that does not execute them yet) |
+| `unknown_command` | 400 | `cmd` is not one of the four commands (also, until its step of chg014 lands, `motor_test` on a firmware that does not execute it yet) |
 | `invalid_device_name` | 400 | `device_name` is not 1-24 characters of `a-z`, `0-9`, `-`, or starts/ends with a hyphen (uppercase is refused, not folded) |
 | `web_interface_off` | 403 | the Web interface switch on the grinder is off |
 | `bad_host` | 403 | Host header is not a `.local` name or an IP literal |

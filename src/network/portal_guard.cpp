@@ -250,7 +250,7 @@ PortalError portal_error_from_motor_test_block(MotorTestBlock block) {
 }
 
 bool portal_command_supported(PortalCommand cmd) {
-    return cmd == PortalCommand::STOP || cmd == PortalCommand::TARE;
+    return cmd == PortalCommand::STOP || cmd == PortalCommand::TARE || cmd == PortalCommand::START;
 }
 
 PortalError portal_command_decide(PortalCommand cmd, const PortalDecisionInput& in) {
@@ -303,6 +303,11 @@ PortalLeadInState portal_lead_in_poll(PortalLeadIn* lead_in, uint32_t now_ms) {
         return PortalLeadInState::GO;
     }
     return PortalLeadInState::WAITING;
+}
+
+bool portal_lead_in_touched(const PortalLeadIn& lead_in, uint32_t now_ms, uint32_t ms_since_last_touch) {
+    if (!lead_in.active) return false;
+    return ms_since_last_touch < static_cast<uint32_t>(now_ms - lead_in.start_ms);
 }
 
 uint32_t portal_lead_in_remaining_s(const PortalLeadIn& lead_in, uint32_t now_ms) {

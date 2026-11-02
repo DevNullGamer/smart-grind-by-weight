@@ -30,7 +30,7 @@ void ScreenTimeoutController::update() {
         return;
     }
 
-    if (held_awake_ ||
+    if (held_awake_ || remote_start_hold_ ||
         (ui_manager_->state_machine && ui_manager_->state_machine->is_state(UIState::GRINDING))) {
         if (screen_dimmed_) {
             float normal = USER_SCREEN_BRIGHTNESS_NORMAL;

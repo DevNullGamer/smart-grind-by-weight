@@ -273,11 +273,51 @@ static void test_tare_decision_table() {
     TEST_ASSERT_EQUAL_INT(409, portal_error_info(PortalError::NOT_READY).status);
 }
 
-static void test_only_stop_and_tare_are_executed_for_now() {
+static void test_only_motor_test_is_not_executed_yet() {
     TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::STOP));
     TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::TARE));
-    TEST_ASSERT_FALSE(portal_command_supported(PortalCommand::START));       // chg014 step 7
+    TEST_ASSERT_TRUE(portal_command_supported(PortalCommand::START));        // chg014 step 7
     TEST_ASSERT_FALSE(portal_command_supported(PortalCommand::MOTOR_TEST));  // chg014 step 8
+}
+
+static void test_command_success_status() {
+    TEST_ASSERT_EQUAL_INT(200, portal_command_success_status(PortalCommand::STOP));
+    TEST_ASSERT_EQUAL_INT(200, portal_command_success_status(PortalCommand::TARE));
+    TEST_ASSERT_EQUAL_INT(202, portal_command_success_status(PortalCommand::START));
+    TEST_ASSERT_EQUAL_INT(202, portal_command_success_status(PortalCommand::MOTOR_TEST));
+}
+
+static void test_lead_in_touch_cancels_only_a_touch_after_the_start() {
+    PortalLeadIn l;
+    TEST_ASSERT_FALSE(portal_lead_in_touched(l, 5000, 0));  // no lead-in running: nothing to cancel
+    portal_lead_in_begin(&l, 10000);
+    TEST_ASSERT_FALSE(portal_lead_in_touched(l, 10000, 0));      // age 0 at the very start is not "after"
+    TEST_ASSERT_FALSE(portal_lead_in_touched(l, 11000, 1000));   // last touch exactly at the start
+    TEST_ASSERT_FALSE(portal_lead_in_touched(l, 11000, 60000));  // an old touch
+    TEST_ASSERT_TRUE(portal_lead_in_touched(l, 11000, 999));     // 1 ms after the start
+    TEST_ASSERT_TRUE(portal_lead_in_touched(l, 11000, 0));       // touching right now
+    // a wrapped millis(): lead-in began just before the wrap, touch just after it
+    portal_lead_in_begin(&l, 0xFFFFFF00u);
+    TEST_ASSERT_TRUE(portal_lead_in_touched(l, 0x00000100u, 100));
+    TEST_ASSERT_FALSE(portal_lead_in_touched(l, 0x00000100u, 600));
+}
+
+static void test_lead_in_counts_as_in_flight_for_every_other_command() {
+    // The UI task sets command_in_flight while a lead-in runs: all but stop are refused with command_in_flight
+    PortalDecisionInput in;
+    in.ui = PortalUiMode::READY;
+    in.command_in_flight = true;
+    const PortalCommand others[] = {PortalCommand::TARE, PortalCommand::START, PortalCommand::MOTOR_TEST};
+    for (PortalCommand cmd : others) {
+        TEST_ASSERT_EQUAL(static_cast<int>(PortalError::COMMAND_IN_FLIGHT), static_cast<int>(portal_command_decide(cmd, in)));
+    }
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::COMMAND_IN_FLIGHT), static_cast<int>(portal_write_decide(in)));
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_command_decide(PortalCommand::STOP, in)));
+    // and even without the flag the overlay classifies the screen as OTHER: not_ready
+    in.command_in_flight = false;
+    in.ui = PortalUiMode::OTHER;
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NOT_READY), static_cast<int>(portal_command_decide(PortalCommand::START, in)));
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NOT_READY), static_cast<int>(portal_write_decide(in)));
 }
 
 static void test_every_start_and_motor_block_maps_to_a_distinct_refusal() {
@@ -400,7 +440,10 @@ void run_portal_guard_tests() {
     RUN_TEST(test_write_vectors);
     RUN_TEST(test_stop_is_accepted_in_every_state);
     RUN_TEST(test_tare_decision_table);
-    RUN_TEST(test_only_stop_and_tare_are_executed_for_now);
+    RUN_TEST(test_only_motor_test_is_not_executed_yet);
+    RUN_TEST(test_command_success_status);
+    RUN_TEST(test_lead_in_touch_cancels_only_a_touch_after_the_start);
+    RUN_TEST(test_lead_in_counts_as_in_flight_for_every_other_command);
     RUN_TEST(test_every_start_and_motor_block_maps_to_a_distinct_refusal);
     RUN_TEST(test_decision_agrees_with_the_firmware_block_functions);
     RUN_TEST(test_lead_in_runs_three_seconds);

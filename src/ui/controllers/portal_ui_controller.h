@@ -18,8 +18,11 @@ class UIManager;
 //  - Mailbox: takes a PATCH /api/settings request, decides it (portal_write_decide: READY or MENU only, never
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
-//    the READY tab values and grind mode, the open menu page. A command (tare) is decided by
-//    portal_command_decide and started like the Scale page's TARE button.
+//    the READY tab values and grind mode, the open menu page. A command (tare, start) is decided by
+//    portal_command_decide and started like the Scale page's TARE / the READY screen's START button. A start
+//    answers 202 at once and first runs a PORTAL_LEAD_IN_MS "Remote start" overlay that a touch, its STOP button
+//    or a web stop cancels; the lead-in counts as in flight (other commands and writes are refused) and the
+//    start is decided again when it ends.
 //  - Stop: not a mailbox request (it must work while the UI task is slow). The motor and the grind are stopped on
 //    the HTTP task and the grind control task (portal_stop.h); here only the counter is noticed, to cancel an
 //    autotune run, which this task drives.
@@ -41,6 +44,10 @@ private:
     void handle_command(const PortalCommandRequest& command);
     void handle_stop();
     bool run_tare();
+    void begin_remote_start(int profile);
+    void run_lead_in();
+    void end_lead_in();
+    void lead_in_text(char* out, size_t cap, uint32_t remaining_s) const;
     void apply_to_screen(uint32_t written_mask);
     void publish_snapshot(uint32_t now_ms, bool reload_values);
     void load_values(PortalValues* out) const;
@@ -58,4 +65,7 @@ private:
     uint32_t values_loaded_ms_ = 0;
     PortalValues values_;
     bool values_valid_ = false;
+    PortalLeadIn lead_in_;           // remote start waiting for its touch-to-cancel window
+    int lead_in_profile_ = 0;
+    uint32_t lead_in_shown_s_ = 0;   // seconds last written to the overlay text
 };
