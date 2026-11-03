@@ -68,7 +68,7 @@
         },
         motor_fault: {
             level: 'error', title: 'Motor fault',
-            action: 'The motor output was cut off for safety and stays off until the grinder is restarted. Restart the grinder.'
+            action: 'The motor output was cut off for safety and stays off until the grinder is restarted. Check the grinder, then restart it.'
         },
         motor_disabled: {
             level: 'error', title: 'Motor disabled',
@@ -76,15 +76,15 @@
         },
         hx711_not_connected: {
             level: 'error', title: 'Load cell not connected',
-            action: 'The grinder cannot find the load cell amplifier. Check its cable, then restart the grinder.'
+            action: 'The grinder cannot find the load cell amplifier. With the grinder switched off and unplugged, check its cable, then switch it on again.'
         },
         hx711_no_data: {
             level: 'error', title: 'Load cell sends no data',
-            action: 'The load cell amplifier is connected but delivers no readings. Check the wiring, then restart the grinder.'
+            action: 'The load cell amplifier is connected but delivers no readings. With the grinder switched off and unplugged, check the wiring, then switch it on again.'
         },
         hx711_sample_rate_invalid: {
             level: 'error', title: 'Load cell sample rate is wrong',
-            action: 'The load cell amplifier is wired for the wrong sample rate. Check its rate pin wiring.'
+            action: 'The load cell amplifier is wired for the wrong sample rate. With the grinder switched off and unplugged, check its rate pin wiring.'
         },
         mechanical_instability: {
             level: 'warning', title: 'Mechanical instability',
@@ -482,8 +482,8 @@
         }
         if (blocks.indexOf('motor_fault') >= 0 || codes.indexOf('motor_fault') >= 0) {
             return {
-                level: 'error', covers: ['motor_fault'],
-                text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Restart the grinder.'
+                level: 'error', covers: ['motor_fault', 'motor_disabled'], // a fault also raises motor_disabled; its board advice would mislead
+                text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Check the grinder, then restart it.'
             };
         }
         if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false || codes.indexOf('motor_disabled') >= 0) {
@@ -492,8 +492,10 @@
         return null;
     }
 
+    // Cut on code points so a surrogate pair is never split.
     function shortCode(code) {
-        return code.length > WARNING_CODE_MAX ? code.slice(0, WARNING_CODE_MAX) : code;
+        var points = Array.from(code);
+        return points.length > WARNING_CODE_MAX ? points.slice(0, WARNING_CODE_MAX).join('') : code;
     }
 
     // One row of the warnings list for a code. A code this page does not know (a later firmware) gets generic text
@@ -518,7 +520,10 @@
         var covered = banner ? banner.covers : [];
         var rows = warningCodes(status).filter(function (code) {
             return covered.indexOf(code) < 0;
-        }).map(warningRow);
+        }).map(warningRow).filter(function (row, i, all) {
+            // unknown codes cut to the same text show once
+            return all.findIndex(function (r) { return r.code === row.code; }) === i;
+        });
         return { visible: rows.length > 0, rows: rows };
     }
 

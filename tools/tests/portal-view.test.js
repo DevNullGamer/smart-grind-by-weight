@@ -161,9 +161,10 @@ test('deriveControls: STOP is enabled in every combination of state, block and c
         'load_cell_rate_invalid', 'busy', 'motor_fault'];
     const conns = [PV.newConnection(), online(), offlineConn, PV.connectionFailed(online(), 'web_interface_off', 1),
         PV.connectionFailed(online(), 'network', 1)];
+    const warningSets = [[], ['motor_fault'], ['motor_disabled', 'load_cell_noisy'], ['future_code']];
     for (const ui of uiStates) for (const busy of [false, true]) for (const b of blocks) for (const c of conns) {
-        for (const extra of [undefined, { leadIn: true }, { commandPending: true }]) {
-            const d = PV.deriveControls(status({ ui_state: ui, busy: busy, start_block: b, motor_test_block: b }), c, extra);
+        for (const extra of [undefined, { leadIn: true }, { commandPending: true }]) for (const w of warningSets) {
+            const d = PV.deriveControls(status({ ui_state: ui, busy: busy, start_block: b, motor_test_block: b, warnings: w }), c, extra);
             assert.equal(d.stop.enabled, true);
             for (const k of ['start', 'tare', 'motorTest']) {
                 assert.equal(d[k].enabled, d[k].reason === '', k);
@@ -240,7 +241,7 @@ test('deriveControls: a running update disables everything but STOP and shows a 
 test('deriveControls: motor fault and motor disabled give a persistent error banner', () => {
     const fault = PV.deriveControls(status({ start_block: 'motor_fault', motor_test_block: 'motor_fault' }), online());
     assert.equal(fault.banner.level, 'error');
-    assert.match(fault.banner.text, /Restart the grinder/);
+    assert.match(fault.banner.text, /restart it/);
     const dis = PV.deriveControls(status({ start_block: 'motor_disabled', motor_available: false }), online());
     assert.equal(dis.banner.level, 'error');
     assert.match(dis.banner.text, /Hardware board/);
@@ -872,11 +873,11 @@ test('warningsView lists the rows in the order received, each code once', () => 
     assert.deepEqual(rev.rows.map((r) => r.code), ['load_cell_not_calibrated', 'hx711_no_data']);
 });
 
-test('warningsView: all nine codes give eight rows (the banner takes motor_fault) and the error banner', () => {
+test('warningsView: all nine codes give seven rows (the banner takes motor_fault and motor_disabled) and the error banner', () => {
     const st = status({ warnings: WARNING_CODES });
     const v = PV.warningsView(st, online());
-    assert.equal(v.rows.length, 8);
-    assert.deepEqual(v.rows.map((r) => r.code), WARNING_CODES.filter((c) => c !== 'motor_fault'));
+    assert.equal(v.rows.length, 7);
+    assert.deepEqual(v.rows.map((r) => r.code), WARNING_CODES.filter((c) => c !== 'motor_fault' && c !== 'motor_disabled'));
     assert.equal(PV.deriveControls(st, online()).banner.level, 'error');
 });
 
@@ -908,10 +909,32 @@ test('warningsView shows an unknown code with generic text and the code cut to 4
     assert.match(proto[0].title, /constructor/);
 });
 
+test('warning text: wiring advice says to switch off and unplug first; motor fault uses the firmware wording', () => {
+    for (const code of ['hx711_not_connected', 'hx711_no_data', 'hx711_sample_rate_invalid']) {
+        assert.match(PV.WARNING_TEXT[code].action, /switched off and unplugged, check/, code);
+    }
+    assert.match(PV.WARNING_TEXT.motor_fault.action, /Check the grinder, then restart it/);
+    assert.match(PV.deriveControls(status({ warnings: ['motor_fault'] }), online()).banner.text, /Check the grinder, then restart it/);
+});
+
+test('shortCode: unknown codes are cut on code points, then shown once', () => {
+    const emoji = '\u{1F600}';
+    const long = 'a'.repeat(39) + emoji + 'tail'; // the pair sits across the 40th character
+    const row = PV.warningsView(status({ warnings: [long] }), online()).rows[0];
+    assert.equal(row.code, 'a'.repeat(39) + emoji);
+    assert.equal(Array.from(row.code).length, 40);
+    assert.doesNotMatch(row.code, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    // two different long codes that are equal after the cut give one row
+    const a = 'x'.repeat(40) + '_one';
+    const b = 'x'.repeat(40) + '_two';
+    const v = PV.warningsView(status({ warnings: [a, b, 'load_cell_noisy'] }), online());
+    assert.deepEqual(v.rows.map((r) => r.code), ['x'.repeat(40), 'load_cell_noisy']);
+});
+
 test('motor_fault in warnings alone gives the fault banner and disables Start and Motor test with the reason', () => {
     const d = PV.deriveControls(status({ warnings: ['motor_fault', 'load_cell_noisy'] }), online());
     assert.equal(d.banner.level, 'error');
-    assert.match(d.banner.text, /Restart the grinder/);
+    assert.match(d.banner.text, /restart it/);
     assert.equal(d.start.enabled, false);
     assert.equal(d.motorTest.enabled, false);
     assert.match(d.start.reason, /restarted/);
@@ -933,10 +956,12 @@ test('the banner and the list never say the same thing twice or contradict each 
     const d = PV.deriveControls(both, online());
     assert.match(d.banner.text, /^Motor fault\./);
     assert.deepEqual(PV.warningsView(both, online()).rows.map((r) => r.code), ['hx711_no_data']);
-    // fault wins over disabled in the banner; the disabled warning then stays a row (both are true)
+    // fault wins over disabled in the banner and covers it: the board advice of the disabled row would mislead
     const mixed = status({ warnings: ['motor_fault', 'motor_disabled'] });
     assert.match(PV.deriveControls(mixed, online()).banner.text, /^Motor fault\./);
-    assert.deepEqual(PV.warningsView(mixed, online()).rows.map((r) => r.code), ['motor_disabled']);
+    assert.deepEqual(PV.warningsView(mixed, online()).rows, []);
+    // disabled alone keeps its banner and no row
+    assert.deepEqual(PV.warningsView(status({ warnings: ['motor_disabled'] }), online()).rows, []);
     // a firmware update banner does not hide the motor rows
     const ota = status({ ui_state: 'ota_update', warnings: ['motor_fault'] });
     assert.match(PV.deriveControls(ota, online()).banner.text, /Firmware update/);

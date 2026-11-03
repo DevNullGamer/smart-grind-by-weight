@@ -15,7 +15,7 @@ tools for working on the page without a grinder.
 | `web/portal/portal-client.js` | The API client (request queue, error mapping, curl export). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
 | `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
 | `web/portal/portal-app.js` | DOM glue only (events, `textContent`); logic belongs in the view or client module. Marker `/*@@PORTAL_APP@@*/`. |
-| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; chg016 aims below 32 KB). |
+| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; chg016 aims below 40 KB, raised from 32 KB when the Insights and history steps were still to come). |
 | `tools/portal/build_page.py` | Builds `index.html` from the sources. Run it after editing any of them (`--check` only reports). It fails on a missing or duplicated marker and on `</script` / `</style` inside a part. A pytest fails when `index.html` is stale. |
 | `tools/portal/portal_model.py` | The contract as pure Python (scanner, field table, clamping, guards, decisions). Tested against `tools/tests/portal_api_vectors.json`, the vectors the firmware tests use. |
 | `tools/portal/dev_server.py` | Local server: the page plus a simulated grinder behind the real contract. Standard library only. |
