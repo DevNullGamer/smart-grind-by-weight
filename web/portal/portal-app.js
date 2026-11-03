@@ -49,6 +49,7 @@
       if (tab === name) button.setAttribute('aria-current', 'true');
       else button.removeAttribute('aria-current');
     });
+    setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
   }
 
   // Writes only when the text differs, so a poll does not touch the DOM (or re-announce) for an unchanged value.
@@ -650,6 +651,8 @@
   $('discard').addEventListener('click', discardSettings);
 
   showTab('grind');
+  // The save bar wraps differently at another width: keep the scroll padding in step.
+  window.addEventListener('resize', setSavebarHeight);
   // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
   if (wide) {
     if (typeof wide.addEventListener === 'function') wide.addEventListener('change', function () { showTab(requestedTab); });

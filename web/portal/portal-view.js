@@ -232,7 +232,8 @@
         } else {
             next.needInfo = false;
         }
-        next.quick = next.needSchema || next.needSettings || next.needInfo;
+        // an unusable settings reply must not be asked again at once (a firmware/page mismatch would loop)
+        next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
         return next;
     }
 
@@ -794,7 +795,8 @@
         (adjusted || []).forEach(function (key) {
             var v = values ? values[key] : undefined;
             var f = has(byKey, key) ? byKey[key] : {};
-            var shown = typeof v === 'number' ? (f.type === 'int' ? String(v) : PC.formatNumber(v)) : String(v);
+            var whole = typeof v === 'number' && Math.floor(v) === v && (f.type === 'int' || f.unit === 'h');
+            var shown = typeof v === 'number' ? (whole ? String(v) : PC.formatNumber(v)) : String(v);
             notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
         });
         return notes;

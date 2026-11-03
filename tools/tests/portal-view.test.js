@@ -652,6 +652,8 @@ test('adjustedNotes: whole percent, grams, hours snapped', () => {
     assert.equal(notes.freshness_hours, 'The grinder adjusted this to 0.5 h.');
     assert.deepEqual(PV.adjustedNotes([], values, FIELDS), {});
     assert.deepEqual(PV.adjustedNotes(undefined, values, FIELDS), {});
+    const top = PV.adjustedNotes(['freshness_hours'], Object.assign({}, VALUES, { freshness_hours: 48 }), FIELDS);
+    assert.equal(top.freshness_hours, 'The grinder adjusted this to 48 h.');
 });
 
 test('saveErrorView: field text for out_of_range and invalid_device_name, form text for every other 400', () => {
@@ -803,6 +805,7 @@ test('pollSucceeded: an unusable settings reply keeps the need and sends status 
     const n = PV.pollSucceeded('settings', needs, { nope: 1 }, true, 'ready');
     assert.equal(n.needSettings, true);
     assert.equal(n.forceStatus, true);
+    assert.equal(n.quick, false); // the normal poll delay applies, no request storm on a mismatch
 });
 
 test('pollFailed: a 404 on the schema means no form, any other failure loses the connection', () => {
@@ -819,4 +822,14 @@ test('the page source keeps the settings form rules (no markup writes, switches 
     assert.match(app, /setAttribute\('role', 'radiogroup'\)/);
     assert.match(app, /type = 'checkbox'/);
     assert.match(app, /type = 'radio'/);
+});
+
+test('the page source wires the stale-reply guard, the name length limit and the save bar height', () => {
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.match(app, /settingsGen\+\+/);
+    assert.match(app, /gen !== settingsGen/);
+    assert.match(app, /\.maxLength = view\.max/);
+    assert.match(app, /setProperty\('--savebar-h'/);
+    assert.match(app, /function showTab[\s\S]*?setSavebarHeight\(\)/);
+    assert.match(app, /addEventListener\('resize', setSavebarHeight\)/);
 });

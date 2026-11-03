@@ -42,8 +42,10 @@
   <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg>Insights</button>
 </nav>
 <main id="main" class="content" tabindex="-1">
-  <div id="message" class="message" role="status" aria-live="polite"></div>
-  <div id="alert" class="message error" role="alert"></div>
+  <div class="messages">
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <div id="alert" class="message error" role="alert"></div>
+  </div>
   <div class="layout">
     <section id="panel-grind" class="panel" aria-label="Grind">
       <div id="conn-note" class="card note" hidden>
