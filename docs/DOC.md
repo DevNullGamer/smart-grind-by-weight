@@ -512,13 +512,13 @@ While this page is on screen the grinder accepts new WiFi details over Bluetooth
 
 ### Web panel
 
-With **Web interface → Web** on, the grinder serves a small page on your home network: settings, profile targets, status and the commands Stop, Tare, Start and Motor test. Open `http://grindbyweight.local` (the name follows the device name shown on the WiFi page) in a browser on the same WiFi (or the IP address the WiFi page shows, if the name does not resolve). No app and no token.
+With **Web interface → Web** on, the grinder serves a small page on your home network: settings, profile targets, status, grinder warnings, the commands Stop, Tare, Start and Motor test, and an Insights tab with your lifetime statistics and the list of your most recent grinds (target, final weight, error, result; the list is kept across restarts and a factory reset clears it). The page follows your phone's light or dark setting and works on phone, tablet and desktop. Open `http://grindbyweight.local` (the name follows the device name shown on the WiFi page) in a browser on the same WiFi (or the IP address the WiFi page shows, if the name does not resolve). No app and no token.
 
 > **Remote actions are possible from the local network.** With the Web interface on, any device on the same WiFi can change settings and start the grinder with nobody at the machine. There is no login. A start from the page shows "Remote start" on the grinder for 3 seconds; touching the screen or pressing its STOP button cancels it. Motor test runs the 1 s motor pulse without a confirmation. Leave the switch off unless you want this, and do not forward port 80 to the grinder.
 
 The Web interface switch is separate from **Receive**: Receive still only controls firmware updates from your computer. Forget WiFi turns the Web interface off again.
 
-> **Status:** the panel was tested on a development board with host tests, a PC mDNS check and command runs against the device. The on-screen touch cancel, the overlay, the page in a real browser and the real motor and load cell under a remote start have not been checked yet. For working on the page without a grinder see [tools/portal/README.md](../tools/portal/README.md); the API is in [PORTAL-API.md](PORTAL-API.md).
+> **Status:** the panel was tested on a development board with host tests, a PC mDNS check and command runs against the device. The redesigned page (with Insights and the recent-grinds list) was checked in a desktop browser against the simulator only; the history file on the grinder's flash and the page on a real phone are not verified yet. The on-screen touch cancel, the overlay and the real motor and load cell under a remote start have not been checked either. For working on the page without a grinder see [tools/portal/README.md](../tools/portal/README.md); the API is in [PORTAL-API.md](PORTAL-API.md).
 
 ### Update from the computer
 

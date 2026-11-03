@@ -676,9 +676,9 @@ The flag goes first so that a control cycle running between the lines cannot fin
 - *Start* is decided, then the lead-in begins (`PortalUIController::begin_remote_start()`): an overlay "Remote start: <NAME> in N s, touch to cancel", and `hold_awake_remote_start()` keeps the screen awake. `run_lead_in()` runs on every UI tick. A touch since the start, a STOP or a web stop cancels it. If something else took the grinder over (auto start, an update, a load cell fault, another screen), the start is dropped and logged. When the time runs out it decides again on the current state and starts through `GrindingController::start_profile_grind()`, the START button's path, with the requested profile's stored target and the current grind mode. The lead-in is a UI-task state, not an HTTP-task timer, so it uses the same clock and screen as a touch. It counts as in flight.
 - *Motor test* calls `MenuUIController::begin_motor_test()`, the same function as the RUN tap. It re-checks `motor_pulse_block()` right before the pulse, runs the 1 s pulse with the overlay and STOP, and polls every 100 ms. `finish_motor_test()` records the statistics and shows the result only if the menu is the current screen. Every run deletes its poll timer, so repeated runs do not leak.
 
-### Reference page and dev server (`tools/portal/`, `web/portal/`)
+### Page, sources and dev server (`tools/portal/`, `web/portal/`)
 
-- `web/portal/page.src.html` and `web/portal/portal-client.js` are the sources. `tools/portal/build_page.py` inlines the client into `web/portal/index.html`, which is generated and committed; a pytest fails when it is stale (`build_page.py --check` reports it). `.gitattributes` sets `web/portal/* text eol=lf` so the generated file is byte-identical on every OS.
+- The page has five sources in `web/portal/` (`page.src.html`, `portal.css`, `portal-client.js`, `portal-view.js`, `portal-app.js`; the chg014 page was only the first and the third). `tools/portal/build_page.py` inlines the four parts at their markers into `web/portal/index.html`, which is generated and committed; a pytest fails when it is stale (`build_page.py --check` reports it). `.gitattributes` sets `web/portal/* text eol=lf` so the generated file is byte-identical on every OS. The redesign is described in "Web panel UI (chg016)" below.
 - The page is schema-driven. It has a request queue (STOP cancels queued commands), refusals in plain words, "Copy as curl", and no token and no storage. Values are written with `textContent` only.
 - `tools/portal/portal_model.py` is the contract as pure Python, tested against the same vectors as the firmware (`tools/tests/portal_api_vectors.json`).
 - `tools/portal/dev_server.py` is a standard-library server that simulates the grinder behind the same guards and decision order. It listens on 127.0.0.1 by default. The `localhost` name is refused, as the grinder refuses DNS names. Timing is approximate (3 g/s, 3 s complete screen, 1.5 s motor test against the firmware's 1.0 s). `/dev/state` changes simulated state; it is not part of the contract.
@@ -723,9 +723,47 @@ Status from the chg014 log. Bench runs were on COM15 with the `...-wifi-dev` env
 4. **`START_FAILED` maps to 409 `busy`.** A motor pulse that could not start is answered as busy.
 5. **`nvs_open` NOT_FOUND log noise.** With the Web switch on and a board that never saved a setting, the settings read logs NOT_FOUND about every 10 s. A quiet read would remove it.
 
+## Web panel UI (chg016)
+
+The chg014 reference page was replaced by a designed, mobile-first page, and three read-only API features were added (warnings in the status, lifetime statistics, a persistent recent-grinds history). Contract: `docs/PORTAL-API.md`; rules: `CLAUDE.md` "Web panel". The plan and its per-step log live outside the repo (`chgreq/smart-grind-by-weight/chg016`). Not done by design: a styled "web interface is off" page (stays JSON), live grind progress, any write besides what chg014 had.
+
+### What was built, per step
+
+- **Steps 1 to 5 (page).** Sources split into five files; `build_page.py` fails on a missing or duplicated marker and on `</script` / `</style` inside a part. Layout by `min-width` queries: phone (bottom tab bar, a fixed STOP dock above it, a status strip under the header), tablet from 600 px (tabs on top, STOP in the header), desktop from 900 px (two panes: live controls on the left, Settings and Insights on the right). STOP is first after the skip link, never disabled, never behind a confirmation, solid while busy. Colour tokens per scheme in `portal.css`; `tools/tests/test_portal_css.py` computes WCAG contrast (text 4.5:1, components 3:1, every surface, both schemes) and the focus rings on filled controls. Every disabled control carries visible reason text derived in one function (`deriveControls`). The settings form is generated from `GET /api/schema` (groups from key tables, unknown keys fall into "Other"). The dev server gained switches for each page state (`tools/portal/README.md` has one table row per flag and key, and one reproduction per page state; a pytest fails when one is missing).
+- **Step 6 and 7 (warnings).** `warnings` in `GET /api/status` (nine fixed codes in priority order, from `DiagnosticsController::active_mask()`); the page shows a "Grinder warnings" card with what to do and an error banner for `motor_fault` / `motor_disabled`. The status buffer moved to a heap `ReplyBuffer` (`PORTAL_STATUS_JSON_MAX` 640).
+- **Steps 8 and 9 (statistics).** `GET /api/stats` and the Insights tiles; see the chg016 steps 8 and 9 paragraph above.
+- **Steps 10 and 11 (history store).** See "Persistent history (chg016)".
+- **Step 12 (history route and list).** `GET /api/history` (`portal_handle_history`, `PortalRoute::API_READ`, 12 of 16 handler slots): copies the history slot (own spinlock, `PORTAL_HISTORY_STALE_MS` 15 s), answers 503 `ui_busy` when the slot is stale, was never published, the boot load has not finished (`loaded` false) or the reply buffer (`PORTAL_HISTORY_JSON_MAX` 2560) cannot be allocated, and encodes with `portal_encode_history` in `portal_api.cpp` (shared number writer; worst case with ten maximal entries is 2006 bytes; `age_s` from `millis() / 1000` minus `ended_s`, never negative, `null` after a restart; weights bounded; no free text from the device). The page shows the list in the Insights tab: newest first, relative age ("just now", "2 min ago", "1 h 05 min ago", "before the last restart", the age keeps growing between requests), result badge with icon and word (complete, max pulses, overshoot, timeout), final weight against the target, the error as `final - target` with sign and words ("+0.1 g over", "on target" under 0.05 g), and a bar chart of the errors built from `div` heights (no script-made SVG: the page may not contain a namespace URL). The card says "History is not being saved" when `persistent` is false, has an empty state, and disappears alone (the tiles stay) on an older firmware (404). The list is fetched only while the Insights tab is shown, in turn with the status requests, with the statistics' rules (one request at a time, never during a command, after a grind, every 30 s).
+- **Gzip size of the page:** 10.4 KB (step 1), 17.7, 28.0, 29.3 (step 4), 31.7 (step 7), 36.9 (steps 8, 9), 39.3 KB (step 12). The test limit went 32 KB, 40 KB (step 7); it stays at 40 KB (`test_page_fits_the_embed_budget`) with 0.7 KB of headroom, so the next UI addition has to trim the sources or raise it with a reason. The hard budget is 64 KB (`PORTAL_PAGE_BUDGET_BYTES`).
+
+### Polling and the 2-socket reasoning
+
+The HTTP server serves two connections (`UPDATE_HTTP_MAX_OPEN_SOCKETS 2`) and every reply carries `Connection: close`. The page therefore makes one request at a time (status every 1 s idle, 500 ms while busy or in a lead-in, 5 s while the web interface is off, backoff 1.5, 3, 6, 10 s after errors, nothing while the tab is hidden); settings, schema, info, statistics and history are fetched in turns between status requests. STOP is exempt from the request queue so it is never delayed: a third connection can be open for one round trip while a command is in flight, and the firmware may drop it. The lead-in is not visible in `/api/status` (contract section 6), so the page counts it itself and watches for a grind afterwards.
+
+### Verified and not verified
+
+**Verified on the host**: native tests for every encoder (shared vectors, truncation at every byte, worst-case size), pytest contract and dev-server tests (including a document-versus-code guard for every route and member), node tests for the view modules (ages, rounding, badges, empty, malformed, large, negative and NaN values), the contrast test, a gzip size test, and headless Chrome sweeps against the dev server (no horizontal scroll at 320 to 1280 px in both schemes, controls at least 44 px, names and roles) at the steps that changed layout; the Insights list was checked at 375 and 1280 px, light and dark, with an empty, a 3-entry, a 10-entry, a not-saved and a restarted list.
+
+**NOT verified on hardware or in other browsers** (carried to chg016 step 14, bench on COM15):
+
+- The page served by the grinder in a real phone browser (touch, iOS safe areas, screen readers, Safari and Firefox): only desktop Chrome against the simulator was used. The embedded page's gzip, ETag and the 64 KB budget were last measured in chg014.
+- The routes on the grinder: `GET /api/status` with an active warning, `/api/stats`, `/api/history` (handler stack and heap cost, reply buffer allocation, the 503 before the boot load).
+- **HTTP task stack, to re-measure at the bench.** chg014 measured 2616 to 3124 bytes free after the first PATCH, stop and start. The new handlers each log "HTTP task stack N bytes free after the first GET ..." once. Expect `/api/history` to sit lowest: it holds a `PortalHistory` of about 330 bytes on the 6 KB stack (the encoder runs on the heap buffer). If it prints less than about 2 KB free, move the copy into the `ReplyBuffer`.
+- The history file on the board: LittleFS `"a"` / `"w"` behaviour, a power cut during a write, 17 or more grinds (rotation), the factory reset deleting the files, "Purge logs" keeping them, one flash write per grind (see "Persistent history (chg016)", "Not verified on hardware").
+- The grinder's behaviour when the Web interface is switched on while a grind runs (publication of the new slots), and the statistics mutex held by the file-IO task while the UI task reads it.
+
+### Known gaps
+
+1. **Torn tail of the history.** After a power cut at the wrong moment the list can lose grinds that were only in the older of the two files; the newest records in the active file are always kept. Fixing it needs a commit marker in the file header. Documented under "Write rules and the crash-safety argument".
+2. A filesystem that is unavailable at boot is not retried until the next boot (`persistent` stays false).
+3. Time-mode grinds have no error: the list shows the final weight against the time target and the chart leaves their column empty.
+4. The list is not paged (the newest 10 only) and has no dates, because the grinder has no wall clock.
+5. The page is English only and keeps no preference (no `localStorage`): the theme follows the system.
+6. The flash wear of `FileIOTask::validate_filesystem_access()` (a write and delete every 30 s) is a separate finding (chg017); the history adds about 40 erases a day.
+
 ## Persistent history (chg016)
 
-Recent grinds survive a reboot or power cut. Steps 10 and 11 of chg016: the pure core and the firmware wiring. The route `GET /api/history` and the page list are step 12. No dates: the grinder has no wall clock, so an entry carries the grind id and the uptime second of its boot (`ended_s`).
+Recent grinds survive a reboot or power cut. Steps 10 and 11 of chg016: the pure core and the firmware wiring; step 12 added the route `GET /api/history` and the page list (see "Web panel UI (chg016)"). No dates: the grinder has no wall clock, so an entry carries the grind id and the uptime second of its boot (`ended_s`).
 
 ### Files and format
 
