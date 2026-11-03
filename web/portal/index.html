@@ -153,6 +153,8 @@ h2 { font-size: 1rem; }
   background: none; border: 0; color: var(--muted); font: inherit; font-size: .8125rem; cursor: pointer;
 }
 .tab[aria-current="true"] { color: var(--primary); font-weight: 700; box-shadow: inset 0 3px 0 var(--primary); }
+/* edge-to-edge tabs: draw the ring inside the box so the screen edges do not clip it */
+.tab:focus-visible { outline-offset: -6px; }
 
 /* ---- content */
 .content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
@@ -216,9 +218,10 @@ input[type="text"], input[type="number"], select {
 }
 select { appearance: auto; }
 
-.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
-.stepper input { text-align: center; min-width: 0; flex: 1 1 auto; }
+/* the input keeps a readable width ("xxxx.x" at 16 px); cards are never narrower than the row needs (see .panel) */
+.stepper input { text-align: center; width: auto; min-width: 64px; flex: 1 1 64px; }
 .stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
 .name-row { display: flex; align-items: center; gap: 8px; }
 .name-row .unit { color: var(--muted); flex: none; }
@@ -279,6 +282,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 /* ---- tablet: tabs on top as a segmented control, STOP in the header */
 @media (min-width: 600px) {
   :root { --gutter: 24px; }
+  .topbar { min-height: 60px; }  /* room for the 3 px ring plus 2 px offset around the 48 px STOP */
   html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
   body { padding-bottom: 24px; }
   /* last in the header on the right; DOM and keyboard order keep STOP first */
@@ -290,10 +294,11 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     position: static; display: flex; width: max-content; max-width: 100%; margin: 16px auto 0; padding: 4px;
     background: var(--raised); border: 1px solid var(--hairline); border-radius: 12px;
   }
+  .tab:focus-visible { outline-offset: 2px; }
   .tab { flex-direction: row; gap: 8px; min-width: 112px; min-height: 44px; border-radius: 8px; font-size: 1rem; }
   .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
   .content { max-width: 688px; margin: 0 auto; }
-  .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
   .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   #panel-settings { padding-bottom: 24px; }
@@ -317,7 +322,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   #panel-grind[hidden] { display: grid !important; }
   #tab-grind { display: none; }
   .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
-  .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .profiles { grid-template-columns: minmax(0, 1fr); }
 }
 

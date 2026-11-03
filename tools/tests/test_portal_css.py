@@ -184,3 +184,12 @@ def test_buttons_and_controls_are_at_least_44_px():
         assert min_height(selector) >= 44, selector
     assert re.search(r"--dock-h:\s*56px", CSS)  # STOP dock on phones
     assert re.search(r"--tabbar-h:\s*56px", CSS)
+
+
+def test_stepper_input_keeps_a_readable_minimum_width():
+    """A narrow settings column once shrank the number inputs to 41 px (viewport 900): keep a floor, never 0."""
+    rules = re.findall(r"\.stepper input\s*\{([^}]*)\}", CSS)
+    assert rules, ".stepper input rule missing"
+    widths = [int(m.group(1)) for r in rules for m in re.finditer(r"(?<![-\w])min-width:\s*(\d+)px", r)]
+    assert widths and widths[-1] >= 56, f"stepper input min-width must be at least 56px, got {widths}"
+    assert not re.search(r"\.stepper input[^{]*\{[^}]*min-width:\s*0\b", CSS)
