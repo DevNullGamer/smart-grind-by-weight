@@ -9,6 +9,7 @@
 #include "../../hardware/display_manager.h"
 #include "../../network/portal_command_gate.h"
 #include "../../network/wifi_manager.h"
+#include "../../logging/grind_history_fs.h"
 #include "../../system/menu_setting_models.h"
 #include "../../system/menu_setting_table.h"
 #include "../../system/nvs_settings_store.h"
@@ -108,8 +109,14 @@ void PortalUIController::update() {
         static_cast<uint32_t>(now - last_publish_ms_) >= PORTAL_STATUS_PUBLISH_MS) {
         publish_snapshot(now, just_enabled || left_menu);
     }
+    // A finished grind changes the history ring, and with it the lifetime statistics
+    bool history_changed = false;
+    if (just_enabled || static_cast<uint32_t>(now - last_history_check_ms_) >= PORTAL_STATUS_PUBLISH_MS) {
+        history_changed = refresh_history(now, just_enabled);
+    }
     // The lifetime statistics change at the end of a grind or a motor test; a screen state change is the cue to look
-    if (just_enabled || state_changed || static_cast<uint32_t>(now - last_stats_ms_) >= PORTAL_STATS_REFRESH_MS) {
+    if (just_enabled || state_changed || history_changed ||
+        static_cast<uint32_t>(now - last_stats_ms_) >= PORTAL_STATS_REFRESH_MS) {
         portal_command_gate.publish_stats(gather_stats());
         last_stats_ms_ = now;
     }
@@ -175,6 +182,31 @@ PortalStatusInputs PortalUIController::gather_status() const {
 // UI task only
 PortalStats PortalUIController::gather_stats() const {
     return portal_stats_from_counters(statistics_manager.get_snapshot());
+}
+
+// grind_history.snapshot() copies at most GRIND_HISTORY_RING_CAPACITY entries under a spinlock; the files are read
+// only by the file-IO task
+void PortalUIController::gather_history() {
+    grind_history.snapshot(&history_snap_);
+    portal_history_from_snapshot(history_snap_, &history_view_);
+}
+
+bool PortalUIController::refresh_history(uint32_t now_ms, bool force) {
+    last_history_check_ms_ = now_ms;
+    const uint32_t seen_sequence = history_snap_.sequence;
+    const bool seen_loaded = history_snap_.loaded;
+    const bool seen_persistent = history_snap_.persistent;
+    gather_history();
+    const bool changed = !history_seen_ || history_snap_.sequence != seen_sequence ||
+                         history_snap_.loaded != seen_loaded || history_snap_.persistent != seen_persistent;
+    if (changed || force || static_cast<uint32_t>(now_ms - last_history_publish_ms_) >= PORTAL_HISTORY_REFRESH_MS) {
+        portal_command_gate.publish_history(history_view_);
+        last_history_publish_ms_ = now_ms;
+    }
+    // The very first copy is not "a grind finished"
+    const bool grind_recorded = history_seen_ && history_snap_.sequence != seen_sequence;
+    history_seen_ = true;
+    return grind_recorded;
 }
 
 PortalDecisionInput PortalUIController::gather_decision() const {

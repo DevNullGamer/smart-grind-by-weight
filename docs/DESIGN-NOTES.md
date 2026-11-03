@@ -723,6 +723,40 @@ Status from the chg014 log. Bench runs were on COM15 with the `...-wifi-dev` env
 4. **`START_FAILED` maps to 409 `busy`.** A motor pulse that could not start is answered as busy.
 5. **`nvs_open` NOT_FOUND log noise.** With the Web switch on and a board that never saved a setting, the settings read logs NOT_FOUND about every 10 s. A quiet read would remove it.
 
+## Persistent history (chg016)
+
+Recent grinds survive a reboot or power cut. Steps 10 and 11 of chg016: the pure core and the firmware wiring. The route `GET /api/history` and the page list are step 12. No dates: the grinder has no wall clock, so an entry carries the grind id and the uptime second of its boot (`ended_s`).
+
+### Files and format
+
+- Code: `src/logging/grind_history.*` (entry, ring, result mapping), `grind_history_store.*` (codec, loader, append/rotation against the `HistoryFiles` interface), `grind_history_fs.*` (spinlocked ring plus the LittleFS adapter, the only part that touches the filesystem), `src/network/portal_insights.*` (the copy the web panel sees). Core and `portal_insights` are pure and host-tested; the contract test `tools/tests/test_grind_history_contract.py` pins the wiring rules.
+- Two files on LittleFS, `/hist0.bin` and `/hist1.bin`, each a 32-byte header and up to 16 records of 32 bytes (at most 544 bytes). All integers little-endian, explicit offsets (no packed structs). Header: `"GHST"`, u16 version 1, u16 record size 32, u32 generation, u32 epoch, 12 zero bytes, u32 CRC-32 of the first 28 bytes. Record: u32 CRC-32 of the next 28 bytes, u32 id, u32 ended_s, u32 time_ms, u32 motor_ms, f32 target (g, or s in time mode), f32 final_g, u8 profile (0-2), u8 mode (0 weight, 1 time), u8 pulses, u8 result (0 complete, 1 max pulses, 2 overshoot, 3 timeout, 255 unknown). Error is not stored: it is final minus target.
+- A record is valid only with a matching CRC, finite weights and enums in range. A length read from flash is never used: only the byte count the adapter returns, checked against the buffer (545 bytes).
+- Epoch: random u32 in NVS key `hist_epoch` (namespace `grinder`, created by the file-IO task via `GrindLogger::history_epoch()`). A factory reset erases NVS, so the id is new and the old files carry a foreign id: the loader deletes them. Menu "Purge logs" only clears `/sessions`; the history is kept. `LittleFS.begin(true)` format-on-fail would wipe it (accepted).
+- RAM: ring of the newest 10 (`PORTAL_HISTORY_MAX`), read once at boot and then only updated; the UI task copies it under a spinlock (about 400 bytes, no call out) into `PortalHistory`, which it publishes through its own `PortalCommandGate` slot (`publish_history`/`read_history`, 15 s freshness) when the ring or its flags changed (checked every 250 ms) and every 5 s otherwise. A new grind also refreshes the statistics slot. The HTTP task never sees the ring type or the files.
+
+### Write rules and the crash-safety argument
+
+- Load (file-IO task, once at task start, before the flash-operation queue is drained): read both files, drop a file with a bad header or foreign epoch, take records until the first invalid one, order the files by generation (wrap-aware; a tie counts slot 1 as newer), push oldest first. Corrupt or missing files give an empty history, never a crash or a blocked boot; one log line.
+- Append (one per finished grind, file-IO task): active file clean and under 16 records: append 32 bytes. Otherwise nothing in the active file is touched, with one exception below: the other (older) file is replaced by header (generation + 1) and the new record. Replace is truncate-then-write, so a cut can leave that file empty or torn; the active file, with its 16 (or its valid prefix) records, is intact at every instant. Rotation therefore never removes the newest records.
+- Exception: an active file with no valid record (a torn first write after a cut) holds nothing to lose, so it is replaced in place with the same generation. Without this rule the next write after a torn rotation would truncate the one full file. This was found by the two-cut fault test and is pinned by `test_a_torn_rotation_does_not_cost_the_old_file`.
+- A failed append is re-read once: a clean file is appended to again on the next grind; a torn tail makes the file untidy, so the next write goes to the other file. A failed replace marks that slot tainted: the next write replaces it with a generation above everything known. At most one write per grind and no retry loop. The grind always goes into the RAM ring first; `persistent` is false after a failure until a write succeeds, with one log line per change.
+- Guarantee (tested at every byte of every write over 70 grinds, and for two cuts in a row): after any cut the reloaded list is the completed grinds, with the cut grind either present or absent, and a cut during a full-file rotation never loses any of the newest 10 completed grinds.
+- Retention: 16 to 32 grinds on flash, 10 returned. A damaged active file with some valid records rotates and so drops the older file's records (recency first).
+
+### Wear (estimate, the plan's numbers pinned in tests)
+
+One write per grind: 15 appends and 1 replace per 16 grinds, 34 bytes per grind on average. Taking at most 1.5 block erases per append and 2 per replace this is 1.53 erases per grind (the test allows up to 2.0): about 40 erases a day at 20 grinds, 15 000 a year. Even if only 16 blocks took all wear that is about 900 erases per block per year at 20 grinds a day (over 100 years at a 100 000 cycle rating) and over 20 years at 100 grinds a day. Estimates from datasheet-typical endurance, not measured.
+
+### Not verified on hardware (carried to chg016 step 14)
+
+- LittleFS behaviour of `"a"` and `"w"` opens on the real partition (the host fake assumes truncate-on-open and byte-wise partial writes; real LittleFS is copy-on-write and may be better, never worse than the fake).
+- A real power cut during an append or a rotation, and the file sizes after 17+ grinds on the board.
+- The factory reset deleting the files at the next boot, "Purge logs" keeping them, the log lines (`[HISTORY] ...`), one flash write per grind.
+- Behaviour with the filesystem unavailable (history then stays in RAM, `persistent` false), and the UI/gate publication and spinlock timing under a real grind.
+- Stack use of the file-IO task during the load (a ring of about 400 bytes plus the 545-byte scratch buffer inside the service object).
+- Known gap kept: if the filesystem is unavailable at boot, the load is not retried until the next boot.
+
 ## Reference moved from CLAUDE.md (chg014 housekeeping)
 
 CLAUDE.md is loaded into every agent spawn, so reference material that agents do not need on every task moved here (chg014 housekeeping; CLAUDE.md was 17.7 KB). Each block below is copied verbatim from CLAUDE.md. Binding rules (never/always/only) stayed in CLAUDE.md; where a moved block also contains one, it is repeated here as part of the verbatim text.

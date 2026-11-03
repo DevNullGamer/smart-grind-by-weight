@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <atomic>
+#include "portal_insights.h"
 #include "portal_mailbox.h"
 
 /**
@@ -28,6 +29,9 @@ public:
     // The lifetime statistics the UI task last published (own lock, own freshness: refreshed less often than the
     // status). False when never published or older than PORTAL_STATS_STALE_MS: answer 503 ui_busy.
     bool read_stats(PortalStats* stats);
+    // The recent-grinds history the UI task last published (own lock and freshness like the statistics). False when
+    // never published or older than PORTAL_HISTORY_STALE_MS: answer 503 ui_busy. The HTTP task never reads the files.
+    bool read_history(PortalHistory* history);
     // Files the patch and waits up to the pickup/run timeouts. NONE: *result holds the UI task's answer (its
     // result.error may itself be a refusal or STORE_FAILED). Otherwise the refusal (COMMAND_IN_FLIGHT, UI_BUSY).
     PortalError submit_patch(const PortalPatch& patch, PortalMailboxResult* result);
@@ -44,6 +48,7 @@ public:
     void complete(const PortalMailboxResult& result);
     void publish(const PortalValues& values, const PortalStatus& status);
     void publish_stats(const PortalStats& stats);
+    void publish_history(const PortalHistory& history);
     void attach_ui(bool attached);
     bool ui_attached() const { return ui_attached_; }
 
@@ -62,6 +67,10 @@ private:
     PortalStats stats_;
     bool stats_published_ = false;
     uint32_t stats_published_ms_ = 0;
+    portMUX_TYPE history_mux_ = portMUX_INITIALIZER_UNLOCKED;
+    PortalHistory history_;
+    bool history_published_ = false;
+    uint32_t history_published_ms_ = 0;
     volatile bool ui_attached_ = false;
 };
 
