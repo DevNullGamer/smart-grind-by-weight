@@ -196,6 +196,21 @@ h2 { font-size: 1rem; }
 .action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
 .reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
 
+/* warnings list: icon shape, a text tag and the words carry the severity, the colour only supports them */
+.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: 12px; background: var(--raised); }
+.warn-row.error { border-left-color: var(--error); }
+.warn-row.warning { border-left-color: var(--warning); }
+.warn-row.error .icon { color: var(--error); }
+.warn-row.warning .icon { color: var(--warning); }
+.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
+.warn-body { min-width: 0; display: grid; gap: 4px; }
+.warn-title { font-weight: 700; overflow-wrap: anywhere; }
+.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
+.warn-row.error .warn-tag { color: var(--error); }
+.warn-row.warning .warn-tag { color: var(--warning); }
+.warn-action { color: var(--text); overflow-wrap: anywhere; }
+
 /* ---- settings tab: schema-driven form */
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
@@ -344,6 +359,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   <symbol id="i-insights" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"></path></symbol>
   <symbol id="i-online" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
   <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r=".8"></circle></symbol>
+  <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></symbol>
 </svg>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -434,6 +450,20 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
             </div>
           </div>
         </div>
+        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
+          <h2 id="warnings-h">Grinder warnings</h2>
+          <ul id="warnings-list" class="warn-list"></ul>
+          <template id="warning-row">
+            <li class="warn-row">
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <div class="warn-body">
+                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
+                <p class="warn-action"></p>
+              </div>
+            </li>
+          </template>
+        </section>
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>
@@ -633,7 +663,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
             start: s.start_block ? describeError(s.start_block) : 'would be accepted',
             motorTest: s.motor_test_block ? describeError(s.motor_test_block) : 'would be accepted',
             uptime: typeof s.uptime_s === 'number' ? s.uptime_s + ' s' : '',
-            build: s.build === null || s.build === undefined ? '' : String(s.build)
+            build: s.build === null || s.build === undefined ? '' : String(s.build),
+            // a missing member (an older firmware) is no warnings
+            warnings: Array.isArray(s.warnings) ? s.warnings.filter(function (c) { return typeof c === 'string'; }) : []
         };
     }
 
@@ -845,6 +877,50 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         busy: REASON.busy,
         motor_fault: 'The motor has a fault that stays until the grinder is restarted.'
     };
+
+    // The grinder's warnings (status.warnings): the wording belongs to the page. `level` picks the icon and the
+    // label (error: the grinder cannot work properly; warning: it works but check it). The nine codes of
+    // docs/PORTAL-API.md section 7, in the grinder's priority order.
+    var WARNING_TEXT = {
+        board_unrecognized: {
+            level: 'error', title: 'Grinder board not recognised',
+            action: 'The grinder cannot tell which hardware version it is, so the motor stays off. Choose the board on the grinder: Menu, Hardware board.'
+        },
+        motor_fault: {
+            level: 'error', title: 'Motor fault',
+            action: 'The motor output was cut off for safety and stays off until the grinder is restarted. Restart the grinder.'
+        },
+        motor_disabled: {
+            level: 'error', title: 'Motor disabled',
+            action: 'The motor output is off because the board is not confirmed or the grinder did not start up properly. Check Menu, Hardware board on the grinder, or restart it.'
+        },
+        hx711_not_connected: {
+            level: 'error', title: 'Load cell not connected',
+            action: 'The grinder cannot find the load cell amplifier. Check its cable, then restart the grinder.'
+        },
+        hx711_no_data: {
+            level: 'error', title: 'Load cell sends no data',
+            action: 'The load cell amplifier is connected but delivers no readings. Check the wiring, then restart the grinder.'
+        },
+        hx711_sample_rate_invalid: {
+            level: 'error', title: 'Load cell sample rate is wrong',
+            action: 'The load cell amplifier is wired for the wrong sample rate. Check its rate pin wiring.'
+        },
+        mechanical_instability: {
+            level: 'warning', title: 'Mechanical instability',
+            action: 'The grinder noticed repeated odd movements while grinding. Check that the grinder and the scale sit firmly and that nothing touches the cup.'
+        },
+        load_cell_noisy: {
+            level: 'warning', title: 'Load cell is noisy',
+            action: 'The weight reading has been unsteady for over a minute. Keep the scale still, away from vibration, and check the cable.'
+        },
+        load_cell_not_calibrated: {
+            level: 'warning', title: 'Scale not calibrated',
+            action: 'Weights may be wrong. Calibrate the scale on the grinder: Menu, Tools, Calibrate.'
+        }
+    };
+    var WARNING_LABEL = { error: 'Problem', warning: 'Check' };
+    var WARNING_CODE_MAX = 40; // an unknown code from a later firmware is shown cut to this many characters
 
     var PHASE_TEXT = {
         initializing: 'Starting up',
@@ -1178,6 +1254,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
             }
             if (ui !== 'ready' && ui !== 'menu') motorReason = REASON.notReady;
             else if (status.motor_test_block) motorReason = blockText(status.motor_test_block);
+            var motorWarning = motorWarningBlock(status);
+            if (motorWarning && !startReason) startReason = blockText(motorWarning);
+            if (motorWarning && !motorReason) motorReason = blockText(motorWarning);
         }
         var emphasis = !!((status && status.busy) || (extra && extra.leadIn));
         return {
@@ -1189,23 +1268,78 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         };
     }
 
-    // Persistent banner for update / motor problems, or null.
+    // The warning codes of a status, as strings, each once, in the order received. An absent or malformed member
+    // (an older firmware) is an empty list.
+    function warningCodes(status) {
+        var out = [];
+        var list = status && Array.isArray(status.warnings) ? status.warnings : [];
+        list.forEach(function (code) {
+            if (typeof code === 'string' && code !== '' && out.indexOf(code) < 0) out.push(code);
+        });
+        return out;
+    }
+
+    // Which motor warning keeps Start and Motor test off, as a BLOCK_TEXT code, or '' (the grinder's own
+    // start_block says the same on a current firmware; this keeps the page safe when only the warning is set).
+    function motorWarningBlock(status) {
+        var codes = warningCodes(status);
+        if (codes.indexOf('motor_fault') >= 0) return 'motor_fault';
+        if (codes.indexOf('motor_disabled') >= 0) return 'motor_disabled';
+        return '';
+    }
+
+    // Persistent banner for update / motor problems, or null. `covers` lists the warning codes the banner already
+    // says, so the warnings list does not repeat them.
     function bannerFor(status, conn) {
         if (!status || !isOnline(conn)) return null;
         var blocks = [status.start_block, status.motor_test_block];
+        var codes = warningCodes(status);
         if (status.ui_state === 'ota_update' || blocks.indexOf('update_in_progress') >= 0) {
-            return { level: 'warning', text: 'Firmware update running. Everything except STOP is disabled until it is finished.' };
+            return { level: 'warning', covers: [], text: 'Firmware update running. Everything except STOP is disabled until it is finished.' };
         }
         if (status.ui_state === 'ota_update_failed') {
-            return { level: 'error', text: 'The firmware update failed. See the grinder screen.' };
+            return { level: 'error', covers: [], text: 'The firmware update failed. See the grinder screen.' };
         }
-        if (blocks.indexOf('motor_fault') >= 0) {
-            return { level: 'error', text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Restart the grinder.' };
+        if (blocks.indexOf('motor_fault') >= 0 || codes.indexOf('motor_fault') >= 0) {
+            return {
+                level: 'error', covers: ['motor_fault'],
+                text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Restart the grinder.'
+            };
         }
-        if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false) {
-            return { level: 'error', text: 'Motor disabled. ' + BLOCK_TEXT.motor_disabled };
+        if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false || codes.indexOf('motor_disabled') >= 0) {
+            return { level: 'error', covers: ['motor_disabled'], text: 'Motor disabled. ' + BLOCK_TEXT.motor_disabled };
         }
         return null;
+    }
+
+    function shortCode(code) {
+        return code.length > WARNING_CODE_MAX ? code.slice(0, WARNING_CODE_MAX) : code;
+    }
+
+    // One row of the warnings list for a code. A code this page does not know (a later firmware) gets generic text
+    // with the code itself, cut to WARNING_CODE_MAX characters.
+    function warningRow(code) {
+        if (has(WARNING_TEXT, code)) {
+            var t = WARNING_TEXT[code];
+            return { code: code, level: t.level, icon: t.level, label: WARNING_LABEL[t.level], title: t.title, action: t.action };
+        }
+        return {
+            code: shortCode(code), level: 'warning', icon: 'warning', label: WARNING_LABEL.warning,
+            title: 'Other warning: ' + shortCode(code),
+            action: 'The grinder reports a warning this page does not know. Check the grinder screen.'
+        };
+    }
+
+    // The warnings card: rows in the order the grinder sent them (it sends them by priority), each code once.
+    // Hidden while empty, while the connection is not online, and for a code the banner already shows.
+    function warningsView(status, conn) {
+        if (!status || !isOnline(conn)) return { visible: false, rows: [] };
+        var banner = bannerFor(status, conn);
+        var covered = banner ? banner.covers : [];
+        var rows = warningCodes(status).filter(function (code) {
+            return covered.indexOf(code) < 0;
+        }).map(warningRow);
+        return { visible: rows.length > 0, rows: rows };
     }
 
     // Texts of the readout card. While the connection is lost the last values stay, marked stale.
@@ -1683,6 +1817,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         leadInView: leadInView,
         grindVisible: grindVisible,
         deriveControls: deriveControls,
+        warningsView: warningsView,
+        WARNING_TEXT: WARNING_TEXT,
+        WARNING_CODE_MAX: WARNING_CODE_MAX,
         readoutView: readoutView,
         profileCards: profileCards,
         FRESHNESS_STEPS: FRESHNESS_STEPS,
@@ -1805,6 +1942,27 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     setText(reasonEl, control.enabled ? '' : control.reason);
   }
 
+  // The warnings card is rebuilt only when its rows change, so a poll does not re-announce an unchanged list.
+  var warningsKey = '';
+  function renderWarnings() {
+    var view = V.warningsView(status, conn);
+    $('warnings').hidden = !view.visible;
+    var key = JSON.stringify(view.rows);
+    if (key === warningsKey) return;
+    warningsKey = key;
+    var list = $('warnings-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.rows.forEach(function (row) {
+      // cloned from the <template> in the page: the icons are the page's own inline sprite symbols
+      var item = $('warning-row').content.firstElementChild.cloneNode(true);
+      item.classList.add(row.level);
+      item.querySelector('.warn-tag').textContent = row.label;
+      item.querySelector('.warn-name').textContent = row.title;
+      item.querySelector('.warn-action').textContent = row.action;
+      list.appendChild(item);
+    });
+  }
+
   function render() {
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -1858,6 +2016,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     });
     setControl($('tare'), $('reason-tare'), controls.tare);
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
+    renderWarnings();
     renderSettings();
   }
 

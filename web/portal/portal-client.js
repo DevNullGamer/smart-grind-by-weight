@@ -164,7 +164,9 @@
             start: s.start_block ? describeError(s.start_block) : 'would be accepted',
             motorTest: s.motor_test_block ? describeError(s.motor_test_block) : 'would be accepted',
             uptime: typeof s.uptime_s === 'number' ? s.uptime_s + ' s' : '',
-            build: s.build === null || s.build === undefined ? '' : String(s.build)
+            build: s.build === null || s.build === undefined ? '' : String(s.build),
+            // a missing member (an older firmware) is no warnings
+            warnings: Array.isArray(s.warnings) ? s.warnings.filter(function (c) { return typeof c === 'string'; }) : []
         };
     }
 

@@ -19,6 +19,7 @@
   <symbol id="i-insights" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"></path></symbol>
   <symbol id="i-online" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
   <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r=".8"></circle></symbol>
+  <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></symbol>
 </svg>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -109,6 +110,20 @@
             </div>
           </div>
         </div>
+        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
+          <h2 id="warnings-h">Grinder warnings</h2>
+          <ul id="warnings-list" class="warn-list"></ul>
+          <template id="warning-row">
+            <li class="warn-row">
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <div class="warn-body">
+                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
+                <p class="warn-action"></p>
+              </div>
+            </li>
+          </template>
+        </section>
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>

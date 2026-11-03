@@ -346,6 +346,13 @@ test('describeStatus turns the snapshot into words, including refusals', () => {
     assert.equal(PC.describeStatus({ ui_state: 'ready', weight_g: 18, busy: true }).weight, '18.0 g');
 });
 
+test('describeStatus tolerates an absent or malformed warnings member', () => {
+    assert.deepEqual(PC.describeStatus({ ui_state: 'ready' }).warnings, []);
+    assert.deepEqual(PC.describeStatus({ ui_state: 'ready', warnings: 'motor_fault' }).warnings, []);
+    assert.deepEqual(PC.describeStatus({ ui_state: 'ready', warnings: ['motor_fault', 3, null, 'x'] }).warnings, ['motor_fault', 'x']);
+    assert.deepEqual(PC.describeStatus(null).warnings, []);
+});
+
 test('every field of the schema has a label', () => {
     for (const f of vectors.fields) {
         assert.ok(PC.FIELD_LABELS[f.key], f.key);

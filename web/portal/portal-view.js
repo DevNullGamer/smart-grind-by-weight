@@ -58,6 +58,50 @@
         motor_fault: 'The motor has a fault that stays until the grinder is restarted.'
     };
 
+    // The grinder's warnings (status.warnings): the wording belongs to the page. `level` picks the icon and the
+    // label (error: the grinder cannot work properly; warning: it works but check it). The nine codes of
+    // docs/PORTAL-API.md section 7, in the grinder's priority order.
+    var WARNING_TEXT = {
+        board_unrecognized: {
+            level: 'error', title: 'Grinder board not recognised',
+            action: 'The grinder cannot tell which hardware version it is, so the motor stays off. Choose the board on the grinder: Menu, Hardware board.'
+        },
+        motor_fault: {
+            level: 'error', title: 'Motor fault',
+            action: 'The motor output was cut off for safety and stays off until the grinder is restarted. Restart the grinder.'
+        },
+        motor_disabled: {
+            level: 'error', title: 'Motor disabled',
+            action: 'The motor output is off because the board is not confirmed or the grinder did not start up properly. Check Menu, Hardware board on the grinder, or restart it.'
+        },
+        hx711_not_connected: {
+            level: 'error', title: 'Load cell not connected',
+            action: 'The grinder cannot find the load cell amplifier. Check its cable, then restart the grinder.'
+        },
+        hx711_no_data: {
+            level: 'error', title: 'Load cell sends no data',
+            action: 'The load cell amplifier is connected but delivers no readings. Check the wiring, then restart the grinder.'
+        },
+        hx711_sample_rate_invalid: {
+            level: 'error', title: 'Load cell sample rate is wrong',
+            action: 'The load cell amplifier is wired for the wrong sample rate. Check its rate pin wiring.'
+        },
+        mechanical_instability: {
+            level: 'warning', title: 'Mechanical instability',
+            action: 'The grinder noticed repeated odd movements while grinding. Check that the grinder and the scale sit firmly and that nothing touches the cup.'
+        },
+        load_cell_noisy: {
+            level: 'warning', title: 'Load cell is noisy',
+            action: 'The weight reading has been unsteady for over a minute. Keep the scale still, away from vibration, and check the cable.'
+        },
+        load_cell_not_calibrated: {
+            level: 'warning', title: 'Scale not calibrated',
+            action: 'Weights may be wrong. Calibrate the scale on the grinder: Menu, Tools, Calibrate.'
+        }
+    };
+    var WARNING_LABEL = { error: 'Problem', warning: 'Check' };
+    var WARNING_CODE_MAX = 40; // an unknown code from a later firmware is shown cut to this many characters
+
     var PHASE_TEXT = {
         initializing: 'Starting up',
         setup: 'Setting up',
@@ -390,6 +434,9 @@
             }
             if (ui !== 'ready' && ui !== 'menu') motorReason = REASON.notReady;
             else if (status.motor_test_block) motorReason = blockText(status.motor_test_block);
+            var motorWarning = motorWarningBlock(status);
+            if (motorWarning && !startReason) startReason = blockText(motorWarning);
+            if (motorWarning && !motorReason) motorReason = blockText(motorWarning);
         }
         var emphasis = !!((status && status.busy) || (extra && extra.leadIn));
         return {
@@ -401,23 +448,78 @@
         };
     }
 
-    // Persistent banner for update / motor problems, or null.
+    // The warning codes of a status, as strings, each once, in the order received. An absent or malformed member
+    // (an older firmware) is an empty list.
+    function warningCodes(status) {
+        var out = [];
+        var list = status && Array.isArray(status.warnings) ? status.warnings : [];
+        list.forEach(function (code) {
+            if (typeof code === 'string' && code !== '' && out.indexOf(code) < 0) out.push(code);
+        });
+        return out;
+    }
+
+    // Which motor warning keeps Start and Motor test off, as a BLOCK_TEXT code, or '' (the grinder's own
+    // start_block says the same on a current firmware; this keeps the page safe when only the warning is set).
+    function motorWarningBlock(status) {
+        var codes = warningCodes(status);
+        if (codes.indexOf('motor_fault') >= 0) return 'motor_fault';
+        if (codes.indexOf('motor_disabled') >= 0) return 'motor_disabled';
+        return '';
+    }
+
+    // Persistent banner for update / motor problems, or null. `covers` lists the warning codes the banner already
+    // says, so the warnings list does not repeat them.
     function bannerFor(status, conn) {
         if (!status || !isOnline(conn)) return null;
         var blocks = [status.start_block, status.motor_test_block];
+        var codes = warningCodes(status);
         if (status.ui_state === 'ota_update' || blocks.indexOf('update_in_progress') >= 0) {
-            return { level: 'warning', text: 'Firmware update running. Everything except STOP is disabled until it is finished.' };
+            return { level: 'warning', covers: [], text: 'Firmware update running. Everything except STOP is disabled until it is finished.' };
         }
         if (status.ui_state === 'ota_update_failed') {
-            return { level: 'error', text: 'The firmware update failed. See the grinder screen.' };
+            return { level: 'error', covers: [], text: 'The firmware update failed. See the grinder screen.' };
         }
-        if (blocks.indexOf('motor_fault') >= 0) {
-            return { level: 'error', text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Restart the grinder.' };
+        if (blocks.indexOf('motor_fault') >= 0 || codes.indexOf('motor_fault') >= 0) {
+            return {
+                level: 'error', covers: ['motor_fault'],
+                text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Restart the grinder.'
+            };
         }
-        if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false) {
-            return { level: 'error', text: 'Motor disabled. ' + BLOCK_TEXT.motor_disabled };
+        if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false || codes.indexOf('motor_disabled') >= 0) {
+            return { level: 'error', covers: ['motor_disabled'], text: 'Motor disabled. ' + BLOCK_TEXT.motor_disabled };
         }
         return null;
+    }
+
+    function shortCode(code) {
+        return code.length > WARNING_CODE_MAX ? code.slice(0, WARNING_CODE_MAX) : code;
+    }
+
+    // One row of the warnings list for a code. A code this page does not know (a later firmware) gets generic text
+    // with the code itself, cut to WARNING_CODE_MAX characters.
+    function warningRow(code) {
+        if (has(WARNING_TEXT, code)) {
+            var t = WARNING_TEXT[code];
+            return { code: code, level: t.level, icon: t.level, label: WARNING_LABEL[t.level], title: t.title, action: t.action };
+        }
+        return {
+            code: shortCode(code), level: 'warning', icon: 'warning', label: WARNING_LABEL.warning,
+            title: 'Other warning: ' + shortCode(code),
+            action: 'The grinder reports a warning this page does not know. Check the grinder screen.'
+        };
+    }
+
+    // The warnings card: rows in the order the grinder sent them (it sends them by priority), each code once.
+    // Hidden while empty, while the connection is not online, and for a code the banner already shows.
+    function warningsView(status, conn) {
+        if (!status || !isOnline(conn)) return { visible: false, rows: [] };
+        var banner = bannerFor(status, conn);
+        var covered = banner ? banner.covers : [];
+        var rows = warningCodes(status).filter(function (code) {
+            return covered.indexOf(code) < 0;
+        }).map(warningRow);
+        return { visible: rows.length > 0, rows: rows };
     }
 
     // Texts of the readout card. While the connection is lost the last values stay, marked stale.
@@ -895,6 +997,9 @@
         leadInView: leadInView,
         grindVisible: grindVisible,
         deriveControls: deriveControls,
+        warningsView: warningsView,
+        WARNING_TEXT: WARNING_TEXT,
+        WARNING_CODE_MAX: WARNING_CODE_MAX,
         readoutView: readoutView,
         profileCards: profileCards,
         FRESHNESS_STEPS: FRESHNESS_STEPS,

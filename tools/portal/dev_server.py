@@ -63,6 +63,7 @@ class SimGrinder:
         self.ui_busy = False          # settings reads and writes answer 503 ui_busy
         self.store_failed = False     # a settings write that changes a value answers 500 store_failed
         self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
+        self.legacy_status = False    # --legacy-status: the status has no "warnings" member (an older firmware)
         self.warnings = []            # active diagnostics as warning codes (status member "warnings", priority order)
         self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
         self.stored = {k: v for k, v in model.default_values().items()}
@@ -164,9 +165,12 @@ class SimGrinder:
             self._tick()
             start, motor = self._effective_blocks()
             weight = self.weight if self.weight_hold is None else self.weight_hold
-            return model.status_document(
+            doc = model.status_document(
                 self.ui_state, self._phase(), self._busy(), round(weight, 1), self.start_block != "motor_disabled",
                 start, motor, int(self.clock() - self.boot), BUILD_NUMBER, True, self.warnings)
+            if self.legacy_status:
+                del doc["warnings"]
+            return doc
 
     # --- writes
     def read_settings_refusal(self):
@@ -442,6 +446,8 @@ def build_parser():
     p.add_argument("--motor-test-block", choices=BLOCK_CODES, help="simulate a grinder-side refusal of the motor test")
     p.add_argument("--drop-start", action="store_true",
                    help="every remote start is dropped when its lead-in ends (another screen took over)")
+    p.add_argument("--legacy-status", action="store_true",
+                   help="the status has no warnings member, like a firmware from before chg016 step 6")
     return p
 
 
@@ -453,6 +459,7 @@ def make_simulator(args):
     sim.start_block = args.start_block
     sim.motor_test_block = args.motor_test_block
     sim.drop_start = args.drop_start
+    sim.legacy_status = args.legacy_status
     return sim
 
 

@@ -719,6 +719,18 @@ def test_flags_build_the_simulator():
     assert dev.make_simulator(dev.build_parser().parse_args([])).drop_start is False
 
 
+def test_legacy_status_flag_leaves_out_the_warnings_member():
+    sim = dev.make_simulator(dev.build_parser().parse_args(["--legacy-status"]))
+    assert sim.legacy_status is True
+    assert dev.make_simulator(dev.build_parser().parse_args([])).legacy_status is False
+    sim.set_dev_state({"warnings": ["motor_fault"]})
+    doc = sim.status_doc()
+    assert "warnings" not in doc
+    assert list(doc) == ["ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
+                         "motor_test_block", "uptime_s", "build", "web_interface"]
+    assert sim.dev_state()["warnings"] == ["motor_fault"]  # the dev key keeps its value
+
+
 def _readme_text():
     return (PORTAL_TOOLS / "README.md").read_text(encoding="utf-8")
 

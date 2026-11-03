@@ -836,3 +836,132 @@ test('the page source wires the stale-reply guard, the name length limit and the
     assert.match(showTabBody[0], /setSavebarHeight\(\)/);
     assert.match(app, /addEventListener\('resize', setSavebarHeight\)/);
 });
+
+// ---------------------------------------------------------------------------------------------- chg016 step 7: warnings
+const WARNING_CODES = ['board_unrecognized', 'motor_fault', 'motor_disabled', 'hx711_not_connected', 'hx711_no_data',
+    'hx711_sample_rate_invalid', 'mechanical_instability', 'load_cell_noisy', 'load_cell_not_calibrated'];
+
+test('every firmware warning code has text, an action and a level; the table has no other codes', () => {
+    assert.deepEqual(Object.keys(PV.WARNING_TEXT), WARNING_CODES);
+    const seen = {};
+    for (const code of WARNING_CODES) {
+        const t = PV.WARNING_TEXT[code];
+        assert.ok(t.title.length > 0 && t.action.length > 0, code);
+        assert.ok(t.level === 'error' || t.level === 'warning', code);
+        assert.equal(seen[t.title], undefined, 'titles are distinct: ' + code);
+        seen[t.title] = true;
+        const row = PV.warningsView(status({ warnings: [code] }), online()).rows;
+        // motor_fault and motor_disabled are the banner's job; every other code is a row
+        if (code === 'motor_fault' || code === 'motor_disabled') assert.equal(row.length, 0, code);
+        else {
+            assert.equal(row.length, 1, code);
+            assert.equal(row[0].title, t.title);
+            assert.equal(row[0].action, t.action);
+            assert.equal(row[0].icon, t.level);
+            assert.ok(row[0].label.length > 0);
+        }
+    }
+});
+
+test('warningsView lists the rows in the order received, each code once', () => {
+    const v = PV.warningsView(status({ warnings: ['hx711_no_data', 'load_cell_noisy', 'hx711_no_data', 'load_cell_not_calibrated'] }), online());
+    assert.equal(v.visible, true);
+    assert.deepEqual(v.rows.map((r) => r.code), ['hx711_no_data', 'load_cell_noisy', 'load_cell_not_calibrated']);
+    // no re-sorting: the contract already sends them by priority
+    const rev = PV.warningsView(status({ warnings: ['load_cell_not_calibrated', 'hx711_no_data'] }), online());
+    assert.deepEqual(rev.rows.map((r) => r.code), ['load_cell_not_calibrated', 'hx711_no_data']);
+});
+
+test('warningsView: all nine codes give eight rows (the banner takes motor_fault) and the error banner', () => {
+    const st = status({ warnings: WARNING_CODES });
+    const v = PV.warningsView(st, online());
+    assert.equal(v.rows.length, 8);
+    assert.deepEqual(v.rows.map((r) => r.code), WARNING_CODES.filter((c) => c !== 'motor_fault'));
+    assert.equal(PV.deriveControls(st, online()).banner.level, 'error');
+});
+
+test('warningsView is hidden when empty, absent, malformed or not online', () => {
+    for (const w of [[], undefined, null, 'motor_fault', 7, {}]) {
+        const v = PV.warningsView(status(w === undefined ? {} : { warnings: w }), online());
+        assert.deepEqual(v, { visible: false, rows: [] });
+    }
+    const st = status({ warnings: ['load_cell_noisy'] });
+    for (const c of [offlineConn, PV.newConnection(), PV.connectionFailed(online(), 'web_interface_off', 5)]) {
+        assert.equal(PV.warningsView(st, c).visible, false);
+    }
+    assert.equal(PV.warningsView(null, online()).visible, false);
+    assert.equal(PV.warningsView(st, online()).visible, true);
+});
+
+test('warningsView shows an unknown code with generic text and the code cut to 40 characters', () => {
+    const long = 'future_code_' + 'x'.repeat(60);
+    const v = PV.warningsView(status({ warnings: ['load_cell_noisy', 'new_thing', long, 7, null, '', { a: 1 }] }), online());
+    assert.deepEqual(v.rows.map((r) => r.code), ['load_cell_noisy', 'new_thing', long.slice(0, 40)]);
+    assert.match(v.rows[1].title, /new_thing/);
+    assert.match(v.rows[1].action, /does not know/);
+    assert.equal(v.rows[1].level, 'warning');
+    assert.ok(v.rows[2].title.includes(long.slice(0, 40)));
+    assert.equal(v.rows[2].title.includes(long.slice(0, 41)), false);
+    // names that exist on every object are not known codes
+    const proto = PV.warningsView(status({ warnings: ['constructor', '__proto__', 'toString'] }), online()).rows;
+    assert.equal(proto.length, 3);
+    assert.match(proto[0].title, /constructor/);
+});
+
+test('motor_fault in warnings alone gives the fault banner and disables Start and Motor test with the reason', () => {
+    const d = PV.deriveControls(status({ warnings: ['motor_fault', 'load_cell_noisy'] }), online());
+    assert.equal(d.banner.level, 'error');
+    assert.match(d.banner.text, /Restart the grinder/);
+    assert.equal(d.start.enabled, false);
+    assert.equal(d.motorTest.enabled, false);
+    assert.match(d.start.reason, /restarted/);
+    assert.match(d.motorTest.reason, /restarted/);
+    assert.equal(d.tare.enabled, true);
+    assert.equal(d.stop.enabled, true);
+});
+
+test('motor_disabled in warnings alone gives the disabled banner and disables Start and Motor test', () => {
+    const d = PV.deriveControls(status({ warnings: ['motor_disabled'] }), online());
+    assert.match(d.banner.text, /^Motor disabled\./);
+    assert.match(d.start.reason, /Hardware board/);
+    assert.match(d.motorTest.reason, /Hardware board/);
+});
+
+test('the banner and the list never say the same thing twice or contradict each other', () => {
+    // fault from both the start_block and the warning: one banner, no row for it
+    const both = status({ start_block: 'motor_fault', motor_test_block: 'motor_fault', warnings: ['motor_fault', 'hx711_no_data'] });
+    const d = PV.deriveControls(both, online());
+    assert.match(d.banner.text, /^Motor fault\./);
+    assert.deepEqual(PV.warningsView(both, online()).rows.map((r) => r.code), ['hx711_no_data']);
+    // fault wins over disabled in the banner; the disabled warning then stays a row (both are true)
+    const mixed = status({ warnings: ['motor_fault', 'motor_disabled'] });
+    assert.match(PV.deriveControls(mixed, online()).banner.text, /^Motor fault\./);
+    assert.deepEqual(PV.warningsView(mixed, online()).rows.map((r) => r.code), ['motor_disabled']);
+    // a firmware update banner does not hide the motor rows
+    const ota = status({ ui_state: 'ota_update', warnings: ['motor_fault'] });
+    assert.match(PV.deriveControls(ota, online()).banner.text, /Firmware update/);
+    assert.deepEqual(PV.warningsView(ota, online()).rows.map((r) => r.code), ['motor_fault']);
+    // a start_block of its own wins over the warning for the Start reason
+    assert.match(PV.deriveControls(status({ start_block: 'busy', warnings: ['motor_fault'] }), online()).start.reason, /active/);
+});
+
+test('an older firmware without the warnings member works as before', () => {
+    const st = status();
+    assert.equal('warnings' in st, false);
+    const d = PV.deriveControls(st, online());
+    assert.equal(d.banner, null);
+    assert.equal(d.start.enabled && d.motorTest.enabled, true);
+    assert.equal(PV.warningsView(st, online()).visible, false);
+});
+
+test('the warnings list is wired as a named region built from the template without markup or storage', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.match(html, /<section id="warnings"[^>]*aria-labelledby="warnings-h"[^>]*hidden>/);
+    assert.match(html, /<h2 id="warnings-h">Grinder warnings<\/h2>/);
+    assert.match(html, /<ul id="warnings-list"/);
+    assert.match(html, /<symbol id="i-error"/);
+    assert.equal(app.includes('createElementNS'), false);
+    assert.equal(app.includes('http'), false);
+    assert.match(app, /V\.warningsView\(status, conn\)/);
+});

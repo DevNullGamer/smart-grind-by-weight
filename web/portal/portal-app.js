@@ -87,6 +87,27 @@
     setText(reasonEl, control.enabled ? '' : control.reason);
   }
 
+  // The warnings card is rebuilt only when its rows change, so a poll does not re-announce an unchanged list.
+  var warningsKey = '';
+  function renderWarnings() {
+    var view = V.warningsView(status, conn);
+    $('warnings').hidden = !view.visible;
+    var key = JSON.stringify(view.rows);
+    if (key === warningsKey) return;
+    warningsKey = key;
+    var list = $('warnings-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.rows.forEach(function (row) {
+      // cloned from the <template> in the page: the icons are the page's own inline sprite symbols
+      var item = $('warning-row').content.firstElementChild.cloneNode(true);
+      item.classList.add(row.level);
+      item.querySelector('.warn-tag').textContent = row.label;
+      item.querySelector('.warn-name').textContent = row.title;
+      item.querySelector('.warn-action').textContent = row.action;
+      list.appendChild(item);
+    });
+  }
+
   function render() {
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -140,6 +161,7 @@
     });
     setControl($('tare'), $('reason-tare'), controls.tare);
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
+    renderWarnings();
     renderSettings();
   }
 

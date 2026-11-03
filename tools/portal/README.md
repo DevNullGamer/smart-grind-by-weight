@@ -62,6 +62,7 @@ touch cancel of the lead-in and the overlay, and the Insights data (the routes c
 | `--start-block CODE` | none | Grinder-side refusal of a start: `motor_disabled`, `update_in_progress`, `load_cell_not_connected`, `load_cell_no_data`, `load_cell_rate_invalid`, `busy`, `motor_fault`. |
 | `--motor-test-block CODE` | none | Grinder-side refusal of the motor test (same codes). |
 | `--drop-start` | off | Every remote start is dropped when its lead-in ends (another screen took over). |
+| `--legacy-status` | off | `GET /api/status` leaves out the `warnings` member, like a firmware from before it existed. The page then shows no warnings list; the `warnings` key of `/dev/state` still holds its value. |
 
 The default listens on `127.0.0.1` only.
 
@@ -92,7 +93,7 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `ui_busy` | bool | `GET` and `PATCH /api/settings` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
 | `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
-| `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The page does not show them yet. |
+| `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The Grind tab lists them, highest priority first. |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
 
 ## Reproduce each page state
@@ -109,6 +110,7 @@ above.
 | Update running (`update_in_progress`) | `--update-held`, or `{"update_held":true}` (back with `false`). | Banner "Firmware update running"; everything but STOP disabled. |
 | Motor fault (`motor_fault`) | `{"motor_test_block":"motor_fault"}` (back with `null`). | Error banner with the restart hint; Motor test disabled with the reason. |
 | Motor disabled (`motor_disabled`) | `{"start_block":"motor_disabled"}` (and `null` again). | Error banner "Motor disabled"; Start and Motor test disabled with the reason. |
+| Warnings list | `{"warnings":["motor_fault","load_cell_not_calibrated"]}` (back with `[]`). `--legacy-status` leaves the member out. | A "Grinder warnings" card on the Grind tab, one row per code with what to do, highest priority first; hidden when empty or when the member is absent. `motor_fault` and `motor_disabled` also give the error banner, and Start and Motor test are disabled with the reason; the list does not repeat the banner's code. |
 | `ui_busy` 503 | `{"ui_busy":true}`, then reload or change a setting. | Settings cannot be read or saved; a soft warning; the poller retries. Back to `false` to clear. |
 | `command_in_flight` 409 | `{"in_flight":true}`, then press Start or Tare. | "The grinder is still busy with the previous request." STOP still works. Back to `false`. |
 | `store_failed` 500 | `{"store_failed":true}`, then change a setting and Save. | Error message, the settings are reloaded and show what is stored; nothing changed. |

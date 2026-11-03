@@ -186,6 +186,21 @@ h2 { font-size: 1rem; }
 .action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
 .reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
 
+/* warnings list: icon shape, a text tag and the words carry the severity, the colour only supports them */
+.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: 12px; background: var(--raised); }
+.warn-row.error { border-left-color: var(--error); }
+.warn-row.warning { border-left-color: var(--warning); }
+.warn-row.error .icon { color: var(--error); }
+.warn-row.warning .icon { color: var(--warning); }
+.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
+.warn-body { min-width: 0; display: grid; gap: 4px; }
+.warn-title { font-weight: 700; overflow-wrap: anywhere; }
+.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
+.warn-row.error .warn-tag { color: var(--error); }
+.warn-row.warning .warn-tag { color: var(--warning); }
+.warn-action { color: var(--text); overflow-wrap: anywhere; }
+
 /* ---- settings tab: schema-driven form */
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
