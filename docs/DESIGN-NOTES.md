@@ -657,7 +657,7 @@ Status from the chg014 log. Bench runs were on COM15 with the `...-wifi-dev` env
 ### Known gaps (not fixed in chg014)
 
 1. **Missing touch driver (note, fixed):** `run_lead_in()` cancels the remote start when there is no touch driver pointer (a disabled driver already reports a fresh touch and cancels), logging `remote start cancelled: no touch driver`. Defensive only: the pointer is null only if the display itself is null, so this case cannot occur on current hardware; host-reviewed only.
-2. **Start on Cup can start under the MOTOR RUNNING overlay.** `UIManager::update_auto_actions()` has no overlay gate, and a motor test runs on READY, so an auto start could begin while the pulse runs. Not reproduced on the bench.
+2. **Start on Cup under the MOTOR RUNNING overlay (fixed):** `UIManager::update_auto_actions()` now skips auto-start while `MenuUIController::is_motor_test_active()` (the motor test poll timer is non-null) via the pure `auto_start_allowed()`. Host-tested as the pure rule and pinned in `tools/tests/test_auto_start_motor_gate.py` as source text; the behaviour on a grinder is not hardware-verified. A cup placed during the 1 s test may start a grind right after it ends.
 3. **`finish_motor_test()` on a poll-timer creation failure books statistics** and shows the result notice.
 4. **`START_FAILED` maps to 409 `busy`.** A motor pulse that could not start is answered as busy.
 5. **`nvs_open` NOT_FOUND log noise.** With the Web switch on and a board that never saved a setting, the settings read logs NOT_FOUND about every 10 s. A quiet read would remove it.
