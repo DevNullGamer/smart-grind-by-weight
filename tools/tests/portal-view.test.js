@@ -1269,3 +1269,258 @@ test('the Insights tab is wired in the page: definition lists, a named region, n
     assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<h2>Profiles</h2>') < html.indexOf('<h2>Tools</h2>'));
 });
+
+// ---------------------------------------------------------------------------------------------- step 12 (recent grinds)
+function grind(over) {
+    return Object.assign({ id: 1, age_s: 120, profile: 1, mode: 'weight', target_g: 18.0, target_s: null, final_g: 18.1,
+        time_ms: 14230, motor_ms: 9800, pulses: 2, result: 'complete' }, over || {});
+}
+
+function historyDoc(grinds, persistent) {
+    return { count: grinds.length, persistent: persistent !== false, grinds: grinds };
+}
+
+function historyState(doc, fetchedAt) {
+    return PV.historyLoaded(PV.newStats(), doc, fetchedAt === undefined ? 0 : fetchedAt);
+}
+
+const ONLINE = { state: 'online' };
+
+test('historyAgeText: just now, minutes, hours with two digit minutes, days and "before the last restart"', () => {
+    assert.equal(PV.historyAgeText(0), 'just now');
+    assert.equal(PV.historyAgeText(59.9), 'just now');
+    assert.equal(PV.historyAgeText(60), '1 min ago');
+    assert.equal(PV.historyAgeText(120), '2 min ago');
+    assert.equal(PV.historyAgeText(3599), '59 min ago');
+    assert.equal(PV.historyAgeText(3600), '1 h 00 min ago');
+    assert.equal(PV.historyAgeText(3900), '1 h 05 min ago');
+    assert.equal(PV.historyAgeText(86399), '23 h 59 min ago');
+    assert.equal(PV.historyAgeText(86400 + 3 * 3600), '1 d 3 h ago');
+    assert.equal(PV.historyAgeText(4294967295), '49,710 d 6 h ago');
+    assert.equal(PV.historyAgeText(null), 'before the last restart');
+    assert.equal(PV.historyAgeText(undefined), '');
+});
+
+test('historyErrorText: the sign and the words, "on target" under 0.05 g, no minus sign on a rounded zero', () => {
+    assert.equal(PV.historyErrorText(0.1), '+0.1 g over');
+    assert.equal(PV.historyErrorText(-0.2), '-0.2 g under');
+    assert.equal(PV.historyErrorText(1.46), '+1.5 g over');
+    assert.equal(PV.historyErrorText(0), 'on target');
+    assert.equal(PV.historyErrorText(-0), 'on target');
+    assert.equal(PV.historyErrorText(0.049), 'on target');
+    assert.equal(PV.historyErrorText(-0.049), 'on target');
+    assert.equal(PV.historyErrorText(0.05), '+0.1 g over'); // 0.05 g rounds up to 0.1
+    assert.equal(PV.historyErrorText(-0.05), '-0.1 g under');
+    assert.equal(PV.historyErrorText(1234.5), '+1,235 g over');
+    assert.equal(PV.historyErrorText(-1000000), '-1,000,000 g under');
+    assert.equal(PV.historyErrorText(null), '');
+});
+
+test('parseHistory: needs a grinds array; skips what is no object; keeps only usable numbers', () => {
+    assert.equal(PV.parseHistory(null), null);
+    assert.equal(PV.parseHistory([]), null);
+    assert.equal(PV.parseHistory({}), null);
+    assert.equal(PV.parseHistory({ grinds: 'x' }), null);
+    const parsed = PV.parseHistory({ persistent: true, grinds: [null, 5, [], grind({ final_g: 'x', target_g: NaN, profile: 7, time_ms: null, pulses: 'many', age_s: -4, result: 'bogus' })] });
+    assert.equal(parsed.grinds.length, 1);
+    assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, timeMs: null,
+        pulses: null, result: 'unknown' });
+    assert.equal(PV.parseHistory({ grinds: [] }).persistent, true); // a missing flag is not an alarm
+    assert.equal(PV.parseHistory({ persistent: false, grinds: [] }).persistent, false);
+    assert.equal(PV.parseHistory({ grinds: new Array(25).fill(grind()) }).grinds.length, 10);
+    const time = PV.parseHistory({ grinds: [grind({ mode: 'time', target_g: null, target_s: 12 })] }).grinds[0];
+    assert.equal(time.time, true);
+    assert.equal(time.target, 12);
+    assert.equal(PV.parseHistory({ grinds: [grind({ age_s: null })] }).grinds[0].ageS, null);
+});
+
+test('every shared history vector parses and shows: rows match the entries, nothing throws', () => {
+    const vectors = JSON.parse(fs3.readFileSync(path3.join(__dirname, 'portal_api_vectors.json'), 'utf8'));
+    for (const c of vectors.history_cases) {
+        const doc = JSON.parse(c.json);
+        const view = PV.historyView(historyState(doc), ONLINE, 0);
+        assert.equal(view.visible, true, c.name);
+        assert.equal(view.rows.length, doc.grinds.length, c.name);
+        assert.equal(view.kind, doc.grinds.length === 0 ? 'empty' : 'ready', c.name);
+        assert.equal(view.notice !== '', doc.persistent === false, c.name);
+        for (const row of view.rows) {
+            for (const text of [row.name, row.age, row.final, row.target, row.error, row.detail]) {
+                assert.equal(typeof text, 'string', c.name);
+                assert.equal(/NaN|undefined|null|Infinity/.test(text), false, c.name + ': ' + text);
+            }
+        }
+    }
+});
+
+test('historyView: a weight-mode row shows age, profile, final against target, error, badge and details', () => {
+    const view = PV.historyView(historyState(historyDoc([grind()])), ONLINE, 0);
+    assert.deepEqual(view.rows, [{ name: 'Double', age: '2 min ago', final: '18.1 g', target: 'target 18.0 g', error: '+0.1 g over',
+        badge: { label: 'Complete', level: 'ok' }, detail: '14.2 s \u00b7 2 pulses' }]);
+    assert.equal(view.kind, 'ready');
+    assert.equal(view.message, '');
+    assert.equal(view.note, '');
+});
+
+test('historyView: ages keep growing after the reply arrived (fetched at 10 s, shown at 70 s)', () => {
+    const state = historyState(historyDoc([grind({ age_s: 30 }), grind({ age_s: null })]), 10000);
+    assert.equal(PV.historyView(state, ONLINE, 10000).rows[0].age, 'just now');
+    assert.equal(PV.historyView(state, ONLINE, 70000).rows[0].age, '1 min ago');
+    assert.equal(PV.historyView(state, ONLINE, 70000).rows[1].age, 'before the last restart');
+    assert.equal(PV.historyView(state, ONLINE, 5000).rows[0].age, 'just now'); // a clock step back is not a negative age
+});
+
+test('historyView: a time-mode row shows its target in seconds and no error; one pulse is singular', () => {
+    const doc = historyDoc([grind({ mode: 'time', target_g: null, target_s: 12.0, final_g: 20.4, pulses: 0, time_ms: 12000 }),
+        grind({ pulses: 1, time_ms: 75000 })]);
+    const rows = PV.historyView(historyState(doc), ONLINE, 0).rows;
+    assert.equal(rows[0].target, 'target 12.0 s');
+    assert.equal(rows[0].final, '20.4 g');
+    assert.equal(rows[0].error, '');
+    assert.equal(rows[0].detail, '12.0 s');
+    assert.equal(rows[1].detail, '1 min 15 s \u00b7 1 pulse');
+});
+
+test('historyView: every result has a word and a level; overshoot and timeout are not "ok"', () => {
+    const wanted = { complete: ['Complete', 'ok'], max_pulses: ['Max pulses', 'warning'], overshoot: ['Overshoot', 'warning'],
+        timeout: ['Timeout', 'error'], unknown: ['Unknown result', 'neutral'], 'something new': ['Unknown result', 'neutral'] };
+    for (const result of Object.keys(wanted)) {
+        const row = PV.historyView(historyState(historyDoc([grind({ result: result })])), ONLINE, 0).rows[0];
+        assert.deepEqual([row.badge.label, row.badge.level], wanted[result], result);
+    }
+});
+
+test('historyView: large, negative and not-a-number weights stay readable and never print NaN', () => {
+    const doc = historyDoc([grind({ final_g: 1e6, target_g: 18 }), grind({ final_g: -2.5, target_g: 18 }), grind({ final_g: -0.04 }),
+        { mode: 'weight', result: 'complete', final_g: NaN, target_g: Infinity, time_ms: NaN, pulses: NaN, age_s: NaN, profile: 'x' }]);
+    const rows = PV.historyView(historyState(doc), ONLINE, 0).rows;
+    assert.equal(rows[0].final, '1,000,000 g');
+    assert.equal(rows[0].error, '+999,982 g over');
+    assert.equal(rows[1].final, '-2.5 g');
+    assert.equal(rows[1].error, '-20.5 g under');
+    assert.equal(rows[2].final, '0.0 g'); // -0.04 rounds to zero without a minus sign
+    assert.deepEqual([rows[3].name, rows[3].age, rows[3].final, rows[3].target, rows[3].error, rows[3].detail], ['Grind', '', '-- g', '', '', '']);
+    assert.equal(JSON.stringify(rows).includes('NaN'), false);
+});
+
+test('historyView: the chart is scaled to the largest error, at least 0.5 g, oldest bar first', () => {
+    const doc = historyDoc([grind({ final_g: 19.0 }), grind({ final_g: 17.9 }), grind({ final_g: 18.0 }), grind({ mode: 'time', target_g: null, target_s: 5 })]);
+    const chart = PV.historyView(historyState(doc), ONLINE, 0).chart;
+    assert.equal(chart.visible, true);
+    // newest first in the list, so the chart (oldest left): time mode, on target, under 0.1, over 1.0
+    assert.deepEqual(chart.bars, [{ dir: 'none', pct: 0 }, { dir: 'on', pct: 0 }, { dir: 'under', pct: 10 }, { dir: 'over', pct: 100 }]);
+    assert.match(chart.caption, /^Error of the last 4 grinds, oldest on the left\./);
+    assert.match(chart.caption, /Full height is 1\.0 g\.$/);
+    const small = PV.historyView(historyState(historyDoc([grind({ final_g: 18.1 })])), ONLINE, 0).chart;
+    assert.deepEqual(small.bars, [{ dir: 'over', pct: 20 }]); // 0.1 g of the 0.5 g minimum scale
+    assert.match(small.caption, /^Error of the last 1 grind,/);
+    assert.match(small.caption, /Full height is 0\.5 g\.$/);
+    const tiny = PV.historyView(historyState(historyDoc([grind({ final_g: 18.0, target_g: 18.0 }), grind({ final_g: 10, target_g: 18 })])), ONLINE, 0).chart;
+    assert.deepEqual(tiny.bars.map((b) => b.dir), ['under', 'on']);
+    assert.equal(PV.historyView(historyState(historyDoc([grind({ mode: 'time', target_g: null, target_s: 5 })])), ONLINE, 0).chart.visible, false);
+    const big = PV.historyView(historyState(historyDoc([grind({ final_g: 1e6 }), grind({ final_g: 18.1 })])), ONLINE, 0).chart;
+    assert.equal(big.bars[0].pct, 4); // a visible sliver for a non-zero error, never a hidden bar
+    assert.equal(big.bars[1].pct, 100);
+});
+
+test('historyView: an empty list says so; not persistent changes the words and adds the notice', () => {
+    let view = PV.historyView(historyState(historyDoc([], true)), ONLINE, 0);
+    assert.equal(view.kind, 'empty');
+    assert.equal(view.message, 'No grinds recorded yet. Finished grinds are listed here and kept across restarts.');
+    assert.equal(view.notice, '');
+    assert.deepEqual([view.rows.length, view.chart.visible], [0, false]);
+    view = PV.historyView(historyState(historyDoc([], false)), ONLINE, 0);
+    assert.equal(view.message, 'No grinds recorded since the grinder started.');
+    assert.equal(view.notice, 'History is not being saved on the grinder; it is lost at the next restart.');
+    view = PV.historyView(historyState(historyDoc([grind()], false)), ONLINE, 0);
+    assert.equal(view.kind, 'ready');
+    assert.equal(view.rows.length, 1);
+    assert.equal(view.notice, 'History is not being saved on the grinder; it is lost at the next restart.');
+});
+
+test('historyView: a firmware without the route hides the card only; other failures keep it and say why', () => {
+    const gone = PV.statsFailed(PV.newStats(), 'not_supported', 0);
+    assert.equal(PV.historyView(gone, ONLINE, 0).visible, false);
+    assert.equal(PV.historyDue(gone, { tabShown: true, online: true, haveStatus: true, hidden: false, commandBusy: false, nowMs: 1e6 }), false);
+    let view = PV.historyView(PV.newStats(), { state: 'connecting' }, 0);
+    assert.deepEqual([view.visible, view.kind, view.message], [true, 'loading', 'Loading the recent grinds.']);
+    view = PV.historyView(PV.statsFailed(PV.newStats(), 'ui_busy', 0), ONLINE, 0);
+    assert.equal(view.kind, 'error');
+    assert.match(view.message, /^The recent grinds could not be read\. .* This page tries again by itself\.$/);
+    view = PV.historyView(PV.newStats(), { state: 'offline' }, 0);
+    assert.match(view.message, /^The grinder is not reachable, so the recent grinds cannot be read\./);
+    // with a list already shown: it stays, with a note about its age
+    const state = historyState(historyDoc([grind()]), 1000);
+    assert.equal(PV.historyView(state, ONLINE, 31000).note, '');
+    assert.equal(PV.historyView(state, { state: 'offline' }, 31000).note, 'The grinder is not reachable. This list is from 30 s ago.');
+    const failed = PV.statsFailed(state, 'ui_busy', 31000);
+    assert.match(PV.historyView(failed, ONLINE, 31000).note, /^The list could not be refreshed \(.*\) and is from 30 s ago\.$/);
+    assert.equal(PV.historyView(failed, ONLINE, 31000).rows.length, 1);
+});
+
+test('historyLoaded: a reply that is not a history is a failure and keeps the old list', () => {
+    const good = historyState(historyDoc([grind()]), 1000);
+    const bad = PV.historyLoaded(good, { count: 1 }, 2000);
+    assert.equal(bad.doc.grinds.length, 1);
+    assert.equal(bad.fetchedAt, 1000);
+    assert.notEqual(bad.error, '');
+    assert.equal(bad.unavailable, false);
+    const fresh = PV.historyLoaded(good, historyDoc([]), 3000);
+    assert.equal(fresh.doc.grinds.length, 0);
+    assert.equal(fresh.fetchedAt, 3000);
+    assert.equal(fresh.error, '');
+});
+
+test('historyDue: only while the Insights tab is shown, then the statistics rules (30 s, on request, never in a command)', () => {
+    const ctx = (over) => Object.assign({ tabShown: true, online: true, haveStatus: true, hidden: false, commandBusy: false, nowMs: 100000 }, over);
+    const fresh = PV.newStats();
+    assert.equal(PV.historyDue(fresh, ctx()), true); // the first look
+    assert.equal(PV.historyDue(fresh, ctx({ tabShown: false })), false);
+    assert.equal(PV.historyDue(fresh, ctx({ commandBusy: true })), false);
+    assert.equal(PV.historyDue(fresh, ctx({ hidden: true })), false);
+    assert.equal(PV.historyDue(fresh, ctx({ online: false })), false);
+    assert.equal(PV.historyDue(fresh, ctx({ haveStatus: false })), false);
+    const got = historyState(historyDoc([grind()]), 100000);
+    assert.equal(PV.historyDue(got, ctx({ nowMs: 129999 })), false);
+    assert.equal(PV.historyDue(got, ctx({ nowMs: 130000 })), true);
+    assert.equal(PV.historyDue(PV.statsShown(got, 110000), ctx({ nowMs: 110000 })), true); // opening the tab asks at once
+    const ended = PV.statsOnStatus(got, 'grinding', 'grind_complete', 105000);
+    assert.equal(PV.historyDue(ended, ctx({ nowMs: 105000 })), true); // after a grind ended
+    assert.equal(PV.historyDue(PV.statsFailed(got, 'ui_busy', 131000), ctx({ nowMs: 135000 })), false); // waits for its retry time
+    assert.equal(PV.historyDue(PV.statsFailed(got, 'ui_busy', 131000), ctx({ nowMs: 141000 })), true);
+});
+
+test('nextPollTask: the list comes after the statistics, never starves the status, and a failure forces status', () => {
+    const f = { haveStatus: true, needSchema: false, needSettings: false, needInfo: false, online: true, forceStatus: false, statsDue: true, historyDue: true };
+    assert.equal(PV.nextPollTask(f), 'stats');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { statsDue: false })), 'history');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { statsDue: false, historyDue: false })), 'status');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { statsDue: false, forceStatus: true })), 'status');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { statsDue: false, online: false })), 'status');
+    const needs = { needSchema: false, needSettings: false, needInfo: false };
+    const next = PV.pollSucceeded('history', needs, historyDoc([]), true, 'ready');
+    assert.deepEqual([next.needSchema, next.needSettings, next.needInfo, next.forceStatus, next.quick], [false, false, false, false, false]);
+    for (const code of ['not_supported', 'ui_busy', 'bad_reply', 'http_error']) {
+        assert.deepEqual(PV.pollFailed('history', code), { schemaMissing: false, connectionLost: false, forceStatus: true }, code);
+    }
+    for (const code of ['network', 'timeout', 'web_interface_off']) assert.equal(PV.pollFailed('history', code).connectionLost, true, code);
+});
+
+test('the recent-grinds list is wired in the page: a named list, a hidden chart, text written with textContent only', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    const css = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal.css'), 'utf8');
+    assert.match(html, /<section id="history"[^>]*aria-labelledby="history-h"[^>]*hidden>/);
+    assert.match(html, /<ul id="history-list"[^>]*role="list"[^>]*aria-labelledby="history-h"/);
+    assert.match(html, /<div id="history-chart"[^>]*aria-hidden="true"/);
+    assert.match(html, /<template id="history-row">/);
+    assert.match(app, /V\.historyView\(history, conn, now\(\)\)/);
+    assert.match(app, /client\.getHistory\(\)/);
+    assert.match(app, /V\.historyDue\(history, \{[^}]*commandBusy: commandPending \|\| client\.pending\(\) > 0/s);
+    assert.equal(app.includes('createElementNS'), false); // the chart is divs, not script-made SVG
+    assert.match(app, /fill\.style\.height = bar\.pct \+ '%'/);
+    assert.equal(app.includes('innerHTML'), false);
+    for (const level of ['ok', 'warning', 'error', 'neutral']) assert.ok(css.includes('.h-badge.' + level), level);
+    // each result badge has an icon of its own shape, not only a colour
+    assert.match(css, /\.h-badge\.ok \.icon-ok/);
+    assert.match(css, /\.h-badge\.error \.icon-error/);
+});

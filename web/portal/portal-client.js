@@ -1,4 +1,4 @@
-// API client of the web panel (docs/PORTAL-API.md), shared by the reference page (inlined at build by
+// API client of the web panel (docs/PORTAL-API.md), shared by the page (inlined at build by
 // tools/portal/build_page.py) and the node tests (tools/tests/portal-client.test.js).
 //
 // There is no token and no stored state: the panel is open on the local network and the on-screen Web interface
@@ -278,6 +278,8 @@
             getSettings: function () { return request('GET', '/api/settings'); },
             // Lifetime statistics; a firmware without the route answers 404, which becomes not_supported.
             getStats: function () { return request('GET', '/api/stats'); },
+            // The recent grinds; a firmware from before it answers 404 (not_supported) and keeps the rest.
+            getHistory: function () { return request('GET', '/api/history'); },
             // Polling-friendly: a call while one is still waiting returns the same promise.
             getStatus: function () {
                 if (statusInFlight) return statusInFlight;

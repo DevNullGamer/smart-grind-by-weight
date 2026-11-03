@@ -160,6 +160,33 @@
         <dl id="mix-list" class="mix-list"></dl>
         <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
       </section>
+      <section id="history" class="card full" aria-labelledby="history-h" hidden>
+        <h2 id="history-h">Recent grinds</h2>
+        <p id="history-message" class="muted"></p>
+        <p id="history-notice" class="h-notice" hidden></p>
+        <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
+          <p id="history-caption" class="muted h-caption"></p>
+          <div id="history-bars" class="h-bars"></div>
+        </div>
+        <ul id="history-list" class="h-list" role="list" aria-labelledby="history-h"></ul>
+        <p id="history-note" class="muted note-line"></p>
+        <template id="history-row">
+          <li class="h-row">
+            <div class="h-head"><strong class="h-name"></strong><span class="h-age muted"></span></div>
+            <div class="h-main"><span class="h-final"></span><span class="h-target muted"></span></div>
+            <div class="h-meta">
+              <span class="h-badge">
+                <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+                <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+                <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+                <span class="h-result"></span>
+              </span>
+              <span class="h-error"></span>
+              <span class="h-detail muted"></span>
+            </div>
+          </li>
+        </template>
+      </section>
     </section>
   </div>
 </main>

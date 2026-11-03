@@ -223,6 +223,36 @@ h2 { font-size: 1rem; }
 .swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
 .mix-note { font-size: .875rem; margin-top: 12px; }
 
+/* ---- insights tab: recent grinds (list, badges, error chart built from divs) */
+.h-notice { border-left: 4px solid var(--warning); padding: 4px 0 4px 12px; margin: 8px 0; }
+.h-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.h-list:empty { display: none; }
+.h-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); min-width: 0; }
+.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.h-head { justify-content: space-between; }
+.h-final { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.h-target, .h-detail, .h-age { font-size: .875rem; overflow-wrap: anywhere; }
+.h-error { font-weight: 600; }
+.h-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid currentColor; border-radius: 12px; padding: 0 8px; font-size: .8125rem; font-weight: 600; }
+.h-badge .icon { width: 16px; height: 16px; }
+.h-badge.ok { color: var(--success); }
+.h-badge.warning { color: var(--warning); }
+.h-badge.error { color: var(--error); }
+.h-badge.neutral { color: var(--muted); }
+.h-badge .icon-ok, .h-badge .icon-warning, .h-badge .icon-error { display: none; }
+.h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
+.h-chart { margin: 12px 0 0; }
+.h-caption { font-size: .8125rem; margin-bottom: 8px; }
+.h-bars { display: flex; gap: 4px; height: 96px; }
+.h-col { flex: 1 1 0; max-width: 32px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+.h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
+.h-up { justify-content: flex-end; }
+.h-bar { width: 100%; }
+.h-bar.over { background: var(--warning); border-radius: 3px 3px 0 0; }
+.h-bar.under { background: var(--accent); border-radius: 0 0 3px 3px; }
+.h-axis { background: var(--border); }
+.h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
+
 /* ---- settings tab: schema-driven form */
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }

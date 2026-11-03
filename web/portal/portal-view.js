@@ -253,6 +253,7 @@
         if (flags.needSettings) return 'settings';
         if (flags.needInfo) return 'info';
         if (flags.statsDue) return 'stats'; // see statsDue: one request at a time, in turn with the status requests
+        if (flags.historyDue) return 'history';
         return 'status';
     }
 
@@ -276,7 +277,7 @@
             else next.forceStatus = true;
         } else if (task === 'info') {
             next.needInfo = false;
-        } // 'stats' changes no need: the statistics keep their own state (statsLoaded)
+        } // 'stats' and 'history' change no need: they keep their own state (statsLoaded, historyLoaded)
         // an unusable settings reply must not be asked again at once (a firmware/page mismatch would loop)
         next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
         return next;
@@ -286,8 +287,8 @@
     // lost connection; a failing settings, schema or info request must not starve status.
     function pollFailed(task, code) {
         if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
-        if (task === 'stats') {
-            // The statistics are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
+        if (task === 'stats' || task === 'history') {
+            // Statistics and the list are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
             var lost = code !== 'not_supported' && code !== 'ui_busy' && code !== 'bad_reply' && code !== 'http_error';
             return { schemaMissing: false, connectionLost: lost, forceStatus: true };
         }
@@ -611,7 +612,11 @@
 
     function statsLoaded(s, doc, nowMs) {
         var parsed = parseStats(doc);
-        if (!parsed) return statsFailed(s, 'bad_reply', nowMs);
+        return parsed ? fetched(s, parsed, nowMs) : statsFailed(s, 'bad_reply', nowMs);
+    }
+
+    // The bookkeeping of a good reply (shared with the recent-grinds list): the parsed reply and when it came
+    function fetched(s, parsed, nowMs) {
         var next = copyStats(s);
         next.doc = parsed;
         next.fetchedAt = nowMs;
@@ -812,6 +817,158 @@
         }
         view.tiles = tilesFor(s.doc);
         view.mix = mixView(s.doc);
+        return view;
+    }
+
+    // ------------------------------------------------------------------ Insights: recent grinds (chg016 step 12)
+    // GET /api/history (docs/PORTAL-API.md section 7, "Recent grinds"). Its state object is the statistics' one (newStats, statsFailed,
+    // statsRefresh and statsOnStatus work on it); only the reply is parsed differently, and it is fetched only while
+    // the Insights tab is shown (historyDue). Ages are relative to the moment the reply arrived, so they keep growing
+    // between two requests.
+
+    var HISTORY_ROWS_MAX = 10;
+    var HISTORY_CHART_MIN_SCALE_G = 0.5; // a chart of tiny errors is not stretched to the full height
+    var HISTORY_RESULTS = {
+        complete: { label: 'Complete', level: 'ok' },
+        max_pulses: { label: 'Max pulses', level: 'warning' },
+        overshoot: { label: 'Overshoot', level: 'warning' },
+        timeout: { label: 'Timeout', level: 'error' },
+        unknown: { label: 'Unknown result', level: 'neutral' }
+    };
+
+    function finiteOrNull(v) {
+        return typeof v === 'number' && isFinite(v) ? v : null;
+    }
+
+    // The reply as plain values; a grind that is not an object is skipped, a member that is not a number is null.
+    // A reply with no grinds array is not a history reply.
+    function parseHistory(doc) {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc) || !Array.isArray(doc.grinds)) return null;
+        var grinds = [];
+        doc.grinds.slice(0, HISTORY_ROWS_MAX).forEach(function (g) {
+            if (!g || typeof g !== 'object' || Array.isArray(g)) return;
+            var time = g.mode === 'time';
+            var age = finiteOrNull(g.age_s);
+            grinds.push({
+                // null: recorded before the last restart; undefined: the grinder sent nothing usable
+                ageS: g.age_s === null ? null : (age !== null && age >= 0 ? age : undefined),
+                profile: g.profile === 0 || g.profile === 1 || g.profile === 2 ? g.profile : null,
+                time: time,
+                target: finiteOrNull(time ? g.target_s : g.target_g),
+                final: finiteOrNull(g.final_g),
+                timeMs: finiteOrNull(g.time_ms),
+                pulses: finiteOrNull(g.pulses),
+                result: has(HISTORY_RESULTS, g.result) ? g.result : 'unknown'
+            });
+        });
+        return { persistent: doc.persistent !== false, grinds: grinds };
+    }
+
+    function historyLoaded(h, doc, nowMs) {
+        var parsed = parseHistory(doc);
+        return parsed ? fetched(h, parsed, nowMs) : statsFailed(h, 'bad_reply', nowMs);
+    }
+
+    // Due only while the Insights tab is shown, then by the statistics' rules (never during a command, a 404 ends it)
+    function historyDue(h, ctx) {
+        return !!ctx.tabShown && statsDue(h, ctx);
+    }
+
+    // A weight with one decimal; 1000 and more are whole numbers with commas; a value that rounds to 0.0 has no sign.
+    function tenths(v) {
+        var r = Math.round(Math.abs(v) * 10);
+        return (v < 0 && r > 0 ? '-' : '') + (r >= 10000 ? formatCount(Math.round(Math.abs(v))) : (r / 10).toFixed(1));
+    }
+
+    // "just now", "5 min ago", "1 h 05 min ago", "2 d 3 h ago"; null is a grind from before the last restart.
+    function historyAgeText(ageS) {
+        if (ageS === null) return 'before the last restart';
+        if (typeof ageS !== 'number') return '';
+        var s = Math.floor(ageS);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ' + pad2(Math.floor((s % 3600) / 60)) + ' min ago';
+        return formatCount(Math.floor(s / 86400)) + ' d ' + Math.floor((s % 86400) / 3600) + ' h ago';
+    }
+
+    // Final minus target in words ("+0.1 g over", "-0.2 g under"; under 0.05 g it is "on target"), '' without one.
+    function historyErrorText(err) {
+        if (err === null) return '';
+        var r = Math.round(Math.abs(err) * 10);
+        if (r === 0) return 'on target';
+        return (err > 0 ? '+' : '-') + tenths(Math.abs(err)) + ' g ' + (err > 0 ? 'over' : 'under');
+    }
+
+    function historyRow(g, elapsedS) {
+        var result = HISTORY_RESULTS[g.result];
+        var err = !g.time && g.final !== null && g.target !== null ? g.final - g.target : null;
+        var detail = [];
+        if (g.timeMs !== null && g.timeMs >= 0) detail.push(g.timeMs < 60000 ? (g.timeMs / 1000).toFixed(1) + ' s' : formatDuration(g.timeMs / 1000));
+        if (g.pulses !== null && (!g.time || g.pulses > 0)) detail.push(g.pulses + (g.pulses === 1 ? ' pulse' : ' pulses'));
+        return {
+            name: g.profile === null ? 'Grind' : PROFILE_NAMES[g.profile],
+            age: historyAgeText(typeof g.ageS === 'number' ? g.ageS + elapsedS : g.ageS),
+            final: g.final === null ? '-- g' : tenths(g.final) + ' g',
+            target: g.target === null ? '' : 'target ' + tenths(g.target) + (g.time ? ' s' : ' g'),
+            error: historyErrorText(err),
+            badge: { label: result.label, level: result.level },
+            detail: detail.join(' \u00b7 '),
+            err: err
+        };
+    }
+
+    // Bars for the chart, oldest first: dir 'over' / 'under' with pct of the half height, 'on' for under 0.05 g, 'none'
+    // without an error (time mode, unreadable). Scale: the largest error, at least HISTORY_CHART_MIN_SCALE_G.
+    function historyChart(rows) {
+        var scale = HISTORY_CHART_MIN_SCALE_G;
+        rows.forEach(function (r) { if (r.err !== null && Math.abs(r.err) > scale) scale = Math.abs(r.err); });
+        var bars = rows.slice().reverse().map(function (r) {
+            if (r.err === null) return { dir: 'none', pct: 0 };
+            if (Math.round(Math.abs(r.err) * 10) === 0) return { dir: 'on', pct: 0 };
+            return { dir: r.err > 0 ? 'over' : 'under', pct: Math.max(4, Math.min(100, Math.round(Math.abs(r.err) / scale * 100))) };
+        });
+        var any = bars.some(function (b) { return b.dir !== 'none'; });
+        return {
+            visible: any,
+            bars: bars,
+            caption: 'Error of the last ' + rows.length + (rows.length === 1 ? ' grind' : ' grinds') + ', oldest on the left. Bars above the line are over the target, bars below are under it. Full height is ' + tenths(scale) + ' g.'
+        };
+    }
+
+    // What the recent-grinds card shows. visible is false only when the firmware has no such route (the tiles stay).
+    // kind: loading | error | empty | ready. notice: history not being saved. note: the list is old or could not be refreshed.
+    function historyView(h, conn, nowMs) {
+        var online = !!conn && conn.state === 'online';
+        var view = { visible: !h.unavailable, kind: 'ready', message: '', notice: '', note: '', rows: [],
+            chart: { visible: false, bars: [], caption: '' } };
+        if (h.unavailable) return view;
+        if (!h.doc) {
+            if (!online && conn && conn.state !== 'connecting') {
+                view.kind = 'error';
+                view.message = 'The grinder is not reachable, so the recent grinds cannot be read. This page tries again by itself.';
+            } else if (h.error) {
+                view.kind = 'error';
+                view.message = 'The recent grinds could not be read. ' + h.error + ' This page tries again by itself.';
+            } else {
+                view.kind = 'loading';
+                view.message = 'Loading the recent grinds.';
+            }
+            return view;
+        }
+        var age = formatAge(nowMs - h.fetchedAt);
+        if (!online) view.note = 'The grinder is not reachable. This list is from ' + age + ' ago.';
+        else if (h.error) view.note = 'The list could not be refreshed (' + h.error + ') and is from ' + age + ' ago.';
+        if (!h.doc.persistent) view.notice = 'History is not being saved on the grinder; it is lost at the next restart.';
+        if (h.doc.grinds.length === 0) {
+            view.kind = 'empty';
+            view.message = h.doc.persistent ? 'No grinds recorded yet. Finished grinds are listed here and kept across restarts.' :
+                'No grinds recorded since the grinder started.';
+            return view;
+        }
+        var elapsedS = Math.max(0, (nowMs - h.fetchedAt) / 1000);
+        view.rows = h.doc.grinds.map(function (g) { return historyRow(g, elapsedS); });
+        view.chart = historyChart(view.rows);
+        view.rows.forEach(function (r) { delete r.err; });
         return view;
     }
 
@@ -1272,6 +1429,14 @@
         formatCount: formatCount,
         formatDuration: formatDuration,
         formatKg: formatKg,
+        HISTORY_RESULTS: HISTORY_RESULTS,
+        HISTORY_CHART_MIN_SCALE_G: HISTORY_CHART_MIN_SCALE_G,
+        parseHistory: parseHistory,
+        historyLoaded: historyLoaded,
+        historyDue: historyDue,
+        historyAgeText: historyAgeText,
+        historyErrorText: historyErrorText,
+        historyView: historyView,
         FRESHNESS_STEPS: FRESHNESS_STEPS,
         settingsGroups: settingsGroups,
         groupedKeys: groupedKeys,

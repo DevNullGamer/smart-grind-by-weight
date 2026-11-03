@@ -376,3 +376,20 @@ test('getStats reads GET /api/stats; 404 is not_supported, 503 ui_busy and a bad
     f = fakeFetch(async () => reply(200, '<html>'));
     await assert.rejects(PC.createClient({ fetch: f.fetch }).getStats(), (e) => e.code === 'bad_reply');
 });
+
+test('getHistory reads GET /api/history; 404 is not_supported, 503 ui_busy and a bad body are told apart', async () => {
+    const doc = JSON.parse(vectors.history_cases[2].json);
+    let f = fakeFetch(async () => reply(200, doc));
+    assert.deepEqual(await PC.createClient({ fetch: f.fetch }).getHistory(), doc);
+    assert.equal(f.stats.calls[0].url, '/api/history');
+    assert.equal(f.stats.calls[0].init.method, 'GET');
+    assert.equal(f.stats.calls[0].init.body, undefined);
+    f = fakeFetch(async () => reply(404, 'Not found'));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'not_supported' && e.status === 404);
+    f = fakeFetch(async () => reply(503, { error: 'ui_busy', reason: 'busy' }));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'ui_busy' && e.status === 503);
+    f = fakeFetch(async () => reply(403, { error: 'web_interface_off', reason: 'off' }));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'web_interface_off');
+    f = fakeFetch(async () => reply(200, '<html>'));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'bad_reply');
+});
