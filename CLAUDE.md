@@ -41,6 +41,8 @@ python3 tools/grinder.py analyze
 - **UIManager**: 7 LVGL screens, menu and split-button layouts
 - **StateMachine**: central state coordination (READY -> GRINDING -> GRIND_COMPLETE)
 
+**Periodic tasks (chg017):** periodic tasks never write or delete files; the file-IO health probe (`FileIOTask::validate_filesystem_access()`) is read-only. Details in `docs/DESIGN-NOTES.md`, "Filesystem health check (chg017)".
+
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
 - Board is detected at runtime (signals and files: details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)"). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.

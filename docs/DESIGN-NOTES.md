@@ -403,7 +403,7 @@ Items 20, 21 and 24 of chg005 (item 19 is "LVGL pin and config" above). Branch `
 ### Dead code removed (21.1)
 
 - Queues: `ui_to_grind_queue` (never used) and `file_io_queue` (20 x about 368 B, never sent to), the `TaskQueues` struct, creation/cleanup, `SYS_QUEUE_*`. chg003 item 6 must create its own command queue.
-- `FileIORequest`, `FileIOOperationType`, `process_file_io_operations` and everything behind them, the `io_queue` argument of `FileIOTask::init`, unused `start_task/stop_task/task_wrapper`. `FileIOTask::task_impl` still drains `process_queued_flash_operations()` and `process_queued_log_messages()` every cycle (this is what logs grind sessions) and runs the 30 s filesystem health check.
+- `FileIORequest`, `FileIOOperationType`, `process_file_io_operations` and everything behind them, the `io_queue` argument of `FileIOTask::init`, unused `start_task/stop_task/task_wrapper`. `FileIOTask::task_impl` still drains `process_queued_flash_operations()` and `process_queued_log_messages()` every cycle (this is what logs grind sessions) and runs the 30 s filesystem health check, which is read-only since chg017 (it opens the root directory and writes nothing).
 - `src/system/task_scheduler.{h,cpp}` (referenced nowhere).
 - `TaskManager::record_task_timing` bound fixed (it allowed index 5 on a 5-entry array).
 
@@ -759,7 +759,7 @@ The HTTP server serves two connections (`UPDATE_HTTP_MAX_OPEN_SOCKETS 2`) and ev
 3. Time-mode grinds have no error: the list shows the final weight against the time target and the chart leaves their column empty.
 4. The list is not paged (the newest 10 only) and has no dates, because the grinder has no wall clock.
 5. The page is English only and keeps no preference (no `localStorage`): the theme follows the system.
-6. The flash wear of `FileIOTask::validate_filesystem_access()` (a write and delete every 30 s) is a separate finding (chg017); the history adds about 40 erases a day.
+6. (Fixed by chg017, see "Filesystem health check (chg017)".) The flash wear of `FileIOTask::validate_filesystem_access()` (a write and delete every 30 s) is gone; the history adds about 40 erases a day.
 
 ## Persistent history (chg016)
 
@@ -796,6 +796,39 @@ One write per grind: 15 appends and 1 replace per 16 grinds, 34 bytes per grind 
 - Behaviour with the filesystem unavailable (history then stays in RAM, `persistent` false), and the UI/gate publication and spinlock timing under a real grind.
 - Stack use of the file-IO task during the load (a ring of about 400 bytes plus the 545-byte scratch buffer inside the service object).
 - Known gap kept: if the filesystem is unavailable at boot, the load is not retried until the next boot.
+
+## Filesystem health check (chg017)
+
+Goal: stop the 30 s write/delete probe that wrote to LittleFS on every health check for no useful signal. Branch `fix/chg017-fs-probe`; the plan and its log live outside the repo (`chgreq/smart-grind-by-weight/chg017`).
+
+### What the probe was
+
+- `FileIOTask::validate_filesystem_access()` ran every 30 s from `check_filesystem_health()` (called in `task_impl()`). It created `/test_access`, wrote one line, closed it and removed it. It returned true when the open succeeded; the results of the write, the close and the delete were not checked.
+- Its result fed three things: the `Filesystem availability changed to ...` log line, the `FS:` field of the `FILE_IO_HEARTBEAT` line (a generic health indicator, not a signal for the grind history), and the remount recovery. A change to "unavailable" ran `handle_filesystem_error()`, then `attempt_filesystem_recovery()` (`LittleFS.end()`, one second wait, `LittleFS.begin(true)`).
+- Cost: at the 30 s cadence that is about 2,880 create-write-delete cycles a day. This is an upper bound on the flash writes the probe caused, estimated from the cadence. It was not measured, and this change claims no measured reduction.
+
+### Why the write signal was unreliable
+
+- A successful open does not prove that the data reached flash. The Arduino `File::write` is buffered and `flush()`/`close()` return void, so a full or failing filesystem can look fine at the open.
+- The delete result was ignored, so a failed delete left `/test_access` behind. This is why the boot cleanup below exists.
+- The probe could therefore say "available" while writes failed, and it was the only trigger for a remount.
+
+### What changed
+
+- `validate_filesystem_access()` opens the root directory `/` read-only and returns true when it is a directory. It has no write mode, no delete and no print. The 30 s cadence is unchanged.
+- The check now means "mounted and the root can be read". It does not prove that writes succeed. A failed write shows where it matters, at the write itself (the history store re-reads the file and marks the slot tainted, see "Persistent history (chg016)"), not in the 30 s health line.
+- `FileIOTask::init()` removes a leftover `/test_access` once, after `LittleFS.begin(true)` succeeded. The file is checked with `exists()` first, so on a clean filesystem the init is read-only.
+- The recovery path is unchanged (decision Q1). When the root cannot be opened, `attempt_filesystem_recovery()` still calls `LittleFS.begin(true)`, which formats the partition if mounting fails. That can still erase the history files (`/hist0.bin`, `/hist1.bin`) and the session logs. Changing it is out of scope for this step.
+
+### Not hardware-verified
+
+NOT hardware-verified. The host test `tools/tests/test_file_io_probe_contract.py` checks the source text only: no write mode or delete in the probe, the root open is present, the 30000 ms cadence, and the init cleanup is guarded. The bench checklist (chg017 step 3, COM15, V2 board) is:
+
+- `FS: OK` on the `FILE_IO_HEARTBEAT` lines for at least 2 minutes.
+- A grind still logs its history entry (`[HISTORY]` line, and the entry appears in the Insights list).
+- No `Filesystem availability changed` line during that time.
+- A `/test_access` left by an older image is gone after one boot.
+- The flash-write reduction is not measured; the check above only confirms the behaviour.
 
 ## Reference moved from CLAUDE.md (chg014 housekeeping)
 
