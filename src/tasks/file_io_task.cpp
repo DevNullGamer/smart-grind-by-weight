@@ -29,6 +29,10 @@ void FileIOTask::init() {
     filesystem_available = LittleFS.begin(true);
     if (filesystem_available) {
         LOG_BLE("FileIOTask: LittleFS filesystem available\n");
+        // Remove the probe file that firmware before chg017 could leave behind (read-only unless it exists).
+        if (LittleFS.exists("/test_access")) {
+            LittleFS.remove("/test_access");
+        }
     } else {
         LOG_BLE("FileIOTask: LittleFS filesystem unavailable\n");
     }
@@ -97,15 +101,12 @@ void FileIOTask::check_filesystem_health() {
 }
 
 bool FileIOTask::validate_filesystem_access() {
-    // Try a simple filesystem operation to validate access
-    File test_file = LittleFS.open("/test_access", "w");
-    if (test_file) {
-        test_file.println("test");
-        test_file.close();
-        LittleFS.remove("/test_access");
-        return true;
-    }
-    return false;
+    // Read-only check (chg017): opening the root is a stat + opendir, no write, no delete. This runs every 30 s, and the
+    // old write/delete probe wore the flash for no benefit.
+    File root = LittleFS.open("/");
+    bool ok = root && root.isDirectory();
+    root.close();
+    return ok;
 }
 
 void FileIOTask::perform_filesystem_maintenance() {
