@@ -702,7 +702,9 @@ def test_readme_documents_every_flag():
              if o.startswith("--") and o != "--help"]
     assert flags
     for flag in flags:
-        assert f"`{flag}" in readme, f"README.md does not document {flag}"
+        # A row of the Flags table, not a mention elsewhere in the README
+        assert re.search(rf"^\| `{re.escape(flag)}[ `]", readme, re.M), (
+            f"README.md has no Flags table row for {flag}")
 
 
 def test_readme_documents_every_dev_state_key():
