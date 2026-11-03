@@ -135,8 +135,13 @@
     view.tiles.forEach(function (tile) {
       var item = el('div', 'tile');
       item.appendChild(el('dt', '', tile.label));
-      // a line may break after a comma (never inside a group of digits): zero-width space after each comma
-      item.appendChild(el('dd', 'stat-value', tile.value.replace(/,/g, ',\u200b')));
+      // a line may break after a comma (never inside a group of digits): a <wbr> after each comma, so copied text stays clean
+      var value = el('dd', 'stat-value');
+      tile.value.split(',').forEach(function (part, n, parts) {
+        if (n > 0) value.appendChild(el('wbr'));
+        value.appendChild(document.createTextNode(n < parts.length - 1 ? part + ',' : part));
+      });
+      item.appendChild(value);
       item.appendChild(el('dd', 'stat-detail', tile.detail));
       tiles.appendChild(item);
     });
@@ -145,9 +150,11 @@
     while (bar.firstChild) bar.removeChild(bar.firstChild);
     while (list.firstChild) list.removeChild(list.firstChild);
     view.mix.segments.forEach(function (segment, i) {
-      var seg = el('span', 'seg s' + i);
-      seg.style.flexGrow = String(segment.flex);
-      bar.appendChild(seg);
+      if (segment.drawn) {
+        var seg = el('span', 'seg s' + i);
+        seg.style.flexGrow = String(segment.flex);
+        bar.appendChild(seg);
+      }
       var row = el('div', 'mix-row');
       var name = el('dt');
       name.appendChild(el('span', 'swatch s' + i));

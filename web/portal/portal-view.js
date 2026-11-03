@@ -706,11 +706,13 @@
     }
 
     // Total ground weight: grams below 1 kg, then kg with two decimals below 10, one below 1000, whole kg above.
+    // The unit is chosen on the rounded value, so 0.9996 is "1.00 kg" (not "1000 g") and 9.999 is "10.0 kg".
     function formatKg(kg) {
         if (typeof kg !== 'number' || !isFinite(kg) || kg < 0) return '--';
-        if (kg < 1) return Math.round(kg * 1000) + ' g';
-        if (kg < 10) return kg.toFixed(2) + ' kg';
-        if (kg < 1000) return kg.toFixed(1) + ' kg';
+        var grams = Math.round(kg * 1000);
+        if (grams < 1000) return grams + ' g';
+        if (Math.round(kg * 100) < 1000) return kg.toFixed(2) + ' kg';
+        if (Math.round(kg * 10) < 10000) return kg.toFixed(1) + ' kg';
         return formatCount(Math.round(kg)) + ' kg';
     }
 
@@ -725,8 +727,18 @@
         { key: 'custom', label: 'Over 22 g' }
     ];
 
-    function percentText(count, total) {
-        var pct = Math.round(count * 100 / total);
+    // Whole percentages that add up to exactly 100 (largest remainder; the first bucket wins a tie). total > 0.
+    function percentages(counts, total) {
+        var pcts = counts.map(function (c) { return Math.floor(c * 100 / total); });
+        var left = 100 - pcts.reduce(function (a, b) { return a + b; }, 0);
+        var order = counts.map(function (c, i) { return i; }).sort(function (a, b) {
+            return ((counts[b] * 100) % total) - ((counts[a] * 100) % total) || a - b;
+        });
+        for (var k = 0; k < left; k++) pcts[order[k]] += 1;
+        return pcts;
+    }
+
+    function percentText(count, pct) {
         if (count > 0 && pct === 0) return 'under 1 %';
         return pct + ' %';
     }
@@ -736,11 +748,13 @@
         var known = counts.every(function (c) { return c !== null; });
         var total = known ? counts[0] + counts[1] + counts[2] : 0;
         if (!known || total <= 0) return { visible: false, segments: [] };
+        var pcts = percentages(counts, total);
         return {
             visible: true,
             segments: MIX_BUCKETS.map(function (b, i) {
-                return { key: b.key, label: b.label, count: counts[i], flex: counts[i],
-                    text: formatCount(counts[i]) + (counts[i] === 1 ? ' grind' : ' grinds') + ' (' + percentText(counts[i], total) + ')' };
+                // drawn: a bucket without grinds gets no bar segment (it would only draw a divider), but keeps its row
+                return { key: b.key, label: b.label, count: counts[i], flex: counts[i], drawn: counts[i] > 0,
+                    text: formatCount(counts[i]) + (counts[i] === 1 ? ' grind' : ' grinds') + ' (' + percentText(counts[i], pcts[i]) + ')' };
             })
         };
     }

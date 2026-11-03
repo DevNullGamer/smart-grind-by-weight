@@ -391,17 +391,23 @@ def test_stats_route_members_and_sources_follow_the_document():
         assert f"`{name}`" in doc, f"stats member {name} missing in PORTAL-API.md"
     for case in VECTORS["stats_cases"]:
         assert list(case["input"]) == members and list(json.loads(case["json"])) == members, case["name"]
-    # The UI task reads the statistics (the getters take the statistics mutex), the HTTP side only the snapshot slot
+    # The UI task copies the counters under one statistics lock (the HTTP side only reads the snapshot slot) and the
+    # pure function converts them
     controller = read("src/ui/controllers/portal_ui_controller.cpp")
-    for getter in ("get_total_grinds", "get_single_shots", "get_double_shots", "get_custom_shots", "get_weight_mode_grinds",
-                   "get_time_mode_grinds", "get_total_weight_kg", "get_motor_runtime_ms", "get_avg_accuracy_g",
-                   "get_total_pulses", "get_avg_pulses", "get_time_pulses", "get_device_uptime_hrs",
-                   "get_device_uptime_min_remainder"):
-        assert f"statistics_manager.{getter}()" in controller, getter
+    assert "portal_stats_from_counters(statistics_manager.get_snapshot())" in controller
+    assert "get_snapshot() const" in read("src/system/statistics_manager.h")
+    snapshot_body = re.search(r"StatisticsSnapshot StatisticsManager::get_snapshot\(\) const \{.*?\r?\n\}\r?\n",
+                              read("src/system/statistics_manager.cpp"), re.S).group(0)
+    assert snapshot_body.count("StatsLockGuard") == 1 and "LOG_" not in snapshot_body
     assert "publish_stats(gather_stats())" in controller
     assert "read_stats(" in read("src/network/portal_routes.cpp")
     assert "`GET /api/stats`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
     assert macro(read("src/config/portal.h"), "PORTAL_STATS_JSON_MAX") >= 400
+    # The statistics slot has its own age limit and its own mutex, not the status snapshot's
+    gate = read("src/network/portal_command_gate.cpp")
+    read_stats = re.search(r"bool PortalCommandGate::read_stats\(.*?\r?\n\}\r?\n", gate, re.S).group(0)
+    assert re.search(r"\bPORTAL_STATS_STALE_MS\b", read_stats) and re.search(r"\bstats_mux_\b", read_stats)
+    assert "PORTAL_SNAPSHOT_STALE_MS" not in read_stats
 
 
 def test_http_task_code_stays_off_the_ui_side():

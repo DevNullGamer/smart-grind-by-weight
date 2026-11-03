@@ -171,25 +171,10 @@ PortalStatusInputs PortalUIController::gather_status() const {
     return in;
 }
 
-// The getters take the statistics mutex (also taken by the file-IO task while it saves), so this runs on the UI task only
+// get_snapshot() takes the statistics mutex once (also taken by the file-IO task while it saves), so this runs on the
+// UI task only
 PortalStats PortalUIController::gather_stats() const {
-    PortalStats s;
-    s.total_grinds = statistics_manager.get_total_grinds();
-    s.single = statistics_manager.get_single_shots();
-    s.double_shots = statistics_manager.get_double_shots();
-    s.custom = statistics_manager.get_custom_shots();
-    s.weight_mode = statistics_manager.get_weight_mode_grinds();
-    s.time_mode = statistics_manager.get_time_mode_grinds();
-    s.total_weight_kg = statistics_manager.get_total_weight_kg();
-    const uint64_t motor_s = statistics_manager.get_motor_runtime_ms() / 1000ULL;
-    s.motor_runtime_s = motor_s > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(motor_s);
-    s.avg_abs_error_g = statistics_manager.get_avg_accuracy_g();
-    s.total_pulses = statistics_manager.get_total_pulses();
-    s.avg_pulses = statistics_manager.get_avg_pulses();
-    s.time_pulses = statistics_manager.get_time_pulses();
-    s.powered_minutes = static_cast<uint64_t>(statistics_manager.get_device_uptime_hrs()) * 60ULL +
-                        statistics_manager.get_device_uptime_min_remainder();
-    return s;
+    return portal_stats_from_counters(statistics_manager.get_snapshot());
 }
 
 PortalDecisionInput PortalUIController::gather_decision() const {

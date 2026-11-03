@@ -1033,6 +1033,12 @@ test('formatKg: grams below a kilogram, then kg with fewer decimals as it grows'
     assert.equal(PV.formatKg(123.456), '123.5 kg');
     assert.equal(PV.formatKg(12345.6), '12,346 kg');
     assert.equal(PV.formatKg(1000000000), '1,000,000,000 kg');
+    assert.equal(PV.formatKg(0.9996), '1.00 kg'); // the unit follows the rounded value
+    assert.equal(PV.formatKg(0.9994), '999 g');
+    assert.equal(PV.formatKg(9.999), '10.0 kg');
+    assert.equal(PV.formatKg(9.994), '9.99 kg');
+    assert.equal(PV.formatKg(999.96), '1,000 kg');
+    assert.equal(PV.formatKg(999.94), '999.9 kg');
     assert.equal(PV.formatKg(NaN), '--');
     assert.equal(PV.formatKg(-1), '--');
 });
@@ -1076,13 +1082,29 @@ test('statsView: the weight split names the buckets by weight, with counts and p
     assert.equal(mix.visible, true);
     assert.deepEqual(mix.segments.map((s) => s.key), ['single', 'double', 'custom']);
     assert.deepEqual(mix.segments.map((s) => s.label), ['Up to 10 g', 'Over 10 g, up to 22 g', 'Over 22 g']);
-    assert.deepEqual(mix.segments.map((s) => s.text), ['180 grinds (44 %)', '200 grinds (49 %)', '32 grinds (8 %)']);
+    assert.deepEqual(mix.segments.map((s) => s.text), ['180 grinds (44 %)', '200 grinds (48 %)', '32 grinds (8 %)']);
     assert.deepEqual(mix.segments.map((s) => s.flex), [180, 200, 32]);
+    assert.deepEqual(mix.segments.map((s) => s.drawn), [true, true, true]);
     const tiny = PV.statsView(loadedStats({ single: 1, double: 0, custom: 100000 }), online(), 1000).mix;
     assert.deepEqual(tiny.segments.map((s) => s.text), ['1 grind (under 1 %)', '0 grinds (0 %)', '100,000 grinds (100 %)']);
+    assert.deepEqual(tiny.segments.map((s) => s.drawn), [true, false, true]); // no grinds: no bar segment, no divider
     assert.equal(PV.statsView(loadedStats({ single: 0, double: 0, custom: 0 }), online(), 1000).mix.visible, false);
     const unknown = PV.statsLoaded(PV.newStats(), { total_grinds: 5, single: 5 }, 0);
     assert.equal(PV.statsView(unknown, online(), 0).mix.visible, false); // one bucket unknown: no bar
+});
+
+test('statsView: the percentages of the weight split always add up to 100 (largest remainder)', () => {
+    const sum = (counts) => {
+        const mix = PV.statsView(loadedStats({ single: counts[0], double: counts[1], custom: counts[2] }), online(), 1000).mix;
+        return mix.segments.map((s) => (/\(under 1 %\)/.test(s.text) ? 0 : Number(/\((\d+) %\)/.exec(s.text)[1]))).reduce((a, b) => a + b, 0);
+    };
+    assert.equal(sum([1, 1, 1]), 100); // 33 + 33 + 33 would leave one over
+    assert.equal(sum([1, 1, 0]), 100);
+    assert.equal(sum([180, 200, 32]), 100);
+    assert.equal(sum([5, 5, 5]), 100);
+    assert.equal(sum([1, 0, 100000]), 100);
+    const third = PV.statsView(loadedStats({ single: 1, double: 1, custom: 1 }), online(), 1000).mix;
+    assert.deepEqual(third.segments.map((s) => s.text), ['1 grind (34 %)', '1 grind (33 %)', '1 grind (33 %)']);
 });
 
 test('statsView: zero data is an empty state without tiles', () => {
@@ -1119,7 +1141,7 @@ test('statsView: very large numbers are grouped and keep their shape', () => {
     assert.equal(tileOf(view, 'error').value, '\u00b11,000,000,000 g');
     assert.equal(tileOf(PV.statsView(loadedStats({ avg_abs_error_g: 999.994 }), online(), 1000), 'error').value, '\u00b1999.99 g');
     assert.equal(tileOf(view, 'timepulses').value, '4,294,967,295');
-    assert.equal(view.mix.segments[0].text, '4,294,967,295 grinds (33 %)');
+    assert.equal(view.mix.segments[0].text, '4,294,967,295 grinds (34 %)');
 });
 
 test('statsView: loading, error, offline and not available', () => {

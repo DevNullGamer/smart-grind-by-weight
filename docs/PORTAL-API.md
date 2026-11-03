@@ -77,7 +77,7 @@ needs no snapshot.
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
-needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes) and 512 bytes for the statistics (the longest possible reply is about 320 bytes).
+needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes) and 512 bytes for the statistics (the longest possible reply is 334 bytes).
 
 ## 4. Settings and profile fields
 
@@ -374,8 +374,8 @@ other error for this route; an older firmware without it answers 404 from the HT
 | `total_weight_kg` | number | total ground weight in kilograms |
 | `motor_runtime_s` | int | motor run time in whole seconds (grinds, time pulses and motor tests), rounded down |
 | `avg_abs_error_g` | number | mean absolute difference between final and target weight over the weight-mode grinds, `0.0` with no samples |
-| `total_pulses` | int | correction pulses of weight-mode grinds |
-| `avg_pulses` | number | mean pulses per grind, `0.0` with no samples |
+| `total_pulses` | int | pulses summed over all grinds: every grind adds its pulse count, a time-mode grind adds 0 (its extra pulses are `time_pulses`) |
+| `avg_pulses` | number | `total_pulses` divided by all counted grinds (time-mode grinds count with 0 pulses), `0.0` with no samples |
 | `time_pulses` | int | additional pulses given after time-mode grinds |
 | `powered_minutes` | int | minutes the grinder has been powered on (hours times 60 plus the minutes remainder) |
 
