@@ -175,7 +175,25 @@ static void test_message_extreme_values_fit() {
     }
 }
 
+static void test_auto_start_allowed_idle() {
+    TEST_ASSERT_TRUE(auto_start_allowed(false));
+}
+
+static void test_auto_start_blocked_while_motor_test_active() {
+    TEST_ASSERT_FALSE(auto_start_allowed(true));
+}
+
+// The caller's flag is the poll timer (non-null exactly while a test runs), so it is false again after the
+// timer is deleted on any way out (finish, STOP, timer-creation failure); the decision follows it.
+static void test_auto_start_allowed_again_after_test_ends() {
+    TEST_ASSERT_FALSE(auto_start_allowed(true));
+    TEST_ASSERT_TRUE(auto_start_allowed(false));
+}
+
 void run_motor_test_check_tests() {
+    RUN_TEST(test_auto_start_allowed_idle);
+    RUN_TEST(test_auto_start_blocked_while_motor_test_active);
+    RUN_TEST(test_auto_start_allowed_again_after_test_ends);
     RUN_TEST(test_block_all_clear_is_none);
     RUN_TEST(test_block_priority_all_combinations);
     RUN_TEST(test_block_never_returns_start_failed);

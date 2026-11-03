@@ -548,8 +548,10 @@ void UIManager::update_auto_actions() {
     const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
 
     // Auto-start stays off while a grind could not start (motor disabled, update running, load cell
-    // fault): a refused start would pop up the notice repeatedly
-    if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_ &&
+    // fault): a refused start would pop up the notice repeatedly. Also off while a Motor Test runs.
+    const bool motor_test_active = menu_controller_ && menu_controller_->is_motor_test_active();
+    if (auto_actions_.auto_start_enabled && auto_start_allowed(motor_test_active) && on_ready_tab &&
+        !grinder_active && grinding_controller_ &&
         grind_controller && grind_controller->start_block() == GrindStartBlock::NONE) {
         auto* filter = sensor->get_raw_filter();
 
