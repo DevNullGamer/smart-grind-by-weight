@@ -183,7 +183,7 @@ h2 { font-size: 1rem; }
 .banner.error { border-color: var(--error); }
 .banner.warning .icon { color: var(--warning); }
 .banner.error .icon { color: var(--error); }
-.readout.is-stale .weight, .readout.is-stale .state { color: var(--muted); }
+.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
 .readout .stop { margin-top: 12px; }
 .leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
 .profiles { display: grid; gap: 12px; }
@@ -356,7 +356,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     </div>
     <span id="conn" class="chip" role="status"><svg class="icon" aria-hidden="true"><use id="conn-icon" href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
   </div>
-  <div class="strip" aria-hidden="true">
+  <div id="strip" class="strip" aria-hidden="true">
     <span id="strip-state" class="state">Connecting</span>
     <span id="strip-weight" class="weight">-- g</span>
   </div>
@@ -1831,6 +1831,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     setClass($('readout'), 'is-stale', readout.stale);
     setText($('strip-state'), readout.state);
     setText($('strip-weight'), readout.weight);
+    setClass($('strip'), 'is-stale', readout.stale);
 
     // banner
     $('banner').hidden = !controls.banner;

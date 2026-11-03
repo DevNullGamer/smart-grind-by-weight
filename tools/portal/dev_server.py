@@ -33,6 +33,10 @@ COMPLETE_SHOW_S = 3.0
 MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
+DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed")
+DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight")
+LATENCY_MAX_MS = 30000
+WEIGHT_MAX_G = 1000.0
 PAGE_HEADERS = {
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
@@ -55,6 +59,11 @@ class SimGrinder:
         self.in_flight = False        # forces "another request is in flight" (dev switch)
         self.start_block = None       # error code the grinder-side start checks would give
         self.motor_test_block = None
+        self.drop_start = False       # the next lead-in that ends is dropped (another screen took over)
+        self.ui_busy = False          # settings reads and writes answer 503 ui_busy
+        self.store_failed = False     # a settings write that changes a value answers 500 store_failed
+        self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
+        self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
         self.stored = {k: v for k, v in model.default_values().items()}
         self.stored["brightness_normal"] = float(self.stored["brightness_normal"])
         self.stored["brightness_screensaver"] = float(self.stored["brightness_screensaver"])
@@ -69,12 +78,11 @@ class SimGrinder:
         run = self.run
         if run is not None:
             elapsed = now - run["started"]
-            if run["kind"] == "start" and not run["live"] and elapsed >= LEAD_IN_S:
-                run["live"] = True
-                self.ui_state = "grinding"  # during the lead-in the status still reads ready (contract section 7)
-                run["started"] += LEAD_IN_S  # the grind itself starts when the lead-in ends
+            if self._in_lead_in() and elapsed >= LEAD_IN_S:
+                self._end_lead_in(run)
+                run = self.run
+            if run is not None and run["live"]:
                 elapsed = now - run["started"]
-            if run["live"]:
                 if run["kind"] == "start":
                     self.weight = min(run["target_g"], elapsed * run["rate"])
                     if elapsed >= run["duration"]:
@@ -87,6 +95,18 @@ class SimGrinder:
             self.complete_until = None
             self.ui_state = "ready"
 
+    def _end_lead_in(self, run):
+        """The lead-in is over: the grinder decides again on what is true now (contract section 6). A start that
+        still passes runs the grind; anything else is dropped and the screen stays as it is."""
+        refused = self.drop_start or model.decide_command(
+            "start", self._ui_mode(), False, self.update_held, False, self.start_block or "NONE", "NONE")
+        if refused:
+            self.run = None
+            return
+        run["live"] = True
+        self.ui_state = "grinding"  # during the lead-in the status still reads ready (contract section 7)
+        run["started"] += LEAD_IN_S  # the grind itself starts when the lead-in ends
+
     def _ui_mode(self):
         if self.ui_state == "ready":
             return "READY"
@@ -95,9 +115,23 @@ class SimGrinder:
     def _busy(self):
         return self.run is not None and self.run["live"]
 
+    def _in_lead_in(self):
+        return self.run is not None and self.run["kind"] == "start" and not self.run["live"]
+
     def _in_flight(self):
-        # The lead-in counts as in flight (contract section 6, rule for step 7)
-        return self.in_flight or (self.run is not None and self.run["kind"] == "start" and not self.run["live"])
+        # The lead-in counts as in flight (contract section 6)
+        return self.in_flight or self._in_lead_in()
+
+    def _effective_blocks(self):
+        """The block codes the status reports. While an update holds the grinder the firmware reports its lock-out,
+        after the checks that come first (grind_start_check.cpp, motor_test_check.cpp)."""
+        start = self.start_block
+        if self.update_held and start != "motor_disabled":
+            start = "update_in_progress"
+        motor = self.motor_test_block
+        if self.update_held and motor not in ("motor_fault", "motor_disabled"):
+            motor = "update_in_progress"
+        return start, motor
 
     def _phase(self):
         if self.run is None or not self.run["live"] or self.run["kind"] != "start":
@@ -123,24 +157,34 @@ class SimGrinder:
     def status_doc(self):
         with self.lock:
             self._tick()
+            start, motor = self._effective_blocks()
+            weight = self.weight if self.weight_hold is None else self.weight_hold
             return {
                 "ui_state": self.ui_state,
                 "grind_phase": self._phase(),
                 "busy": self._busy(),
-                "weight_g": round(self.weight, 1),
+                "weight_g": round(weight, 1),
                 "motor_available": self.start_block != "motor_disabled",
-                "start_block": self.start_block,
-                "motor_test_block": self.motor_test_block,
+                "start_block": start,
+                "motor_test_block": motor,
                 "uptime_s": int(self.clock() - self.boot),
                 "build": BUILD_NUMBER,
                 "web_interface": True,
             }
 
     # --- writes
+    def read_settings_refusal(self):
+        """The refusal a settings read gets (503 while the UI task is simulated as stuck), or None."""
+        return "ui_busy" if self.ui_busy else None
+
     def patch(self, applied, adjusted):
-        """Apply a validated patch (the decision was already made). Returns the reply document."""
+        """Apply a validated patch (the decision was already made). Returns the reply document or raises Refusal.
+        Like the firmware, a value equal to the stored one is not written; with store_failed the first value that
+        would be written cannot be saved, so nothing is stored."""
         with self.lock:
             self._tick()
+            if self.store_failed and any(self.stored[k] != v for k, v in applied.items()):
+                raise model.Refusal("store_failed")
             name_before = self.stored["device_name"]
             for key, value in applied.items():
                 self.stored[key] = value
@@ -152,6 +196,8 @@ class SimGrinder:
     def decide_write(self):
         with self.lock:
             self._tick()
+            if self.ui_busy:
+                return "ui_busy"
             return model.decide_write(self._ui_mode(), self._busy(), self.update_held, self._in_flight())
 
     def command(self, cmd, profile):
@@ -171,6 +217,8 @@ class SimGrinder:
                 return 200, {"ok": True, "cmd": "stop"}
             if cmd == "tare":
                 self.weight = 0.0
+                if self.weight_hold is not None:
+                    self.weight_hold = 0.0  # the tare zeroes the reading the hold stands in for
                 return 200, {"ok": True, "cmd": "tare"}
             if cmd == "motor_test":
                 self.run = {"kind": "motor_test", "started": now, "live": True}
@@ -195,13 +243,15 @@ class SimGrinder:
             self._tick()
             return {"web_interface": self.web_interface, "ui_state": self.ui_state, "update_held": self.update_held,
                     "in_flight": self.in_flight, "start_block": self.start_block,
-                    "motor_test_block": self.motor_test_block}
+                    "motor_test_block": self.motor_test_block, "drop_start": self.drop_start,
+                    "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
+                    "weight": self.weight_hold}
 
     def set_dev_state(self, changes):
         """Applies the members of a /dev/state body. Returns an error text or None."""
         with self.lock:
             for key, value in changes.items():
-                if key in ("web_interface", "update_held", "in_flight"):
+                if key in DEV_BOOL_KEYS:
                     if not isinstance(value, bool):
                         return f"{key} must be true or false"
                 elif key == "ui_state":
@@ -210,11 +260,22 @@ class SimGrinder:
                 elif key in ("start_block", "motor_test_block"):
                     if value is not None and value not in BLOCK_CODES:
                         return f"{key} must be null or one of " + ", ".join(BLOCK_CODES)
+                elif key == "latency_ms":
+                    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= LATENCY_MAX_MS:
+                        return f"latency_ms must be a whole number of milliseconds from 0 to {LATENCY_MAX_MS}"
+                elif key == "weight":
+                    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                              or abs(value) > WEIGHT_MAX_G):
+                        return f"weight must be null or a number from -{WEIGHT_MAX_G:g} to {WEIGHT_MAX_G:g} g"
                 else:
                     return f"unknown dev setting {key}"
             for key, value in changes.items():
+                if key == "weight":
+                    value = None if value is None else float(value)
+                    key = "weight_hold"
                 setattr(self, key, value)
-            if "ui_state" in changes:
+            # A screen change ends a grind or a motor run. A lead-in is kept: it is decided when it runs out.
+            if "ui_state" in changes and not self._in_lead_in():
                 self.run = None
                 self.complete_until = None
             return None
@@ -240,8 +301,16 @@ def make_handler(sim, page_text):
                 self.send_header(name, value)
             self.send_header("Connection", "close")
             self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # the page gave up while the reply was delayed (latency_ms): nothing to tell
             self.close_connection = True
+
+        def _delay(self, path):
+            """Dev switch latency_ms: every reply but /dev/state waits, so the page's timeout can be reproduced."""
+            if path != "/dev/state" and sim.latency_ms:
+                time.sleep(sim.latency_ms / 1000.0)
 
         def _api(self, status, doc):
             self._send(status, model.encode_json(doc), extra={"Cache-Control": "no-store"})
@@ -277,6 +346,7 @@ def make_handler(sim, page_text):
         # --- verbs
         def do_GET(self):
             path = self._path()
+            self._delay(path)
             if path == "/api/info":
                 self._api(200, {"name": sim.stored["device_name"], "version": "dev-server", "build": BUILD_NUMBER,
                                 "board": "dev", "busy": sim.status_doc()["busy"], "confirm": True})
@@ -289,7 +359,11 @@ def make_handler(sim, page_text):
                 if path == "/api/status":
                     self._api(200, sim.status_doc())
                 elif path == "/api/settings":
-                    self._api(200, sim.settings_doc())
+                    refusal = sim.read_settings_refusal()
+                    if refusal:
+                        self._refuse(refusal)
+                    else:
+                        self._api(200, sim.settings_doc())
                 else:
                     self._api(200, model.schema())
             elif path == "/dev/state":
@@ -300,6 +374,7 @@ def make_handler(sim, page_text):
                 self._send(404, "Not found", "text/plain")
 
         def do_PATCH(self):
+            self._delay(self._path())
             if self._path() != "/api/settings":
                 self._send(404 if self._path() not in ("/api/status", "/api/schema", "/api/command", "/api/info", "/")
                            else 405, "", "text/plain")
@@ -312,13 +387,15 @@ def make_handler(sim, page_text):
                 error = sim.decide_write()
                 if error:
                     raise model.Refusal(error)
+                doc = sim.patch(applied, adjusted)
             except model.Refusal as r:
                 self._refuse(r.code)
                 return
-            self._api(200, sim.patch(applied, adjusted))
+            self._api(200, doc)
 
         def do_POST(self):
             path = self._path()
+            self._delay(path)
             if path == "/dev/state":
                 try:  # same rule as the API, so a foreign web page cannot flip the switches
                     model.check_content_type(self.headers.get("Content-Type"))
@@ -362,17 +439,25 @@ def build_parser():
     p.add_argument("--update-held", action="store_true", help="simulate a running firmware update")
     p.add_argument("--start-block", choices=BLOCK_CODES, help="simulate a grinder-side refusal of start")
     p.add_argument("--motor-test-block", choices=BLOCK_CODES, help="simulate a grinder-side refusal of the motor test")
+    p.add_argument("--drop-start", action="store_true",
+                   help="every remote start is dropped when its lead-in ends (another screen took over)")
     return p
 
 
-def main(argv=None):
-    args = build_parser().parse_args(argv)
+def make_simulator(args):
     sim = SimGrinder()
     sim.web_interface = not args.web_off
     sim.ui_state = args.ui
     sim.update_held = args.update_held
     sim.start_block = args.start_block
     sim.motor_test_block = args.motor_test_block
+    sim.drop_start = args.drop_start
+    return sim
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    sim = make_simulator(args)
     try:
         page = build_page.render_page()  # always the current sources, even if index.html was not rebuilt
     except (build_page.PageBuildError, OSError) as e:

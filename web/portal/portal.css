@@ -173,7 +173,7 @@ h2 { font-size: 1rem; }
 .banner.error { border-color: var(--error); }
 .banner.warning .icon { color: var(--warning); }
 .banner.error .icon { color: var(--error); }
-.readout.is-stale .weight, .readout.is-stale .state { color: var(--muted); }
+.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
 .readout .stop { margin-top: 12px; }
 .leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
 .profiles { display: grid; gap: 12px; }

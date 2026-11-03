@@ -113,6 +113,7 @@
     setClass($('readout'), 'is-stale', readout.stale);
     setText($('strip-state'), readout.state);
     setText($('strip-weight'), readout.weight);
+    setClass($('strip'), 'is-stale', readout.stale);
 
     // banner
     $('banner').hidden = !controls.banner;

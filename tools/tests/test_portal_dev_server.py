@@ -11,6 +11,7 @@ import json
 import re
 import sys
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -523,3 +524,192 @@ def test_real_page_is_served_and_drives_a_remote_start(server):
     assert st["busy"] is True and st["ui_state"] == "grinding"
     assert call(server, "POST", "/api/command", '{"cmd":"stop"}')[0] == 200
     assert call(server, "GET", "/api/status")[1]["busy"] is False
+
+
+# ------------------------------------------------------------------------------------------ chg016 step 5: dev switches
+UPDATE_CASES = [c for c in VECTORS["decision_cases"]
+                if c["error"] == "update_in_progress" and c["cmd"] in ("start", "motor_test")]
+
+
+def _vector_block(name):
+    return None if name in ("NONE", "START_FAILED") else name.lower()
+
+
+@pytest.mark.parametrize("case", UPDATE_CASES, ids=lambda c: c["name"])
+def test_update_status_blocks_match_the_update_refusal_vectors(case):
+    sim = dev.SimGrinder(clock=FakeClock())
+    sim.update_held = case["update_held"]
+    sim.start_block = _vector_block(case["start_block"])
+    sim.motor_test_block = _vector_block(case["motor_test_block"])
+    status = sim.status_doc()
+    key = "start_block" if case["cmd"] == "start" else "motor_test_block"
+    assert status[key] == "update_in_progress"
+
+
+def test_update_held_status_keeps_screen_and_shape(server):
+    server.sim.update_held = True
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "update_in_progress" and doc["motor_test_block"] == "update_in_progress"
+    assert doc["ui_state"] == "ready" and doc["motor_available"] is True and doc["busy"] is False
+    assert set(doc) == {"ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
+                        "motor_test_block", "uptime_s", "build", "web_interface"}
+    server.sim.update_held = False
+    assert call(server, "GET", "/api/status")[1]["start_block"] is None
+
+
+def test_update_lock_out_follows_the_firmware_block_order(server):
+    server.sim.update_held = True
+    server.sim.start_block = "load_cell_no_data"
+    server.sim.motor_test_block = "busy"
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "update_in_progress" and doc["motor_test_block"] == "update_in_progress"
+    # a disabled motor and a latched fault come before the lock-out in the firmware
+    server.sim.start_block = "motor_disabled"
+    server.sim.motor_test_block = "motor_fault"
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "motor_disabled" and doc["motor_test_block"] == "motor_fault"
+    assert doc["motor_available"] is False
+
+
+def test_update_held_refuses_start_with_the_status_reason(server):
+    server.sim.update_held = True
+    assert call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')[1]["error"] == "update_in_progress"
+    assert call(server, "POST", "/api/command", '{"cmd":"motor_test"}')[1]["error"] == "update_in_progress"
+
+
+def test_drop_start_switch_drops_the_lead_in(server):
+    server.sim.drop_start = True
+    assert call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')[0] == 202
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "ready" and st["busy"] is False and st["grind_phase"] == "idle"
+    assert st["weight_g"] == 0.0
+    # nothing is left in flight: a tare goes through at once
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+
+
+@pytest.mark.parametrize("change,ui_after", [({"ui_state": "edit"}, "edit"),
+                                             ({"update_held": True}, "ready"),
+                                             ({"start_block": "load_cell_no_data"}, "ready")])
+def test_lead_in_is_dropped_when_something_took_over(server, change, ui_after):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    assert call(server, "POST", "/dev/state", json.dumps(change))[0] == 200
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["busy"] is False and st["ui_state"] == ui_after and st["grind_phase"] == "idle"
+
+
+def test_lead_in_decides_when_it_ends_not_when_the_screen_changes(server):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    call(server, "POST", "/dev/state", '{"ui_state":"menu"}')
+    call(server, "POST", "/dev/state", '{"ui_state":"ready"}')
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "grinding" and st["busy"] is True
+
+
+def test_in_flight_switch_refuses_commands_and_writes(server):
+    server.sim.in_flight = True
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    assert call(server, "PATCH", "/api/settings", '{"logging":true}')[1]["error"] == "command_in_flight"
+    assert call(server, "POST", "/api/command", '{"cmd":"stop"}')[0] == 200
+
+
+def test_ui_busy_switch_refuses_settings_reads_and_writes(server):
+    server.sim.ui_busy = True
+    assert call(server, "GET", "/api/settings")[1]["error"] == "ui_busy"
+    s, d, _ = call(server, "PATCH", "/api/settings", '{"logging":true}')
+    assert (s, d["error"]) == (503, "ui_busy")
+    assert call(server, "GET", "/api/status")[0] == 200
+    server.sim.ui_busy = False
+    assert call(server, "GET", "/api/settings")[0] == 200
+
+
+def test_store_failed_switch_fails_a_changing_write_and_stores_nothing(server):
+    server.sim.store_failed = True
+    s, d, _ = call(server, "PATCH", "/api/settings", '{"logging":true,"swipe":true}')
+    assert (s, d["error"]) == (500, "store_failed") and "values" not in d
+    values = call(server, "GET", "/api/settings")[1]["values"]
+    assert values["logging"] is False and values["swipe"] is False
+    # a write that changes nothing is not written, so it still succeeds
+    assert call(server, "PATCH", "/api/settings", '{"logging":false}')[0] == 200
+
+
+def test_latency_switch_delays_replies_but_not_dev_state(server):
+    server.sim.latency_ms = 800
+    t0 = time.monotonic()
+    assert call(server, "GET", "/api/status")[0] == 200
+    assert time.monotonic() - t0 >= 0.75
+    t0 = time.monotonic()
+    assert call(server, "GET", "/dev/state")[0] == 200
+    assert time.monotonic() - t0 < 0.6
+    assert call(server, "POST", "/dev/state", '{"latency_ms":0}')[0] == 200
+    assert server.sim.latency_ms == 0
+
+
+def test_weight_hold_shows_a_fixed_reading_until_released(server):
+    d = call(server, "POST", "/dev/state", '{"weight":18.04}')[1]
+    assert d["weight"] == 18.04
+    assert call(server, "GET", "/api/status")[1]["weight_g"] == 18.0
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+    assert call(server, "GET", "/api/status")[1]["weight_g"] == 0.0
+    assert call(server, "POST", "/dev/state", '{"weight":null}')[1]["weight"] is None
+
+
+def test_dev_state_lists_every_key(server):
+    doc = call(server, "GET", "/dev/state")[1]
+    assert set(doc) == set(dev.DEV_STATE_KEYS)
+    assert doc["latency_ms"] == 0 and doc["weight"] is None and doc["drop_start"] is False
+
+
+@pytest.mark.parametrize("body", ['{"latency_ms":-1}', '{"latency_ms":30001}', '{"latency_ms":1.5}',
+                                  '{"latency_ms":true}', '{"weight":"12"}', '{"weight":1001}', '{"weight":true}',
+                                  '{"drop_start":"yes"}', '{"ui_busy":1}', '{"store_failed":null}'])
+def test_dev_state_rejects_wrong_values(server, body):
+    s, d, _ = call(server, "POST", "/dev/state", body)
+    assert (s, d["error"]) == (400, "dev_state")
+
+
+def test_flags_build_the_simulator():
+    args = dev.build_parser().parse_args(["--update-held", "--drop-start", "--web-off", "--ui", "edit",
+                                          "--start-block", "load_cell_no_data", "--motor-test-block", "motor_fault"])
+    sim = dev.make_simulator(args)
+    assert sim.update_held and sim.drop_start and not sim.web_interface and sim.ui_state == "edit"
+    assert sim.start_block == "load_cell_no_data" and sim.motor_test_block == "motor_fault"
+    assert dev.make_simulator(dev.build_parser().parse_args([])).drop_start is False
+
+
+def _readme_text():
+    return (PORTAL_TOOLS / "README.md").read_text(encoding="utf-8")
+
+
+def test_readme_documents_every_flag():
+    readme = _readme_text()
+    flags = [o for action in dev.build_parser()._actions for o in action.option_strings
+             if o.startswith("--") and o != "--help"]
+    assert flags
+    for flag in flags:
+        assert f"`{flag}" in readme, f"README.md does not document {flag}"
+
+
+def test_readme_documents_every_dev_state_key():
+    readme = _readme_text()
+    for key in dev.DEV_STATE_KEYS:
+        assert f"`{key}`" in readme, f"README.md does not document the /dev/state key {key}"
+
+
+def test_readme_has_a_row_for_every_page_state():
+    readme = _readme_text().lower()
+    for state in ("offline", "web interface off", "busy", "not ready", "update running", "motor fault",
+                  "ui_busy", "command_in_flight", "store_failed", "invalid_device_name", "out_of_range",
+                  "empty data"):
+        assert state in readme, f"README.md lacks a reproduction for {state}"
+
+
+def test_strip_is_marked_stale_with_the_readout():
+    src = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "portal" / "portal.css").read_text(encoding="utf-8")
+    assert 'id="strip"' in src
+    assert "setClass($('strip'), 'is-stale', readout.stale);" in app
+    assert ".strip.is-stale .weight" in css
