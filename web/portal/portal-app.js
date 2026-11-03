@@ -20,6 +20,8 @@
   var needInfo = true;
   var polling = false;
   var pollTimer = null;
+  var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
+  var forceStatus = false; // the last settings or info request failed: status goes next
   var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 
   // matchMedia may be missing in old browsers: then the narrow layout (one tab at a time) is assumed.
@@ -48,11 +50,16 @@
   }
 
   // A repeated text is announced again: the region is emptied first and filled on the next tick.
+  // Both regions are emptied at once; only the wanted one is filled, in one place.
+  var sayTimer = null;
   function say(text, isError) {
-    var target = $(isError ? 'alert' : 'message');
-    $(isError ? 'message' : 'alert').textContent = '';
-    target.textContent = '';
-    setTimeout(function () { target.textContent = text; }, 0);
+    $('alert').textContent = '';
+    $('message').textContent = '';
+    if (sayTimer !== null) clearTimeout(sayTimer);
+    sayTimer = setTimeout(function () {
+      sayTimer = null;
+      $(isError ? 'alert' : 'message').textContent = text;
+    }, 0);
   }
 
   function sayError(err, fallback) {
@@ -122,8 +129,13 @@
   }
 
   function setLeadIn(next) {
-    if (next && next.phase === 'dropped' && !(leadIn && leadIn.phase === 'dropped')) {
+    var wasDropped = !!leadIn && leadIn.phase === 'dropped';
+    if (next && next.phase === 'dropped' && !wasDropped) {
       say(V.leadInView(next, now()).text, true);
+    } else if (wasDropped && !(next && next.phase === 'dropped')) {
+      // The notice is over (a grind appeared or it timed out): do not leave it standing in the alert region.
+      var droppedText = V.leadInView(leadIn, now()).text;
+      if ($('alert').textContent === droppedText) $('alert').textContent = '';
     }
     leadIn = next;
   }
@@ -144,9 +156,22 @@
     pollTimer = null;
     if (polling) return;
     polling = true;
-    var task = V.nextPollTask({ haveStatus: status !== null, needSettings: needSettings, needInfo: needInfo, online: conn.state === 'online' });
+    var task = V.nextPollTask({
+      haveStatus: status !== null, needSettings: needSettings, needInfo: needInfo,
+      online: conn.state === 'online', forceStatus: forceStatus
+    });
+    forceStatus = false;
     quickNext = false;
     var request = task === 'settings' ? client.getSettings() : task === 'info' ? client.getInfo() : client.getStatus();
+    // Runs after success and after failure, even if the handler or render() throws: polling must go on.
+    function finalize() {
+      polling = false;
+      try {
+        render();
+      } finally {
+        schedule(document.hidden ? null : quickNext ? 100 : V.pollDelay(conn, status, leadInIsActive(), document.hidden));
+      }
+    }
     request.then(function (doc) {
       if (conn.state !== 'online') needSettings = true; // back after a gap: the grinder may have changed
       conn = V.connectionOk(conn, now());
@@ -154,7 +179,8 @@
         var before = status ? status.ui_state : '';
         status = doc;
         if (before && before !== 'ready' && doc.ui_state === 'ready') needSettings = true;
-        setLeadIn(V.leadInTick(leadIn, status, now()));
+        statusAt = now();
+        setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'settings') {
         settings = doc;
         needSettings = false;
@@ -166,11 +192,8 @@
       quickNext = needSettings || needInfo;
     }, function (err) {
       conn = V.connectionFailed(conn, err && err.code, now());
-    }).then(function () {
-      polling = false;
-      render();
-      schedule(quickNext ? 100 : V.pollDelay(conn, status, leadInIsActive(), document.hidden));
-    });
+      if (task !== 'status') forceStatus = true; // do not let a failing settings or info request starve status
+    }).then(finalize, finalize);
   }
 
   // --- commands
@@ -182,7 +205,11 @@
       render();
       pollNow();
     }, function (err) {
-      sayError(err, 'Stop could not be sent.');
+      if (err && (err.code === 'network' || err.code === 'timeout')) {
+        say('STOP was not confirmed by the grinder. Press STOP again and check the grinder. ' + (err.message || ''), true);
+      } else {
+        sayError(err, 'Stop could not be sent.');
+      }
       if (err && err.code === 'web_interface_off') { conn = V.connectionFailed(conn, err.code, now()); render(); }
     });
   }
@@ -243,7 +270,7 @@
   // The lead-in countdown and "last seen" move between polls.
   setInterval(function () {
     if (document.hidden) return;
-    if (leadIn) setLeadIn(V.leadInTick(leadIn, status, now()));
+    if (leadIn) setLeadIn(V.leadInTick(leadIn, status, now(), statusAt));
     render();
   }, 250);
 

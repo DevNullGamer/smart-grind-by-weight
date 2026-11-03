@@ -188,7 +188,7 @@ test('deriveControls: each start_block code disables Start with its own reason',
         assert.equal(d.start.enabled, false, code);
         assert.notEqual(d.start.reason, '', code);
         seen[d.start.reason] = true;
-        assert.equal(d.tare.enabled, true);
+        assert.equal(d.tare.enabled, code !== 'update_in_progress', code); // an update also blocks Tare
         assert.equal(d.motorTest.enabled, true);
     }
     assert.equal(Object.keys(seen).length, 7);
@@ -299,7 +299,7 @@ test('lead-in: accepted, counting down, then watching, then dropped after lead_i
     assert.match(PV.leadInView(li, 13500).text, /Waiting for the grinder/);
     li = PV.leadInTick(li, status(), 14999);
     assert.equal(li.phase, 'watching');
-    li = PV.leadInTick(li, status(), 15000);
+    li = PV.leadInTick(li, status(), 15000, 14000); // status received 1 s after the lead-in ended
     assert.equal(li.phase, 'dropped');
     assert.equal(PV.leadInActive(li), false);
     assert.equal(PV.leadInView(li, 15000).text, 'The start was dropped on the grinder (check its screen).');
@@ -310,7 +310,7 @@ test('lead-in: ends when the grind shows up, in any phase', () => {
     assert.equal(PV.leadInTick(PV.leadInStart(0, 3000, 0), grinding, 3100), null);
     const watching = PV.leadInTick(PV.leadInStart(0, 3000, 0), status(), 3100);
     assert.equal(PV.leadInTick(watching, grinding, 3200), null);
-    const dropped = PV.leadInTick(PV.leadInStart(0, 3000, 0), status(), 6000);
+    const dropped = PV.leadInTick(PV.leadInStart(0, 3000, 0), status(), 6000, 5900);
     assert.equal(dropped.phase, 'dropped');
     assert.equal(PV.leadInTick(dropped, grinding, 6100), null); // a late status heals a false "dropped"
     assert.equal(PV.grindVisible(status({ ui_state: 'purge_confirm' })), true);
@@ -320,7 +320,7 @@ test('lead-in: ends when the grind shows up, in any phase', () => {
 });
 
 test('lead-in: the dropped notice goes away by itself, STOP cancels, bad input is safe', () => {
-    const dropped = PV.leadInTick(PV.leadInStart(2, 3000, 0), status(), 5000);
+    const dropped = PV.leadInTick(PV.leadInStart(2, 3000, 0), status(), 5000, 4500);
     assert.equal(PV.leadInTick(dropped, status(), 5000 + PV.LEAD_IN_DROPPED_SHOW_MS - 1).phase, 'dropped');
     assert.equal(PV.leadInTick(dropped, status(), 5000 + PV.LEAD_IN_DROPPED_SHOW_MS), null);
     assert.equal(PV.leadInCancel(PV.leadInStart(0, 3000, 0)), null);
@@ -331,8 +331,42 @@ test('lead-in: the dropped notice goes away by itself, STOP cancels, bad input i
     assert.equal(PV.leadInView(PV.leadInStart(0, 3000, 0), 99999).seconds, 0);
 });
 
-test('lead-in: a long gap (hidden tab) goes straight to dropped', () => {
-    assert.equal(PV.leadInTick(PV.leadInStart(0, 3000, 0), status(), 60000).phase, 'dropped');
+test('lead-in: a long gap (hidden tab) stays watching until a fresh status arrives', () => {
+    const li = PV.leadInStart(0, 3000, 0);
+    // The last status is from before the start (received at 0): it proves nothing.
+    const watching = PV.leadInTick(li, status(), 60000, 0);
+    assert.equal(watching.phase, 'watching');
+    assert.equal(PV.leadInTick(watching, status(), 60100, 0).phase, 'watching');
+    // A fresh idle status after the gap: now the start counts as dropped.
+    assert.equal(PV.leadInTick(watching, status(), 60200, 60100).phase, 'dropped');
+    // A fresh status that shows the grind ends the lead-in instead.
+    const grinding = status({ ui_state: 'grinding', grind_phase: 'predictive', busy: true });
+    assert.equal(PV.leadInTick(watching, grinding, 60200, 60100), null);
+});
+
+test('lead-in: offline or a stale status never gives dropped', () => {
+    const li = PV.leadInStart(0, 3000, 0);
+    assert.equal(PV.leadInTick(li, status(), 100000, undefined).phase, 'watching');
+    assert.equal(PV.leadInTick(li, status(), 100000, null).phase, 'watching');
+    assert.equal(PV.leadInTick(li, null, 100000, 500).phase, 'watching');
+    // received before the lead-in ended, or less than 1 s after it
+    assert.equal(PV.leadInTick(li, status(), 100000, 2999).phase, 'watching');
+    assert.equal(PV.leadInTick(li, status(), 100000, 3000 + PV.LEAD_IN_STATUS_AFTER_MS - 1).phase, 'watching');
+    assert.equal(PV.leadInTick(li, status(), 100000, 3000 + PV.LEAD_IN_STATUS_AFTER_MS).phase, 'dropped');
+});
+
+test('deriveControls: Tare is disabled while an update holds the guard', () => {
+    for (const key of ['start_block', 'motor_test_block']) {
+        const d = PV.deriveControls(status({ [key]: 'update_in_progress' }), online());
+        assert.equal(d.tare.enabled, false, key);
+        assert.equal(d.tare.reason, 'A firmware update is running.', key);
+    }
+});
+
+test('nextPollTask: a failed settings or info request forces status next', () => {
+    const f = { haveStatus: true, needSettings: true, needInfo: true, online: true };
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { forceStatus: true })), 'status');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { forceStatus: false })), 'settings');
 });
 
 test('readoutView: normal, null weight, hints, stale and unknown states', () => {

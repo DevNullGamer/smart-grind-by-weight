@@ -32,6 +32,8 @@
     // After the lead-in the grind should show up within this long, otherwise the grinder dropped the start.
     var LEAD_IN_GRACE_MS = 2000;
     var LEAD_IN_DROPPED_SHOW_MS = 8000;
+    // The status that proves a drop must have been received at least this long after the lead-in ended.
+    var LEAD_IN_STATUS_AFTER_MS = 1000;
 
     var REASON = {
         webOff: 'The web interface is switched off on the grinder.',
@@ -200,8 +202,9 @@
 
     // What the single polling loop requests next. The page makes one request at a time, so settings and info are
     // fetched in turns between status requests instead of beside them.
+    // forceStatus: the last settings or info request failed, so status goes next and is never starved.
     function nextPollTask(flags) {
-        if (!flags.haveStatus || !flags.online) return 'status';
+        if (!flags.haveStatus || !flags.online || flags.forceStatus) return 'status';
         if (flags.needSettings) return 'settings';
         if (flags.needInfo) return 'info';
         return 'status';
@@ -254,8 +257,10 @@
     }
 
     // Advances the lead-in with the latest status. Returns the new lead-in, or null when it is over (the grind
-    // appeared, or the dropped notice has been shown long enough).
-    function leadInTick(leadIn, status, nowMs) {
+    // appeared, or the dropped notice has been shown long enough). statusAtMs is when that status was received:
+    // "dropped" needs a status that arrived at least LEAD_IN_STATUS_AFTER_MS after the lead-in ended, so a stale
+    // status (hidden tab, lost connection) never counts as proof that no grind started.
+    function leadInTick(leadIn, status, nowMs, statusAtMs) {
         if (!leadIn) return null;
         if (grindVisible(status)) return null;
         var over = leadIn.startedAt + leadIn.leadInMs;
@@ -265,7 +270,8 @@
         if (leadIn.phase === 'dropped') {
             return nowMs - leadIn.droppedAt >= LEAD_IN_DROPPED_SHOW_MS ? null : leadIn;
         }
-        if (nowMs >= over + LEAD_IN_GRACE_MS) return make('dropped', nowMs);
+        var fresh = typeof statusAtMs === 'number' && statusAtMs >= over + LEAD_IN_STATUS_AFTER_MS;
+        if (nowMs >= over + LEAD_IN_GRACE_MS && fresh) return make('dropped', nowMs);
         if (nowMs >= over) return leadIn.phase === 'watching' ? leadIn : make('watching', null);
         return leadIn;
     }
@@ -334,6 +340,9 @@
             if (ui !== 'ready') startReason = REASON.notReady;
             else if (status.start_block) startReason = blockText(status.start_block);
             if (ui !== 'ready') tareReason = REASON.notReady;
+            else if (status.start_block === 'update_in_progress' || status.motor_test_block === 'update_in_progress') {
+                tareReason = REASON.update;
+            }
             if (ui !== 'ready' && ui !== 'menu') motorReason = REASON.notReady;
             else if (status.motor_test_block) motorReason = blockText(status.motor_test_block);
         }
@@ -416,6 +425,7 @@
         POLL_WEB_OFF_MS: POLL_WEB_OFF_MS,
         LEAD_IN_GRACE_MS: LEAD_IN_GRACE_MS,
         LEAD_IN_DROPPED_SHOW_MS: LEAD_IN_DROPPED_SHOW_MS,
+        LEAD_IN_STATUS_AFTER_MS: LEAD_IN_STATUS_AFTER_MS,
         OFFLINE_AFTER_FAILURES: OFFLINE_AFTER_FAILURES,
         REASON: REASON,
         tabForViewport: tabForViewport,
