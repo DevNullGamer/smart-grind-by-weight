@@ -274,9 +274,19 @@ HistoryAppendOutcome history_append(HistoryFiles& files, HistoryStoreState* stat
     HistoryAppendOutcome outcome = HistoryAppendOutcome::REPLACED;
 
     if (state->taint >= 0) {
-        // The last replace of this slot did not finish: whatever it holds is unknown, start it over (newest generation)
         const uint8_t slot = static_cast<uint8_t>(state->taint);
-        ok = replace_with_first_record(files, state, scratch, slot, generation_above_all(*state), record);
+        const uint8_t other = static_cast<uint8_t>(1 - slot);
+        if (state->taint_from_append && state->slot[other].valid && state->slot[other].records > 0) {
+            // The tainted file was the active one and may still hold valid records (only the re-read failed): leave it
+            // alone and write the other file with a generation above it. It stays on flash as the older file.
+            outcome = HistoryAppendOutcome::ROTATED;
+            ok = replace_with_first_record(files, state, scratch, other, generation_above_all(*state), record);
+            if (ok) state->taint = -1;
+        } else {
+            // The last replace of this slot did not finish: whatever it holds is unknown, start it over (newest generation)
+            ok = replace_with_first_record(files, state, scratch, slot, generation_above_all(*state), record);
+        }
+        state->taint_from_append = false;
     } else if (state->active < 0) {
         // No usable file at all: nothing to protect
         ok = replace_with_first_record(files, state, scratch, 0, generation_above_all(*state), record);
@@ -299,6 +309,8 @@ HistoryAppendOutcome history_append(HistoryFiles& files, HistoryStoreState* stat
                     state->slot[active].clean = false;
                     state->slot[active].records = 0;
                     state->taint = static_cast<int8_t>(active);
+                    // The file may be fine and only unreadable just now, unless the re-read showed another file in it
+                    state->taint_from_append = !parsed.header_ok && n < 0;
                     state->active = newest_valid_slot(*state);
                 }
             }

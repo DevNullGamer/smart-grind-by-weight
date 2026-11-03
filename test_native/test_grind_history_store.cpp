@@ -45,6 +45,8 @@ public:
     // land (a replace truncates first).
     enum Fail { NONE, CLEAN, SHORT } fail = NONE;
     int fail_count = 0;
+    // The next read_fail_count reads fail (a transient read error): the file itself is untouched
+    int read_fail_count = 0;
 
     void revive() {
         dead = false;
@@ -53,6 +55,10 @@ public:
 
     int32_t read_all(uint8_t slot, uint8_t* buf, size_t cap) override {
         reads++;
+        if (read_fail_count > 0) {
+            read_fail_count--;
+            return -1;
+        }
         if (dead || slot >= 2 || !present[slot]) return -1;
         size_t n = bytes[slot].size();
         if (n > cap) n = cap;
@@ -972,6 +978,90 @@ static void test_unreadable_files_at_boot_are_an_empty_history() {
     TEST_ASSERT_TRUE(r.state.loaded);
 }
 
+// ---- torn tail on the active file: what the next write keeps ----
+
+static void test_a_torn_tail_on_the_active_file_never_costs_the_newest_records() {
+    // slot 0 is full, slot 1 holds 1..8 records when a failed append leaves a torn tail on it. The next write rotates into
+    // slot 0 (a rewrite of slot 1 would risk its records in a cut). Slot 1's records are the newest and must all survive.
+    for (uint32_t completed = 17; completed <= 24; completed++) {
+        Rig r;
+        r.boot();
+        for (uint32_t id = 1; id <= completed; id++) r.add(id);
+        r.files.fail = FakeFiles::SHORT;
+        r.files.fail_count = 1;
+        TEST_ASSERT_EQUAL(HistoryAppendOutcome::FAILED, r.add(completed + 1));
+        const std::vector<uint8_t> torn_file = r.files.bytes[1];
+        TEST_ASSERT_EQUAL(HistoryAppendOutcome::ROTATED, r.add(completed + 2));
+        TEST_ASSERT_TRUE(torn_file == r.files.bytes[1]);  // the active file with the newest records is not touched
+        r.boot();
+        std::vector<uint32_t> expected = range(17, completed);
+        expected.push_back(completed + 2);
+        TEST_ASSERT_TRUE(newest_first_tail(expected) == r.ids());
+        TEST_ASSERT_TRUE(r.ids().size() >= completed - 16 + 1);  // never fewer than the rotation keeps
+    }
+}
+
+static void test_a_cut_while_rotating_away_from_a_torn_tail_keeps_the_newest_records() {
+    for (uint32_t completed = 17; completed <= 24; completed++) {
+        for (long cut = 0; cut <= 70; cut++) {
+            Rig r;
+            r.boot();
+            for (uint32_t id = 1; id <= completed; id++) r.add(id);
+            r.files.fail = FakeFiles::SHORT;
+            r.files.fail_count = 1;
+            r.add(completed + 1);
+            r.files.budget = cut;
+            r.add(completed + 2);
+            r.files.revive();
+            r.boot();
+            const std::vector<uint32_t> ids = r.ids();
+            const size_t offset = (!ids.empty() && ids[0] == completed + 2) ? 1 : 0;
+            const size_t kept = completed - 16;  // records 17..completed of the active file
+            TEST_ASSERT_TRUE(ids.size() >= offset + kept);
+            for (size_t i = 0; i < kept; i++) TEST_ASSERT_EQUAL_UINT32(completed - i, ids[offset + i]);
+        }
+    }
+}
+
+static void test_a_failed_reread_does_not_make_the_next_write_truncate_the_active_file() {
+    Rig r;
+    r.boot();
+    for (uint32_t id = 1; id <= 20; id++) r.add(id);  // slot 0: 1..16 (older), slot 1: 17..20 (active)
+    r.files.fail = FakeFiles::SHORT;
+    r.files.fail_count = 1;
+    r.files.read_fail_count = 1;  // the re-read after the failed append fails as well
+    TEST_ASSERT_EQUAL(HistoryAppendOutcome::FAILED, r.add(21));
+    TEST_ASSERT_EQUAL_INT8(1, r.state.taint);
+    const std::vector<uint8_t> active_before = r.files.bytes[1];
+    // the other file is valid and older: it is rotated into, the possibly valid records of the tainted file stay
+    TEST_ASSERT_EQUAL(HistoryAppendOutcome::ROTATED, r.add(22));
+    TEST_ASSERT_TRUE(active_before == r.files.bytes[1]);
+    TEST_ASSERT_EQUAL_INT8(-1, r.state.taint);
+    TEST_ASSERT_TRUE(r.state.persistent);
+    r.boot();
+    TEST_ASSERT_TRUE(newest_first_tail({17, 18, 19, 20, 22}) == r.ids());
+    TEST_ASSERT_EQUAL_INT8(0, r.state.active);
+    TEST_ASSERT_EQUAL(HistoryAppendOutcome::APPENDED, r.add(23));
+    r.boot();
+    TEST_ASSERT_TRUE(newest_first_tail({17, 18, 19, 20, 22, 23}) == r.ids());
+}
+
+static void test_two_failures_in_a_row_on_the_rotation_target_still_recover() {
+    Rig r;
+    r.boot();
+    for (uint32_t id = 1; id <= 20; id++) r.add(id);
+    r.files.fail = FakeFiles::SHORT;
+    r.files.fail_count = 2;       // the failed append, then the rotation into the other file
+    r.files.read_fail_count = 1;
+    TEST_ASSERT_EQUAL(HistoryAppendOutcome::FAILED, r.add(21));
+    TEST_ASSERT_EQUAL(HistoryAppendOutcome::FAILED, r.add(22));
+    TEST_ASSERT_FALSE(r.state.persistent);
+    TEST_ASSERT_NOT_EQUAL(HistoryAppendOutcome::FAILED, r.add(23));
+    TEST_ASSERT_TRUE(r.state.persistent);
+    r.boot();
+    TEST_ASSERT_EQUAL_UINT32(23, r.ids()[0]);
+}
+
 // ---- wear (the plan's numbers, section 3.5) ----
 
 static void test_wear_one_write_per_grind_and_the_plans_erase_budget() {
@@ -1060,6 +1150,10 @@ void run_grind_history_store_tests() {
     RUN_TEST(test_failed_rotation_taints_the_target_and_the_next_write_restarts_it);
     RUN_TEST(test_failing_every_write_never_loops_or_crashes);
     RUN_TEST(test_unreadable_files_at_boot_are_an_empty_history);
+    RUN_TEST(test_a_torn_tail_on_the_active_file_never_costs_the_newest_records);
+    RUN_TEST(test_a_cut_while_rotating_away_from_a_torn_tail_keeps_the_newest_records);
+    RUN_TEST(test_a_failed_reread_does_not_make_the_next_write_truncate_the_active_file);
+    RUN_TEST(test_two_failures_in_a_row_on_the_rotation_target_still_recover);
     RUN_TEST(test_wear_one_write_per_grind_and_the_plans_erase_budget);
     RUN_TEST(test_a_file_never_outgrows_the_documented_size);
 }

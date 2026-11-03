@@ -82,7 +82,10 @@ struct HistoryStoreState {
     bool persistent = false;   // the last file operation worked (or none was needed yet)
     HistorySlotInfo slot[HISTORY_SLOT_COUNT];
     int8_t active = -1;        // slot appended to: the valid one with the newest generation, -1 = none
-    int8_t taint = -1;         // slot whose last replace failed: its content is unknown, the next write replaces it
+    int8_t taint = -1;         // slot whose last write failed: its content is unknown, the next write replaces it
+    // The taint comes from a failed append whose re-read also failed: the slot may still hold valid records, so the next
+    // write goes to the other file when that is valid (older) instead of truncating this one
+    bool taint_from_append = false;
 };
 
 struct HistoryLoadResult {

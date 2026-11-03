@@ -32,7 +32,13 @@ public:
         return static_cast<int32_t>(n);
     }
 
-    bool append(uint8_t slot, const uint8_t* data, size_t len) override { return write_file(slot, "a", data, len); }
+    bool append(uint8_t slot, const uint8_t* data, size_t len) override {
+        // A missing file (e.g. the filesystem was reformatted by a recovery) must not be created here: "a" would make a
+        // file without a header. Failing sends the store through its re-read, taint and replace path, which writes one.
+        const char* path = path_of(slot);
+        if (!path || !LittleFS.exists(path)) return false;
+        return write_file(slot, "a", data, len);
+    }
     bool replace(uint8_t slot, const uint8_t* data, size_t len) override { return write_file(slot, "w", data, len); }
 
     bool remove(uint8_t slot) override {
@@ -44,14 +50,33 @@ public:
 private:
     static const char* path_of(uint8_t slot) { return slot < HISTORY_SLOT_COUNT ? kHistoryPaths[slot] : nullptr; }
 
+    // Size on flash, -1 when the file cannot be opened
+    static int32_t size_on_flash(const char* path) {
+        File file = LittleFS.open(path, "r");
+        if (!file) return -1;
+        const int32_t size = file.isDirectory() ? -1 : static_cast<int32_t>(file.size());
+        file.close();
+        return size;
+    }
+
+    // write() is buffered and flush()/close() return void, so a full or failing filesystem is not reported by the write
+    // call. The result is therefore checked by size: the file must have grown (or been replaced) by exactly len bytes.
     static bool write_file(uint8_t slot, const char* mode, const uint8_t* data, size_t len) {
         const char* path = path_of(slot);
         if (!path || !data) return false;
+        const bool appending = mode[0] == 'a';
+        int32_t expected = static_cast<int32_t>(len);
+        if (appending) {
+            const int32_t before = size_on_flash(path);
+            if (before < 0) return false;
+            expected += before;
+        }
         File file = LittleFS.open(path, mode);
         if (!file) return false;
         const size_t written = file.write(data, len);
+        file.flush();
         file.close();
-        return written == len;
+        return written == len && size_on_flash(path) == expected;
     }
 };
 
