@@ -21,6 +21,7 @@
 #define PORTAL_SCHEMA_JSON_MAX 4096                                            // GET /api/schema
 #define PORTAL_STATUS_JSON_MAX 640                                             // GET /api/status (worst case with all nine warnings is 470 bytes)
 #define PORTAL_STATS_JSON_MAX 512                                              // GET /api/stats (worst case with every number at its maximum is 334 bytes)
+#define PORTAL_HISTORY_JSON_MAX 2560                                           // GET /api/history (10 worst-case entries are about 2.1 KB, see test_history_worst_case_fits_its_buffer_with_margin)
 #define PORTAL_COMMAND_REPLY_MAX 96                                            // POST /api/command reply (the start reply with lead_in_ms is the longest)
 #define PORTAL_PICKUP_TIMEOUT_MS 500                                           // A write the UI task has not picked up by then is answered 503 ui_busy
 #define PORTAL_RUN_TIMEOUT_MS 2000                                             // A write the UI task picked up but did not finish by then is answered 503 ui_busy

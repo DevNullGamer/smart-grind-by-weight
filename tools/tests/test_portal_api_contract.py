@@ -410,6 +410,44 @@ def test_stats_route_members_and_sources_follow_the_document():
     assert "PORTAL_SNAPSHOT_STALE_MS" not in read_stats
 
 
+def test_history_route_members_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/history`" in doc
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_history\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == ["count", "persistent", "grinds"] + list(portal_model.HISTORY_KEYS), (
+        "the encoder's members and their order equal the Python mirror")
+    for name in members:
+        assert f"`{name}`" in doc, f"history member {name} missing in PORTAL-API.md"
+    for name in ("complete", "max_pulses", "overshoot", "timeout", "unknown"):
+        assert f"`{name}`" in doc, f"history result {name} missing in PORTAL-API.md"
+    names = re.findall(r'return "([a-z_]+)";', re.search(r"portal_history_result_name\(.*?\n\}\n",
+                                                          read("src/network/portal_insights.cpp"), re.S).group(0))
+    assert names == [portal_model.HISTORY_RESULTS[i] for i in range(4)] + ["unknown"]
+    cases = VECTORS["history_cases"]
+    for case in cases:
+        assert set(case["input"]) == {"now_s", "persistent", "entries"}, case["name"]
+        assert list(json.loads(case["json"])) == ["count", "persistent", "grinds"], case["name"]
+        for grind in json.loads(case["json"])["grinds"]:
+            assert list(grind) == list(portal_model.HISTORY_KEYS), case["name"]
+    assert {g["result"] for c in cases for g in json.loads(c["json"])["grinds"]} == {
+        "complete", "max_pulses", "overshoot", "timeout", "unknown"}
+    assert any(g["age_s"] is None for c in cases for g in json.loads(c["json"])["grinds"])
+    assert any(g["target_g"] is None for c in cases for g in json.loads(c["json"])["grinds"])
+    # The route reads its own slot on the HTTP task, answers 503 ui_busy until the boot load finished, and its buffer
+    # fits the worst case; the document names the gate row
+    routes = read("src/network/portal_routes.cpp")
+    handler = re.search(r"int portal_handle_history\(.*?\n\}\n", routes, re.S).group(0)
+    assert "read_history(" in handler and "!history.loaded" in handler and "PortalError::UI_BUSY" in handler
+    assert "PortalRoute::API_READ" in handler and "ReplyBuffer json(PORTAL_HISTORY_JSON_MAX)" in handler
+    assert "`GET /api/history`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert macro(read("src/config/portal.h"), "PORTAL_HISTORY_JSON_MAX") >= 2400
+    assert "portal_history_result_name(" in encoder and "portal_encode_history(" in handler
+
+
 def test_http_task_code_stays_off_the_ui_side():
     # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
     # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
@@ -440,7 +478,7 @@ def test_ui_task_wiring():
     # the routes are registered with the methods the document names
     server = read("src/network/update_server.cpp")
     for uri, method in (("/api/status", "HTTP_GET"), ("/api/stats", "HTTP_GET"), ("/api/schema", "HTTP_GET"),
-                        ("/api/settings", "HTTP_GET"),
+                        ("/api/settings", "HTTP_GET"), ("/api/history", "HTTP_GET"),
                         ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
         assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
     max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")

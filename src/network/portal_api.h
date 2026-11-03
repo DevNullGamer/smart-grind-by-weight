@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../config/portal.h"
+#include "portal_insights.h"
 
 // Pure model of the web panel API (docs/PORTAL-API.md): the settings/profile field table, the strict parser
 // for PATCH /api/settings and POST /api/command bodies, the error table and the JSON encoders. No
@@ -232,3 +233,11 @@ struct PortalStats {
     uint64_t powered_minutes = 0;     // device_uptime_hrs * 60 + the minutes remainder
 };
 bool portal_encode_stats(const PortalStats& stats, char* out, size_t cap);
+
+// GET /api/history: the newest grinds (at most PORTAL_HISTORY_MAX, newest first) as the UI task copied them. now_s is the
+// uptime second of the request (millis() / 1000, the clock ended_s was taken from). age_s is now_s - ended_s, never
+// negative, and null for an entry recorded before the last restart. Weights are bounded (not finite = 0, magnitude at
+// most PORTAL_HISTORY_WEIGHT_MAX, under 0.0005 = 0.0), so the reply is always valid JSON. Time-mode grinds carry
+// target_s and a null target_g, weight-mode grinds the reverse. No text from the device other than fixed names.
+constexpr double PORTAL_HISTORY_WEIGHT_MAX = 1000000.0;
+bool portal_encode_history(const PortalHistory& history, uint32_t now_s, char* out, size_t cap);

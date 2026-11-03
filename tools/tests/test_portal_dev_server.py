@@ -167,9 +167,9 @@ def test_page_content_rules():
 
 def test_page_fits_the_embed_budget():
     import gzip
-    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, but the page reached 31.6 KB at step 7 and
-    # steps 9 (Insights tiles) and 12 (history list) still add UI, so the target is raised deliberately to 40 KB.
-    # Any further raise needs its own reason.
+    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, but the page reached 31.6 KB at step 7, so the
+    # target was raised deliberately to 40 KB. With the Insights tiles and the history list (step 12) it is 39.3 KB.
+    # Any further raise needs its own reason; trim duplication in the sources first.
     assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 40 * 1024
 
 
@@ -883,3 +883,140 @@ def test_stats_override_sets_members_and_rejects_bad_ones(server):
     for bad in ('{"stats":5}', '{"stats":{"nope":1}}', '{"stats":{"total_grinds":-1}}', '{"stats":{"total_grinds":"x"}}',
                 '{"stats":{"total_grinds":true}}', '{"stats_reset":false}', '{"insights":"yes"}'):
         assert call(server, "POST", "/dev/state", bad)[0] == 400, bad
+
+
+# ------------------------------------------------------------------------------------------ recent grinds (history)
+def _vector_entries(case):
+    entries = []
+    for e in case["input"]["entries"]:
+        e = dict(e)
+        for key in ("target", "final_g"):
+            if isinstance(e[key], str):
+                e[key] = float(e[key])  # "nan", "inf", "-inf"
+        entries.append(e)
+    return entries
+
+
+def test_history_vectors():
+    assert len(VECTORS["history_cases"]) >= 10
+    for c in VECTORS["history_cases"]:
+        doc = model.history_document(_vector_entries(c), c["input"]["persistent"], c["input"]["now_s"])
+        assert model.encode_json(doc) == c["json"], c["name"]
+
+
+def test_history_document_uses_at_most_ten_entries_and_never_a_negative_age():
+    entry = {"id": 1, "ended_s": 50, "earlier_boot": False, "profile": 1, "mode": 0, "target": 18.0, "final_g": 18.0,
+             "time_ms": 1, "motor_ms": 1, "pulses": 1, "result": 0}
+    doc = model.history_document([entry] * 14, True, 10)
+    assert doc["count"] == 10 == len(doc["grinds"]) and doc["grinds"][0]["age_s"] == 0
+    assert list(doc["grinds"][0]) == list(model.HISTORY_KEYS)
+
+
+def _finish_grinds(server, count, profile=0):
+    for _ in range(count):
+        call(server, "POST", "/api/command", '{"cmd":"start","profile":%d}' % profile)
+        server.clock.now += 3.5 + 20
+        call(server, "GET", "/api/status")  # the grind finishes and the complete screen shows
+        server.clock.now += 3.5  # the complete screen ends, the next start is accepted
+
+
+def test_history_route_shape_and_headers(server):
+    status, doc, res = call(server, "GET", "/api/history")
+    assert status == 200 and doc == {"count": 0, "persistent": True, "grinds": []}
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "POST", "/api/history", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/history", "{}")[0] == 405
+    assert call(server, "GET", "/api/history", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/history", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+
+
+def test_history_route_is_gated_and_follows_ui_busy(server):
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/history")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/history")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_finished_grinds_are_listed_newest_first_and_a_stopped_one_is_not(server):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5
+    call(server, "POST", "/api/command", '{"cmd":"stop"}')
+    assert call(server, "GET", "/api/history")[1]["count"] == 0
+    _finish_grinds(server, 1, profile=0)
+    _finish_grinds(server, 1, profile=1)
+    _finish_grinds(server, 1, profile=2)
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc["count"] == 3 and [g["profile"] for g in doc["grinds"]] == [2, 1, 0]
+    assert [g["id"] for g in doc["grinds"]] == [3, 2, 1]
+    first = doc["grinds"][2]
+    assert first["mode"] == "weight" and first["target_g"] == 9.0 and first["target_s"] is None
+    assert first["final_g"] == pytest.approx(9.1) and first["pulses"] == dev.SIM_GRIND_PULSES
+    assert first["result"] == "complete"
+    ages = [g["age_s"] for g in doc["grinds"]]
+    assert ages == sorted(ages) and all(isinstance(a, int) for a in ages)
+
+
+def test_age_grows_between_two_requests_without_a_new_grind(server):
+    _finish_grinds(server, 1)
+    before = call(server, "GET", "/api/history")[1]["grinds"][0]["age_s"]
+    server.clock.now += 90
+    assert call(server, "GET", "/api/history")[1]["grinds"][0]["age_s"] == before + 90
+
+
+def test_a_time_mode_grind_has_target_s_and_no_target_g(server):
+    call(server, "PATCH", "/api/settings", '{"grind_mode":"time"}')
+    _finish_grinds(server, 1, profile=1)
+    g = call(server, "GET", "/api/history")[1]["grinds"][0]
+    assert g["mode"] == "time" and g["target_g"] is None and g["target_s"] == 10.0 and g["pulses"] == 0
+
+
+def test_history_keeps_the_newest_ten(server):
+    _finish_grinds(server, 12)
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc["count"] == 10 and doc["grinds"][0]["id"] == 12 and doc["grinds"][-1]["id"] == 3
+
+
+def test_history_dev_switches(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"history_fill":3}')
+    assert s == 200 and call(server, "GET", "/api/history")[1]["count"] == 3
+    grinds = call(server, "GET", "/api/history")[1]["grinds"]
+    assert [g["age_s"] for g in grinds] == [120, 1260, 2400]  # the simulated grinder is made old enough for them
+    assert call(server, "POST", "/dev/state", '{"history_fill":10}')[0] == 200
+    full = call(server, "GET", "/api/history")[1]
+    assert full["count"] == 10 and {g["result"] for g in full["grinds"]} == {"complete", "max_pulses", "overshoot", "timeout"}
+    assert any(g["mode"] == "time" for g in full["grinds"])
+    call(server, "POST", "/dev/state", '{"history_restart":true}')
+    restarted = call(server, "GET", "/api/history")[1]["grinds"]
+    assert len(restarted) == 10 and all(g["age_s"] is None for g in restarted)
+    call(server, "POST", "/dev/state", '{"history_persistent":false}')
+    assert call(server, "GET", "/api/history")[1]["persistent"] is False
+    assert call(server, "GET", "/dev/state")[1]["history_persistent"] is False
+    call(server, "POST", "/dev/state", '{"history_clear":true}')
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc == {"count": 0, "persistent": False, "grinds": []}
+
+
+@pytest.mark.parametrize("body", ['{"history_fill":11}', '{"history_fill":-1}', '{"history_fill":true}',
+                                  '{"history_fill":"3"}', '{"history_clear":false}', '{"history_restart":1}',
+                                  '{"history_persistent":"no"}', '{"history_route":null}'])
+def test_history_dev_switches_reject_wrong_values(server, body):
+    s, d, _ = call(server, "POST", "/dev/state", body)
+    assert (s, d["error"]) == (400, "dev_state")
+
+
+def test_no_history_answers_404_but_keeps_the_statistics(server):
+    server.sim.history_route = False
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/history", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/api/stats")[0] == 200
+    assert call(server, "GET", "/dev/state")[1]["history_route"] is False
+    server.sim.history_route = True
+    server.sim.insights = False
+    assert call(server, "GET", "/api/history")[0] == 404  # --no-insights takes the older firmware's routes away
+    args = dev.build_parser().parse_args(["--no-history"])
+    assert dev.make_simulator(args).history_route is False
+    assert dev.make_simulator(dev.build_parser().parse_args([])).history_route is True

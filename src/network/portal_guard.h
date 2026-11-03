@@ -18,7 +18,7 @@
 enum class PortalRoute : uint8_t {
     INFO,         // GET /api/info (open, unchanged, never gated by the web switch)
     PAGE,         // GET /
-    API_READ,     // GET /api/status, /api/settings, /api/schema, /api/stats
+    API_READ,     // GET /api/status, /api/settings, /api/schema, /api/stats, /api/history
     API_WRITE,    // PATCH /api/settings
     API_COMMAND,  // POST /api/command (including stop)
     UPDATE_PUSH   // /api/update/begin|data (firmware push, token protected)

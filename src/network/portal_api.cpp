@@ -879,3 +879,58 @@ bool portal_encode_stats(const PortalStats& s, char* out, size_t cap) {
     j.put('}');
     return j.done();
 }
+
+namespace {
+
+// A history weight or target as a bounded number: not finite is 0, the magnitude is cut at PORTAL_HISTORY_WEIGHT_MAX and
+// a value under half a thousandth is 0.0 (so a tiny negative error never prints as "-0.0")
+double bounded_history_weight(float v) {
+    if (!isfinite(v)) return 0.0;
+    double d = static_cast<double>(v);
+    if (d > PORTAL_HISTORY_WEIGHT_MAX) d = PORTAL_HISTORY_WEIGHT_MAX;
+    if (d < -PORTAL_HISTORY_WEIGHT_MAX) d = -PORTAL_HISTORY_WEIGHT_MAX;
+    return fabs(d) < 0.0005 ? 0.0 : d;
+}
+
+}  // namespace
+
+bool portal_encode_history(const PortalHistory& h, uint32_t now_s, char* out, size_t cap) {
+    JsonOut j(out, cap);
+    const size_t count = h.count > PORTAL_HISTORY_MAX ? PORTAL_HISTORY_MAX : h.count;
+    j.raw("{\"count\":");
+    j.uinteger(static_cast<uint32_t>(count));
+    j.raw(",\"persistent\":");
+    j.boolean(h.persistent);
+    j.raw(",\"grinds\":[");
+    for (size_t i = 0; i < count; i++) {
+        const PortalHistoryEntry& e = h.entries[i];
+        const bool time_mode = e.mode == 1;
+        if (i > 0) j.put(',');
+        j.raw("{\"id\":");
+        j.uinteger(e.id);
+        j.raw(",\"age_s\":");
+        if (e.earlier_boot) j.raw("null"); else j.uinteger(now_s >= e.ended_s ? now_s - e.ended_s : 0);
+        j.raw(",\"profile\":");
+        j.uinteger(e.profile < PORTAL_PROFILE_COUNT ? e.profile : static_cast<uint32_t>(PORTAL_PROFILE_COUNT - 1));
+        j.raw(",\"mode\":");
+        j.str(time_mode ? "time" : "weight");
+        const double target = e.target < 0.0f ? 0.0 : bounded_history_weight(e.target);
+        j.raw(",\"target_g\":");
+        if (time_mode) j.raw("null"); else j.num(target);
+        j.raw(",\"target_s\":");
+        if (time_mode) j.num(target); else j.raw("null");
+        j.raw(",\"final_g\":");
+        j.num(bounded_history_weight(e.final_g));
+        j.raw(",\"time_ms\":");
+        j.uinteger(e.time_ms);
+        j.raw(",\"motor_ms\":");
+        j.uinteger(e.motor_ms);
+        j.raw(",\"pulses\":");
+        j.uinteger(e.pulses);
+        j.raw(",\"result\":");
+        j.str(portal_history_result_name(e.result));
+        j.put('}');
+    }
+    j.raw("]}");
+    return j.done();
+}

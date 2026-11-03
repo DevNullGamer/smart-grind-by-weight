@@ -15,7 +15,7 @@ tools for working on the page without a grinder.
 | `web/portal/portal-client.js` | The API client (request queue, error mapping, curl export). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
 | `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
 | `web/portal/portal-app.js` | DOM glue only (events, `textContent`); logic belongs in the view or client module. Marker `/*@@PORTAL_APP@@*/`. |
-| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; chg016 aims below 40 KB, raised from 32 KB when the Insights and history steps were still to come). |
+| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; chg016 aims below 40 KB: the limit in `test_page_fits_the_embed_budget` was 32 KB and was raised to 40 KB at step 7). |
 | `tools/portal/build_page.py` | Builds `index.html` from the sources. Run it after editing any of them (`--check` only reports). It fails on a missing or duplicated marker and on `</script` / `</style` inside a part. A pytest fails when `index.html` is stale. |
 | `tools/portal/portal_model.py` | The contract as pure Python (scanner, field table, clamping, guards, decisions). Tested against `tools/tests/portal_api_vectors.json`, the vectors the firmware tests use. |
 | `tools/portal/dev_server.py` | Local server: the page plus a simulated grinder behind the real contract. Standard library only. |
@@ -45,10 +45,12 @@ What it simulates:
   it runs at about 3 g/s (weight mode) or for the profile time (time mode), shows `grind_complete` for 3 s (writes get
   `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s (firmware: 1.0 s).
   `tare` zeroes the weight.
+- Insights: `/api/stats` and `/api/history` follow the simulated grinds (a finished grind adds an entry with its target, a final weight 0.1 g over in two pulses, result `complete`; a stopped grind adds nothing; the newest 10 are kept). The history lives in memory only.
 - Settings live in memory only; a restart resets them.
 
 Not simulated: STOP bypassing `latency_ms` (the grinder's STOP skips the UI task mailbox), real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply), the
-touch cancel of the lead-in and the overlay, and the Insights data (the routes come in later steps).
+touch cancel of the lead-in and the overlay, and the flash store behind the history (the list lives in memory; `history_persistent` only
+changes what the route reports).
 
 ### Flags
 
@@ -63,7 +65,8 @@ touch cancel of the lead-in and the overlay, and the Insights data (the routes c
 | `--motor-test-block CODE` | none | Grinder-side refusal of the motor test (same codes). |
 | `--drop-start` | off | Every remote start is dropped when its lead-in ends (another screen took over). |
 | `--legacy-status` | off | `GET /api/status` leaves out the `warnings` member, like a firmware from before it existed. The page then shows no warnings list; the `warnings` key of `/dev/state` still holds its value. |
-| `--no-insights` | off | `GET /api/stats` answers 404 from the server (no JSON), like a firmware from before it existed. The page keeps the Insights tab hidden and shows no error. |
+| `--no-insights` | off | `GET /api/stats` and `GET /api/history` answer 404 from the server (no JSON), like a firmware from before they existed. The page keeps the Insights tab hidden and shows no error. |
+| `--no-history` | off | Only `GET /api/history` answers 404, like a firmware from before chg016 step 12: the Insights tiles work, the recent-grinds list is hidden. |
 
 The default listens on `127.0.0.1` only.
 
@@ -91,11 +94,16 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `start_block` | `null` or a block code | The start refusal the status reports and a start answers with. |
 | `motor_test_block` | `null` or a block code | The same for the motor test. |
 | `drop_start` | bool | Every remote start is dropped when its lead-in ends (`--drop-start`). |
-| `ui_busy` | bool | `GET` and `PATCH /api/settings` and `GET /api/stats` answer 503 `ui_busy`. |
+| `ui_busy` | bool | `GET` and `PATCH /api/settings`, `GET /api/stats` and `GET /api/history` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
 | `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
 | `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The Grind tab lists them, highest priority first. |
-| `insights` | bool | `false` is `--no-insights`: `/api/stats` answers 404 (back on with `true`). |
+| `insights` | bool | `false` is `--no-insights`: `/api/stats` and `/api/history` answer 404 (back on with `true`). |
+| `history_route` | bool | `false` is `--no-history`: only `/api/history` answers 404 (back on with `true`). |
+| `history_persistent` | bool | The `persistent` member of `/api/history`. `false` is a grinder whose flash store is unavailable: the list shows a "not being saved" notice. |
+| `history_fill` | whole number 0 to 10 | Replaces the history with that many sample grinds (newest first, ages from 2 minutes to a day, every result, a time-mode grind, positive and negative errors; the simulated uptime is raised to fit the oldest age). `10` is a full list, `0` empties it. |
+| `history_clear` | `true` | Empties the history (`false` is refused). A finished grind adds an entry again. |
+| `history_restart` | `true` | Marks every entry as recorded before the last restart, as a reboot does: `age_s` becomes `null` (the page says "before the last restart"). |
 | `stats` | object of statistics members | Sets any of the 13 members of `/api/stats` (numbers from 0 to 1e12; `motor_runtime_s` and `powered_minutes` keep growing from the value set) to see unusual numbers. The `GET` shows the current document under `stats`. |
 | `stats_reset` | `true` | Zeroes every statistic, as after a reset on the grinder (`false` is refused). The next finished grind is the first one. |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
@@ -126,7 +134,11 @@ above.
 | Empty data (statistics) | `{"stats_reset":true}`. | "No grinds recorded yet. The totals appear after the first grind." and no tiles. |
 | Statistics not available | `--no-insights`, or `{"insights":false}`. | The Insights tab stays hidden, no error; if the tab was shown before, it disappears. |
 | Statistics cannot be read | `{"ui_busy":true}` (back with `false`), or stop the server while the tab is shown. | The tiles stay with "The numbers could not be refreshed ... from N s ago" (or "The grinder is not reachable"); the page asks again every 10 s. |
-| Empty history | Not reproducible yet: the dev server has no history route until chg016 step 10. | "No grinds recorded since the grinder started" appears then. |
+| Empty history | Open the page on a fresh server (the list starts empty), or `{"history_clear":true}`. | In Insights, under the tiles: "No grinds recorded yet. Finished grinds are listed here and kept across restarts." With `{"history_persistent":false}` too: "No grinds recorded since the grinder started" and the not-saved notice. |
+| Recent grinds | `{"history_fill":3}` for three grinds, `{"history_fill":10}` for a full list. A finished grind (`start`, wait) adds the newest one on top within a few seconds. | A list, newest first: relative age, profile, result badge, final weight against the target and the error with its sign, plus a bar chart of the errors (up, down, or on target). Overshoot and timeout grinds carry a visible badge. |
+| History after a restart | `{"history_restart":true}`. | Every age reads "before the last restart". |
+| History not being saved | `{"history_persistent":false}`. | A notice above the list: "History is not being saved on the grinder; it is lost at the next restart." |
+| History not available | `--no-history`, or `{"history_route":false}`. | The tiles stay, the recent-grinds list and its heading are hidden, no error. |
 
 ## Manual browser check
 

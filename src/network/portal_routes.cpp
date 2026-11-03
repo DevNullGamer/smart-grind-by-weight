@@ -226,6 +226,23 @@ int portal_handle_stats(httpd_req* req) {
     return sent;
 }
 
+int portal_handle_history(httpd_req* req) {
+    const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
+    if (refused != PortalError::NONE) return portal_send_error(req, refused);
+
+    PortalHistory history;  // about 330 bytes of the task stack (the PATCH path already holds a 512 byte body)
+    // Not loaded yet: the boot load of the history has not finished, so the list is not real (not merely empty)
+    if (!portal_command_gate.read_history(&history) || !history.loaded) return portal_send_error(req, PortalError::UI_BUSY);
+    ReplyBuffer json(PORTAL_HISTORY_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_history(history, millis() / 1000, json.data, json.capacity)) {
+        return send_internal_error(req);
+    }
+    static bool stack_logged = false;
+    const int sent = send_json_ok(req, json.data);
+    log_stack_once(&stack_logged, "GET /api/history");
+    return sent;
+}
+
 int portal_handle_settings_get(httpd_req* req) {
     const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
     if (refused != PortalError::NONE) return portal_send_error(req, refused);

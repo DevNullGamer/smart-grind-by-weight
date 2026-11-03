@@ -33,14 +33,25 @@ COMPLETE_SHOW_S = 3.0
 MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
-DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed", "insights")
-DEV_ACTION_KEYS = ("stats_reset",)  # accepted by a POST, not part of the state a GET reports
+DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed", "insights",
+                 "history_route", "history_persistent")
+# Accepted by a POST, not part of the state a GET reports
+DEV_ACTION_KEYS = ("stats_reset", "history_clear", "history_fill", "history_restart")
 DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings",
                                   "stats") + DEV_ACTION_KEYS
 # Lifetime statistics a fresh simulated grinder starts with (the example of docs/PORTAL-API.md)
 START_STATS = {"total_grinds": 412, "single": 180, "double": 200, "custom": 32, "weight_mode": 390, "time_mode": 22,
                "total_weight_kg": 8.43, "motor_runtime_s": 5120, "avg_abs_error_g": 0.12, "total_pulses": 1100,
                "avg_pulses": 2.7, "time_pulses": 14, "powered_minutes": 22890}
+# Sample grinds for the history_fill switch, newest first: profile, mode (0 weight, 1 time), target (g, or s in time
+# mode), final weight, time_ms, motor_ms, pulses, result code, seconds before now (every outcome and sign is there)
+HISTORY_SAMPLES = (
+    (1, 0, 18.0, 18.1, 14230, 9800, 2, 0, 120), (1, 0, 18.0, 17.9, 15100, 10400, 3, 0, 1260),
+    (0, 0, 9.0, 9.0, 9400, 6100, 1, 0, 2400), (1, 0, 18.0, 19.6, 13800, 9500, 0, 2, 3900),
+    (2, 1, 12.0, 20.4, 12000, 12000, 0, 0, 5100), (1, 0, 18.0, 18.0, 16000, 11000, 4, 1, 7300),
+    (2, 0, 21.5, 15.2, 60000, 30000, 5, 3, 9000), (0, 0, 9.0, 9.1, 8900, 5800, 2, 0, 15000),
+    (1, 0, 18.0, 18.2, 14900, 10100, 2, 0, 33000), (1, 0, 18.0, 17.8, 15500, 10600, 3, 0, 90000),
+)
 SIM_GRIND_ERROR_G = 0.1  # every simulated weight-mode grind lands this far from its target, in 2 pulses
 SIM_GRIND_PULSES = 2
 LATENCY_MAX_MS = 30000
@@ -71,7 +82,11 @@ class SimGrinder:
         self.ui_busy = False          # settings reads and writes answer 503 ui_busy
         self.store_failed = False     # a settings write that changes a value answers 500 store_failed
         self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
-        self.insights = True          # --no-insights: /api/stats does not exist (404), like a firmware from before it
+        self.insights = True          # --no-insights: /api/stats and /api/history do not exist (404), like an old firmware
+        self.history_route = True     # --no-history: only /api/history does not exist (a firmware from before step 12)
+        self.history_persistent = True  # false: the flash store is unavailable, the list is only kept in RAM
+        self.history = []             # newest first; members as the vector inputs of history_cases (ended_s is uptime)
+        self.history_next_id = 1
         self.legacy_status = False    # --legacy-status: the status has no "warnings" member (an older firmware)
         self.warnings = []            # active diagnostics as warning codes (status member "warnings", priority order)
         self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
@@ -113,8 +128,41 @@ class SimGrinder:
             self.complete_until = None
             self.ui_state = "ready"
 
+    def _record_history(self, run):
+        """A finished simulated grind joins the recent-grinds list (a stopped one never gets here)."""
+        time_mode = run["mode"] == "time"
+        self._push_history(
+            profile=run["profile"], mode=1 if time_mode else 0, target=run["duration"] if time_mode else run["target_g"],
+            final_g=run["target_g"] if time_mode else run["target_g"] + SIM_GRIND_ERROR_G,
+            time_ms=int(run["duration"] * 1000), motor_ms=int(run["duration"] * 850),
+            pulses=0 if time_mode else SIM_GRIND_PULSES, result=0, ended_s=int(self.clock() - self.boot))
+
+    def _push_history(self, **entry):
+        entry.update(id=self.history_next_id, earlier_boot=False)
+        self.history_next_id += 1
+        self.history.insert(0, entry)
+        del self.history[model.HISTORY_MAX:]
+
+    def history_doc(self):
+        with self.lock:
+            self._tick()
+            return model.history_document(self.history, self.history_persistent, int(self.clock() - self.boot))
+
+    def fill_history(self, count):
+        """Replaces the list with `count` sample grinds (newest first, ages up to a day) to see every look of the list."""
+        with self.lock:
+            oldest = max((sample[-1] for sample in HISTORY_SAMPLES[:count]), default=0)
+            if self.clock() - self.boot < oldest:
+                self.boot = self.clock() - oldest  # the simulated grinder has been up long enough to have these grinds
+            now_s = int(self.clock() - self.boot)
+            self.history = []
+            for profile, mode, target, final, time_ms, motor_ms, pulses, result, age in reversed(HISTORY_SAMPLES[:count]):
+                self._push_history(profile=profile, mode=mode, target=target, final_g=final, time_ms=time_ms,
+                                   motor_ms=motor_ms, pulses=pulses, result=result, ended_s=max(0, now_s - age))
+
     def _count_grind(self, run):
         """A finished simulated grind joins the lifetime statistics (a stopped one never gets here)."""
+        self._record_history(run)
         s = self.stats
         grams = run["target_g"]
         s["total_grinds"] += 1
@@ -177,6 +225,10 @@ class SimGrinder:
         if self.run is None or not self.run["live"] or self.run["kind"] != "start":
             return "completed" if self.ui_state == "grind_complete" else "idle"
         return "predictive" if self.run["mode"] == "weight" else "time_grinding"
+
+    def has_route(self, path):
+        """True for /api/stats and /api/history when this firmware has them (--no-insights, --no-history)."""
+        return self.insights and (path == "/api/stats" or (path == "/api/history" and self.history_route))
 
     # --- reads
     def values(self):
@@ -284,7 +336,7 @@ class SimGrinder:
                 target = duration * GRIND_RATE_G_PER_S
             self.weight = 0.0
             self.run = {"kind": "start", "started": now, "live": False, "mode": mode, "target_g": target,
-                        "duration": duration, "rate": target / duration}
+                        "duration": duration, "rate": target / duration, "profile": profile}
             return 202, {"ok": True, "cmd": "start", "profile": profile, "lead_in_ms": model.LEAD_IN_MS}
 
     # --- dev controls
@@ -296,7 +348,8 @@ class SimGrinder:
                     "motor_test_block": self.motor_test_block, "drop_start": self.drop_start,
                     "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
                     "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings),
-                    "insights": self.insights, "stats": self.stats_doc()}
+                    "insights": self.insights, "history_route": self.history_route,
+                    "history_persistent": self.history_persistent, "stats": self.stats_doc()}
 
     @staticmethod
     def _stats_problem(value):
@@ -342,6 +395,12 @@ class SimGrinder:
                 elif key == "stats_reset":
                     if value is not True:
                         return "stats_reset must be true (it zeroes the statistics)"
+                elif key in ("history_clear", "history_restart"):
+                    if value is not True:
+                        return f"{key} must be true"
+                elif key == "history_fill":
+                    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= model.HISTORY_MAX:
+                        return f"history_fill must be a whole number from 0 to {model.HISTORY_MAX}"
                 elif key == "stats":
                     problem = self._stats_problem(value)
                     if problem:
@@ -353,6 +412,16 @@ class SimGrinder:
             for key, value in changes.items():
                 if key == "stats_reset":
                     self.reset_stats()
+                    continue
+                if key == "history_clear":
+                    self.history = []
+                    continue
+                if key == "history_fill":
+                    self.fill_history(value)
+                    continue
+                if key == "history_restart":  # a reboot: the grinds stay, their uptime no longer means anything
+                    for entry in self.history:
+                        entry["earlier_boot"] = True
                     continue
                 if key == "stats":
                     self._set_stats(value)
@@ -442,19 +511,19 @@ def make_handler(sim, page_text):
             elif path in ("/", "/index.html"):
                 if self._admit(False):
                     self._send(200, page_bytes, "text/html; charset=utf-8", PAGE_HEADERS)
-            elif path == "/api/stats" and not sim.insights:
+            elif path in ("/api/stats", "/api/history") and not sim.has_route(path):
                 self._send(404, "Not found", "text/plain")  # the HTTP server of a firmware without the route
-            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats"):
+            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats", "/api/history"):
                 if not self._admit(False):
                     return
                 if path == "/api/status":
                     self._api(200, sim.status_doc())
-                elif path == "/api/stats":
+                elif path in ("/api/stats", "/api/history"):
                     refusal = sim.read_settings_refusal()
                     if refusal:
                         self._refuse(refusal)
                     else:
-                        self._api(200, sim.stats_doc())
+                        self._api(200, sim.stats_doc() if path == "/api/stats" else sim.history_doc())
                 elif path == "/api/settings":
                     refusal = sim.read_settings_refusal()
                     if refusal:
@@ -474,7 +543,7 @@ def make_handler(sim, page_text):
             self._delay(self._path())
             if self._path() != "/api/settings":
                 self._send(404 if self._path() not in ("/api/status", "/api/schema", "/api/command", "/api/info", "/")
-                           and not (self._path() == "/api/stats" and sim.insights)
+                           and not sim.has_route(self._path())
                            else 405, "", "text/plain")
                 return
             if not self._admit(True):
@@ -513,7 +582,7 @@ def make_handler(sim, page_text):
                 return
             if path != "/api/command":
                 self._send(405 if path in ("/api/status", "/api/settings", "/api/schema", "/api/info", "/")
-                           or (path == "/api/stats" and sim.insights) else 404, "", "text/plain")
+                           or sim.has_route(path) else 404, "", "text/plain")
                 return
             if not self._admit(True):
                 return
@@ -542,7 +611,9 @@ def build_parser():
     p.add_argument("--legacy-status", action="store_true",
                    help="the status has no warnings member, like a firmware from before chg016 step 6")
     p.add_argument("--no-insights", action="store_true",
-                   help="GET /api/stats answers 404, like a firmware from before chg016 step 8 (the page hides Insights)")
+                   help="GET /api/stats and /api/history answer 404, like a firmware from before chg016 step 8 (the page hides Insights)")
+    p.add_argument("--no-history", action="store_true",
+                   help="GET /api/history answers 404 but /api/stats works, like a firmware from before chg016 step 12")
     return p
 
 
@@ -556,6 +627,7 @@ def make_simulator(args):
     sim.drop_start = args.drop_start
     sim.legacy_status = args.legacy_status
     sim.insights = not args.no_insights
+    sim.history_route = not args.no_history
     return sim
 
 

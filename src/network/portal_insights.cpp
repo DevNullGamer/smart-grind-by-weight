@@ -1,6 +1,16 @@
 #include "portal_insights.h"
 #include "../logging/grind_history.h"
 
+const char* portal_history_result_name(uint8_t result) {
+    switch (static_cast<GrindHistoryResult>(result)) {
+        case GrindHistoryResult::COMPLETE: return "complete";
+        case GrindHistoryResult::MAX_PULSES: return "max_pulses";
+        case GrindHistoryResult::OVERSHOOT: return "overshoot";
+        case GrindHistoryResult::TIMEOUT: return "timeout";
+        default: return "unknown";
+    }
+}
+
 void portal_history_from_snapshot(const GrindHistorySnapshot& snapshot, PortalHistory* out) {
     if (!out) return;
     *out = PortalHistory();

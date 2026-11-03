@@ -1,7 +1,7 @@
 # Web panel API (contract)
 
 The grinder serves an internal web panel and a small JSON API on the **local network**. This document is the
-contract between the firmware and any page that talks to it (the reference page, a replacement portal, scripts).
+contract between the firmware and any page that talks to it (the page the grinder serves, a replacement portal, scripts).
 The same rules are executable: `tools/tests/portal_api_vectors.json` holds the shared test vectors, run by
 `test_native/test_portal_api.cpp` and `test_portal_guard.cpp` against `src/network/portal_api.*` and
 `src/network/portal_guard.*`, and `tools/tests/test_portal_api_contract.py` keeps the vectors in line with the
@@ -27,7 +27,7 @@ firmware sources (menu tables, `UiSettings`, `user.h`, `ProfileController`).
 |---|---|---|
 | `GET /api/info` | nothing (open, unchanged) | answers |
 | `GET /` (the page) | Web interface | 403 `web_interface_off` |
-| `GET /api/status`, `GET /api/settings`, `GET /api/schema`, `GET /api/stats` | Web interface | 403 `web_interface_off` |
+| `GET /api/status`, `GET /api/settings`, `GET /api/schema`, `GET /api/stats`, `GET /api/history` | Web interface | 403 `web_interface_off` |
 | `PATCH /api/settings` | Web interface | 403 `web_interface_off` |
 | `POST /api/command` (including `stop`) | Web interface | 403 `web_interface_off` |
 | `/api/update/begin`, `/api/update/data` | Receive (+ the existing token and Accept dialog) | 403 `receive_off` (the update routes check Receive themselves because the server also runs for the web interface alone) |
@@ -64,6 +64,7 @@ which the grinder never answers.
 | `GET /api/info` | | unchanged (name, version, build, board, busy, confirm) |
 | `GET /api/status` | | status object (section 7) |
 | `GET /api/stats` | | lifetime statistics object (section 7, "Statistics") |
+| `GET /api/history` | | the newest finished grinds (section 7, "Recent grinds") |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
 | `GET /api/settings` | | `{"values":{<18 keys>},"current_profile":N}` |
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
@@ -71,13 +72,13 @@ which the grinder never answers.
 
 All four commands are served by `POST /api/command`: `stop`, `tare`, `start` and `motor_test`.
 
-The reads (`/api/status`, `/api/settings`, `/api/stats`) copy a snapshot the UI task publishes (see section 7); with no fresh
+The reads (`/api/status`, `/api/settings`, `/api/stats`, `/api/history`) copy a snapshot the UI task publishes (see section 7); with no fresh
 snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
 needs no snapshot.
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
-needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes) and 512 bytes for the statistics (the longest possible reply is 334 bytes).
+needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes), 512 bytes for the statistics (the longest possible reply is 334 bytes) and 2560 bytes for the history (ten worst-case entries are about 2 KB).
 
 ## 4. Settings and profile fields
 
@@ -385,6 +386,61 @@ number rule of section 4 (at most 3 decimals, one kept) and are bounded: a value
 reset) simply read as zeros. The members are additive: a client ignores members
 it does not know and treats a missing one as unknown, not as zero. Nothing here uses the clock or `millis()`.
 
+### Recent grinds (`GET /api/history`)
+
+The newest finished grinds, newest first, at most 10. Read-only, gated by the Web interface switch like every other
+read. The grinder keeps these grinds in a small file in its flash memory (two files of 16 records, written once per
+finished grind), so the list survives a restart and a power cut. A **factory reset clears it** (the files carry an id that
+is stored with the settings, so old grinds never appear next to freshly reset statistics); Menu "Purge logs" does not.
+The grinder has no wall clock, so there are no dates: a grind carries its age and nothing else about time.
+
+The reply is a copy the UI task takes from the history whenever it changes (within about 250 ms of the grind being
+recorded) and every 5 seconds otherwise; its own age limit is 15 s. The route answers 503 `ui_busy` when the copy is
+older than that, when it was never published since the switch went on, when the boot load of the history has not finished,
+or when the reply buffer cannot be allocated; a page asks again. A firmware without the route answers 404 from the HTTP
+server, which a page treats as "recent grinds not available" (the statistics may still exist).
+
+```
+{"count":2,"persistent":true,"grinds":[
+ {"id":57,"age_s":120,"profile":1,"mode":"weight","target_g":18.0,"target_s":null,"final_g":18.1,"time_ms":14230,
+  "motor_ms":9800,"pulses":2,"result":"complete"},
+ {"id":56,"age_s":null,"profile":0,"mode":"time","target_g":null,"target_s":5.0,"final_g":14.5,"time_ms":5000,
+  "motor_ms":4700,"pulses":0,"result":"max_pulses"}]}
+```
+
+An empty history is `{"count":0,"persistent":true,"grinds":[]}`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `count` | int | the number of entries in `grinds` (0 to 10) |
+| `persistent` | bool | `true` while the grinds are being saved to flash. `false` when the flash store is unavailable or the last write failed: the list is then kept in memory only and is lost at the next restart (a page says so). It turns `true` again after a successful write. |
+| `grinds` | array | newest first |
+| `id` | int | the grind's number as the grinder counts them (it wraps; not an ordering key, the array order is) |
+| `age_s` | int or null | seconds since the grind ended, counted on the grinder's uptime clock and never negative. `null` for a grind recorded before the last restart (its age cannot be known without a clock). It grows between two requests without a new grind. |
+| `profile` | int | 0 `SINGLE`, 1 `DOUBLE`, 2 `CUSTOM`: the button that was used (not the weight bucket of the statistics) |
+| `mode` | string | `"weight"` or `"time"` |
+| `target_g` | number or null | the target weight in grams; `null` in time mode |
+| `target_s` | number or null | the target time in seconds; `null` in weight mode |
+| `final_g` | number | the settled weight in grams (may be negative with a bad reading) |
+| `time_ms` | int | duration of the grind |
+| `motor_ms` | int | time the motor was on |
+| `pulses` | int | correction pulses (time mode: additional pulses) |
+| `result` | string | `complete`, `max_pulses` (finished after the maximum number of pulses), `overshoot`, `timeout`, or `unknown` (also for a code a later firmware adds) |
+
+**Error** is not sent: a page computes it as `final_g - target_g` (positive is over the target, negative is under) for a
+weight-mode grind. Only finished grinds are listed: a grind that was stopped is not recorded, and timeouts and overshoots
+are (with their `result`), although the statistics do not count them. Weights are bounded and rounded like the
+rest of the API (section 4): a value that is not finite is `0.0`, the magnitude is cut at 1000000, a value under 0.0005
+is `0.0` (so there is never `-0.0`), and numbers have at most 3 decimals. `profile` is cut to 2. `age_s` is
+`uptime - ended` on the grinder's clock `millis() / 1000` (it restarts from 0 after about 49 days; an entry then looks
+0 s old rather than negative). The grinder sends no free text and nothing about the network or the device.
+Everything is additive: a client ignores members it does not know and tolerates an unknown `result`.
+
+**Not guaranteed:** after a power cut during a write, or when a file turns out torn, the list can lose the grinds that
+were recorded before the cut in the older file (the newest ones in the active file are kept; the exact guarantee is in
+`docs/DESIGN-NOTES.md`, "Persistent history (chg016)"). A filesystem that is not available at boot keeps the history in
+memory only (`persistent` is `false`).
+
 ## 8. Error codes
 
 Every refusal, with its HTTP status. `status` is what the client sees; `error` is the stable machine-readable code.
@@ -419,12 +475,21 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `load_cell_not_connected` | 409 | load cell not connected (start) |
 | `load_cell_no_data` | 409 | load cell delivers no data (start) |
 | `load_cell_rate_invalid` | 409 | load cell sample rate invalid (start) |
-| `ui_busy` | 503 | the UI task did not pick a write up within about 500 ms or finish it within 2 s (the write may still complete in the second case), or a read found no fresh snapshot |
+| `ui_busy` | 503 | the UI task did not pick a write up within about 500 ms or finish it within 2 s (the write may still complete in the second case), or a read found no fresh snapshot (for `/api/history` also: the boot load of the history has not finished, or the reply buffer could not be allocated) |
 | `store_failed` | 500 | a value could not be persisted; fields before it in the apply order stay applied (section 6) |
 
 ## 9. Change rules
 
 Adding a setting means: the menu table and `UiSettings` first, then one row in the field table of
 `portal_api.cpp`, the vectors, the tables above (the pytest guard fails until all agree). Never rename a key or an
-error code, pages rely on them. Never add a token requirement, a CORS header, or a command that takes a free
+error code, pages rely on them.
+
+Adding a **read route** (like `/api/stats` and `/api/history`) means: `GET` only, `PortalRoute::API_READ` (the Web
+interface gate, the Host and Origin guards and `Cache-Control: no-store` come with it), its own snapshot slot that the
+UI task fills and the HTTP task only copies (own lock, own age limit, 503 `ui_busy` when stale), a reply buffer from
+`ReplyBuffer` and never a large local on the HTTP task's 6 KB stack, a pure encoder with a truncation test at every
+byte and a worst-case size margin, encoder vectors in `portal_api_vectors.json`, the Python mirror in
+`tools/portal/portal_model.py` and `dev_server.py`, a row in the gate table and the routes table above, and a free
+handler slot (`UPDATE_HTTP_MAX_URI_HANDLERS`, 12 of 16 used). The HTTP task never touches the filesystem, NVS, LVGL or the
+controllers for it. Additive members never change the contract version. Never add a token requirement, a CORS header, or a command that takes a free
 target weight or time without a new plan: the panel is open on the local network by design.

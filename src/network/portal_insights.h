@@ -5,7 +5,7 @@
 
 // The recent-grinds history as the web panel sees it (chg016). Pure and host-tested (no Arduino/ESP/filesystem). The UI
 // task converts the firmware's history snapshot into this type and publishes it through PortalCommandGate; the HTTP
-// task only copies it. The JSON encoder for GET /api/history is a later step; this is the data it will encode.
+// task only copies it. The JSON encoder for GET /api/history is portal_encode_history() in portal_api.*.
 
 struct GrindHistorySnapshot;  // logging/grind_history.h
 
@@ -33,3 +33,7 @@ struct PortalHistory {
 
 // Field-for-field copy, at most PORTAL_HISTORY_MAX entries
 void portal_history_from_snapshot(const GrindHistorySnapshot& snapshot, PortalHistory* out);
+
+// The API name of a GrindHistoryResult value ("complete", "max_pulses", "overshoot", "timeout"); every other value,
+// also 255, is "unknown". The names are part of the contract (docs/PORTAL-API.md section 7, "Recent grinds").
+const char* portal_history_result_name(uint8_t result);

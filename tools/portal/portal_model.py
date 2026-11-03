@@ -207,6 +207,46 @@ def stats_document(stats):
     return doc
 
 
+HISTORY_MAX = 10
+HISTORY_KEYS = ("id", "age_s", "profile", "mode", "target_g", "target_s", "final_g", "time_ms", "motor_ms", "pulses",
+                "result")
+HISTORY_WEIGHT_MAX = 1e6
+HISTORY_RESULTS = {0: "complete", 1: "max_pulses", 2: "overshoot", 3: "timeout"}  # anything else is "unknown"
+
+
+def bounded_history_weight(value):
+    """A history weight as the firmware encodes it: not finite is 0, magnitude at most 1e6, under 0.0005 is 0.0."""
+    value = float(value)
+    if not math.isfinite(value):
+        return 0.0
+    value = max(-HISTORY_WEIGHT_MAX, min(HISTORY_WEIGHT_MAX, value))
+    return 0.0 if abs(value) < 0.0005 else value
+
+
+def history_document(entries, persistent, now_s):
+    """The GET /api/history document (portal_encode_history). `entries` are dicts with the members id, ended_s,
+    earlier_boot, profile, mode (0 weight, 1 time), target, final_g, time_ms, motor_ms, pulses, result (newest first);
+    at most 10 are used. age_s is now_s - ended_s, never negative, and null for an entry from an earlier boot."""
+    grinds = []
+    for e in list(entries)[:HISTORY_MAX]:
+        time_mode = e["mode"] == 1
+        target = 0.0 if float(e["target"]) < 0 else bounded_history_weight(e["target"])
+        grinds.append({
+            "id": int(e["id"]),
+            "age_s": None if e["earlier_boot"] else max(0, int(now_s) - int(e["ended_s"])),
+            "profile": min(int(e["profile"]), len(PROFILE_NAMES) - 1),
+            "mode": "time" if time_mode else "weight",
+            "target_g": None if time_mode else target,
+            "target_s": target if time_mode else None,
+            "final_g": bounded_history_weight(e["final_g"]),
+            "time_ms": int(e["time_ms"]),
+            "motor_ms": int(e["motor_ms"]),
+            "pulses": int(e["pulses"]),
+            "result": HISTORY_RESULTS.get(int(e["result"]), "unknown"),
+        })
+    return {"count": len(grinds), "persistent": bool(persistent), "grinds": grinds}
+
+
 def error_body(code):
     status, reason = ERRORS[code]
     return status, encode_json({"error": code, "reason": reason})
