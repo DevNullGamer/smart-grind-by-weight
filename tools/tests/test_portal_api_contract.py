@@ -306,7 +306,7 @@ def test_document_names_every_key_error_and_command():
         assert text in doc
 
 
-PURE_MODULES = ["portal_api", "portal_guard", "portal_mailbox", "portal_apply", "portal_snapshot"]
+PURE_MODULES = ["portal_api", "portal_guard", "portal_mailbox", "portal_apply", "portal_snapshot", "portal_insights"]
 
 
 @pytest.mark.parametrize("module", [f"src/network/{name}.{ext}" for name in PURE_MODULES for ext in ("h", "cpp")])
@@ -325,7 +325,7 @@ def test_portal_modules_are_in_the_native_build_and_registered():
         assert f"+<network/{name}.cpp>" in ini
     main = read("test_native/test_main.cpp")
     for name in ("run_portal_api_tests", "run_portal_guard_tests", "run_portal_mailbox_tests",
-                 "run_portal_apply_tests", "run_portal_snapshot_tests"):
+                 "run_portal_apply_tests", "run_portal_snapshot_tests", "run_portal_insights_tests"):
         assert main.count(name) == 2
 
 
