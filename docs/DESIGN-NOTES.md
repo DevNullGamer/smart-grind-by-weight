@@ -661,3 +661,66 @@ Status from the chg014 log. Bench runs were on COM15 with the `...-wifi-dev` env
 3. **`finish_motor_test()` on a poll-timer creation failure books statistics** and shows the result notice.
 4. **`START_FAILED` maps to 409 `busy`.** A motor pulse that could not start is answered as busy.
 5. **`nvs_open` NOT_FOUND log noise.** With the Web switch on and a board that never saved a setting, the settings read logs NOT_FOUND about every 10 s. A quiet read would remove it.
+
+## Reference moved from CLAUDE.md (chg014 housekeeping)
+
+CLAUDE.md is loaded into every agent spawn, so reference material that agents do not need on every task moved here (chg014 housekeeping; CLAUDE.md was 17.7 KB). Each block below is copied verbatim from CLAUDE.md. Binding rules (never/always/only) stayed in CLAUDE.md; where a moved block also contains one, it is repeated here as part of the verbatim text.
+
+### Board detection prose
+
+- Board is detected at runtime (`src/hardware/board_detect.cpp`, `board_decide.cpp`; GPIO45 pull-up read, V2 confirmed by TE edges, GPIO18 hint; a conflicting level can veto to UNKNOWN/cached board). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
+
+### Update intervals
+
+**Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
+
+### Grind phases
+
+**Grind Phases:**
+- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
+- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
+- `PURGE_CONFIRM` - Purge mode pause so the user can discard grinds before the main grind
+- **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+
+### Grinder Purge/Prime
+
+**Grinder Purge/Prime:**
+- **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
+- **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
+- **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
+- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
+- **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
+- **No logging** during PURGE_CONFIRM
+- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amt_g` (float: 0.1-2.5, default=1.0)
+
+### Time mode pulses
+
+**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+
+### Grind settings
+
+**Grind Settings:** Configurable through Menu → Grind Settings page
+- **Mode Selection**: Weight/Time radio buttons
+- **Swipe Gestures Toggle**: vertical swipe mode switching (default: disabled)
+- **Automation**: Start on Cup and Return on Removal toggles
+- **Purging**: Keep/Remove radio buttons and Amount slider (0.1g-2.5g)
+- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time); purge prefs above. Swipe works only when enabled
+
+### Color scheme
+
+**Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
+- `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color
+- `THEME_COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
+- `THEME_COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
+- `THEME_COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
+- `THEME_COLOR_ERROR`: 0xFF0000 (Red) - Error states
+- `THEME_COLOR_BACKGROUND`: 0x000000 (Black) - Background
+- `THEME_COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
+
+### Font usage hierarchy
+
+**Font Usage Hierarchy:**
+- `lv_font_montserrat_24`: Standard text and button labels
+- `lv_font_montserrat_32`: Button symbols (OK, CLOSE, PLUS, MINUS)
+- `lv_font_montserrat_36`: Screen titles
+- `lv_font_montserrat_56`: Large weight displays

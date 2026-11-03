@@ -45,7 +45,7 @@ python3 tools/grinder.py analyze
 
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
-- Board is detected at runtime (`src/hardware/board_detect.cpp`, `board_decide.cpp`; GPIO45 pull-up read, V2 confirmed by TE edges, GPIO18 hint; a conflicting level can veto to UNKNOWN/cached board). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
+- Board is detected at runtime (signals and files: details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)"). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
 - Motor is enabled only when the board is established by PROBE or USER (not UNKNOWN/CACHED). Never drive GPIO18 before the board is known or on V2 (touch INT). Pin parking happens at the top of `setup()`; `board_set()` runs before display init.
 - Override: NVS `board_override` (0 auto/1 V1/2 V2), set via Menu -> Hardware board, on-screen picker (UNKNOWN), or BLE `grinder.py board` (v1/v2 only while board not established).
 - One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
@@ -78,48 +78,24 @@ python3 tools/grinder.py analyze
 - `UIManager::init` needs an initialised display; if the display fails the UI stays off (update() no-op).
 - Menu NVS keys only in `system/ui_settings.*` (UI never opens `Preferences`); rows are table-driven (`menu_setting_table`).
 
-**Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
+**Update Intervals** (`src/config/system.h`): details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 
 **Load cell reads (chg004):** control code reads the load cell only through `CircularBufferMath` (spinlock; readers copy at most `CBM_MAX_WINDOW_SAMPLES` newest samples, other passes are bounded in-place walks of the 1024-entry ring; no logging or allocation inside the lock). `update_async()` and `get_raw_adc_data()` belong to the Core 0 sampling task only; `calibrate()` reads only the filter, never the HX711 (details in `docs/DESIGN-NOTES.md` "Tuning batch (chg004)").
 
-**Grind Phases:**
-- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
-- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
-- `PURGE_CONFIRM` - Purge mode pause so the user can discard grinds before the main grind
-- **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+**Grind Phases:** phase list and timeout: details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 
-**Grinder Purge/Prime:**
+**Grinder Purge/Prime:** details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 - **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
-- **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
-- **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
-- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
-- **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
 - **No logging** during PURGE_CONFIRM
-- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amt_g` (float: 0.1-2.5, default=1.0)
 
-**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+**Time Mode Pulses:** details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 
-**Grind Settings:** Configurable through Menu → Grind Settings page
-- **Mode Selection**: Weight/Time radio buttons
-- **Swipe Gestures Toggle**: vertical swipe mode switching (default: disabled)
-- **Automation**: Start on Cup and Return on Removal toggles
-- **Purging**: Keep/Remove radio buttons and Amount slider (0.1g-2.5g)
-- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time); purge prefs above. Swipe works only when enabled
+**Grind Settings:** details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
+- Swipe works only when enabled
 
-**Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
-- `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color
-- `THEME_COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
-- `THEME_COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
-- `THEME_COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
-- `THEME_COLOR_ERROR`: 0xFF0000 (Red) - Error states
-- `THEME_COLOR_BACKGROUND`: 0x000000 (Black) - Background
-- `THEME_COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
+**Color Scheme** (`src/config/theme.h`): details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 
-**Font Usage Hierarchy:**
-- `lv_font_montserrat_24`: Standard text and button labels
-- `lv_font_montserrat_32`: Button symbols (OK, CLOSE, PLUS, MINUS)
-- `lv_font_montserrat_36`: Screen titles
-- `lv_font_montserrat_56`: Large weight displays
+**Font Usage Hierarchy:** details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
 
 ## Development Notes
 
