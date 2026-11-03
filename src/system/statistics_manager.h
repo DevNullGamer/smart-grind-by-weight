@@ -1,32 +1,7 @@
 #pragma once
 #include <Preferences.h>
 #include <cstdint>
-
-// Represents the persistent snapshot of lifetime statistics.
-struct StatisticsSnapshot {
-    static constexpr uint32_t kVersion = 2;
-
-    uint32_t version = kVersion;
-    uint32_t total_grinds = 0;
-    uint32_t single_shots = 0;
-    uint32_t double_shots = 0;
-    uint32_t custom_shots = 0;
-    uint32_t motor_runtime_sec = 0;
-    uint32_t motor_runtime_ms_remainder = 0;
-    uint32_t device_uptime_hrs = 0;
-    uint32_t device_uptime_min_remainder = 0;
-    float total_weight_kg = 0.0f;
-    uint32_t weight_mode_grinds = 0;
-    uint32_t time_mode_grinds = 0;
-    uint32_t time_pulses = 0;
-    uint32_t total_pulses = 0;
-    uint32_t accuracy_sample_count = 0;
-    float accuracy_sum = 0.0f;
-    uint32_t pulse_sample_count = 0;
-    float pulse_sum = 0.0f;
-    uint32_t reserved0 = 0; // Reserved for future expansion / alignment
-    uint32_t reserved1 = 0;
-};
+#include "statistics_snapshot.h"
 
 // Manages lifetime statistics stored in NVS (Preferences namespace: "stats")
 // Tracks usage, mode-specific, and quality/performance metrics across reboots.
@@ -57,6 +32,9 @@ public:
     float get_avg_accuracy_g() const;
     uint32_t get_total_pulses() const;
     float get_avg_pulses() const;
+
+    // All counters copied under ONE lock (no torn read across a persisting grind); no logging or allocation inside
+    StatisticsSnapshot get_snapshot() const;
 
     // Reset operations
     void reset_all();             // Clear all statistics (factory reset)

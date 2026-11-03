@@ -11,6 +11,7 @@ import json
 import re
 import sys
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -125,6 +126,22 @@ def test_decision_and_write_vectors():
         assert got == c["error"], c["name"]
 
 
+def test_status_vectors():
+    assert len(VECTORS["status_cases"]) >= 9
+    for c in VECTORS["status_cases"]:
+        i = c["input"]
+        doc = model.status_document(i["ui_state"], i["grind_phase"], i["busy"], i["weight_g"], i["motor_available"],
+                                    i["start_block"], i["motor_test_block"], i["uptime_s"], i["build"],
+                                    i["web_interface"], i["warnings"])
+        assert model.encode_json(doc) == c["json"], c["name"]
+
+
+def test_warning_ordering_ignores_duplicates_and_unknown_codes():
+    assert model.ordered_warnings([]) == []
+    assert model.ordered_warnings(["load_cell_not_calibrated", "motor_fault", "motor_fault", "bogus"]) == \
+        ["motor_fault", "load_cell_not_calibrated"]
+
+
 def test_number_formatting_rule():
     assert model.encode_json({"a": 9.0, "b": 21.5, "c": 0.1, "d": 0.12345, "e": 3, "f": True, "g": None}) == \
         '{"a":9.0,"b":21.5,"c":0.1,"d":0.123,"e":3,"f":true,"g":null}'
@@ -138,8 +155,10 @@ def test_committed_page_is_built_from_its_sources():
 
 def test_page_content_rules():
     page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
-    assert "REFERENCE PAGE, not the final portal" in page
-    assert "PortalClient" in page and "/*@@PORTAL_CLIENT@@*/" not in page
+    assert "<title>Grinder panel</title>" in page and "REFERENCE PAGE" not in page
+    assert "prefers-color-scheme" in page
+    assert "PortalClient" in page and "PortalView" in page
+    assert not re.search(r"/\*@@PORTAL_[A-Z]+@@\*/", page), "an unreplaced marker is left in index.html"
     for forbidden in ("localStorage", "sessionStorage", "Authorization", "Bearer", "console.", "innerHTML",
                       "http://", "https://", "<script src", "<link "):
         # CSP default-src 'self': nothing external; the page keeps no state and shows no raw markup
@@ -148,17 +167,81 @@ def test_page_content_rules():
 
 def test_page_fits_the_embed_budget():
     import gzip
-    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 64 * 1024 // 2
+    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, but the page reached 31.6 KB at step 7, so the
+    # target was raised deliberately to 40 KB. With the Insights tiles and the history list (step 12) it is 39.3 KB.
+    # Any further raise needs its own reason; trim duplication in the sources first.
+    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 40 * 1024
 
 
-def test_build_page_rejects_bad_sources(tmp_path):
-    (tmp_path / "page.src.html").write_text("<html>no marker</html>", encoding="utf-8")
-    (tmp_path / "portal-client.js").write_text("var a;", encoding="utf-8")
-    with pytest.raises(build_page.PageBuildError):
+def make_sources(directory):
+    """A minimal valid source set for build_page.render_page."""
+    files = {
+        "page.src.html": "<style>\n/*@@PORTAL_CSS@@*/\n</style>\n<script>\n/*@@PORTAL_CLIENT@@*/\n</script>\n"
+                         "<script>\n/*@@PORTAL_VIEW@@*/\n</script>\n<script>\n/*@@PORTAL_APP@@*/\n</script>\n",
+        "portal.css": "a { color: red; }\n",
+        "portal-client.js": "var client;\n",
+        "portal-view.js": "var view;\n",
+        "portal-app.js": "var app;\n",
+    }
+    for name, text in files.items():
+        (directory / name).write_bytes(text.encode("utf-8"))  # bytes: no platform newline translation
+
+
+def test_build_page_inlines_every_part(tmp_path):
+    make_sources(tmp_path)
+    page = build_page.render_page(tmp_path)
+    for part in ("a { color: red; }", "var client;", "var view;", "var app;"):
+        assert part in page
+    assert "@@PORTAL" not in page
+
+
+def test_build_page_crlf_sources_build_the_same_bytes(tmp_path):
+    lf = tmp_path / "lf"
+    crlf = tmp_path / "crlf"
+    lf.mkdir()
+    crlf.mkdir()
+    make_sources(lf)
+    make_sources(crlf)
+    for path in crlf.iterdir():
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert build_page.render_page(lf) == build_page.render_page(crlf)
+
+
+def test_build_page_keeps_marker_text_inside_a_part_verbatim(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-app.js").write_text("var m = '/*@@PORTAL_VIEW@@*/';\n", encoding="utf-8")
+    page = build_page.render_page(tmp_path)
+    assert "var m = '/*@@PORTAL_VIEW@@*/';" in page  # not expanded a second time
+    assert page.count("var view;") == 1
+
+
+def test_stop_is_the_first_button_after_the_skip_link_and_never_disabled():
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    body = page[page.index("<body>"):]
+    assert body.index('class="skip-link"') < body.index("<button")
+    first = re.search(r"<button\b[^>]*>", body).group(0)
+    assert 'id="stop"' in first and "disabled" not in first
+    for tag in re.findall(r"<button\b[^>]*\bid=\"stop(?:-pane)?\"[^>]*>", body):
+        assert "disabled" not in tag, tag
+
+
+@pytest.mark.parametrize("marker", [m for m, _f, _c in build_page.PARTS])
+def test_build_page_rejects_missing_and_duplicated_marker(tmp_path, marker):
+    make_sources(tmp_path)
+    shell = (tmp_path / "page.src.html").read_text(encoding="utf-8")
+    (tmp_path / "page.src.html").write_text(shell.replace(marker, ""), encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match="exactly once"):
         build_page.render_page(tmp_path)
-    (tmp_path / "page.src.html").write_text("<p>" + build_page.MARKER + "</p>", encoding="utf-8")
-    (tmp_path / "portal-client.js").write_text("var s = '</script>';", encoding="utf-8")
-    with pytest.raises(build_page.PageBuildError):
+    (tmp_path / "page.src.html").write_text(shell + marker, encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match="exactly once"):
+        build_page.render_page(tmp_path)
+
+
+@pytest.mark.parametrize("name,closing", [(f, c) for _m, f, c in build_page.PARTS])
+def test_build_page_rejects_closing_tag_inside_a_part(tmp_path, name, closing):
+    make_sources(tmp_path)
+    (tmp_path / name).write_text(f"var s = '{closing.upper()}>';", encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match=name):
         build_page.render_page(tmp_path)
 
 
@@ -217,7 +300,7 @@ def test_info_is_open_even_when_web_is_off(server):
     assert status == 200 and doc["name"] == "grindbyweight"
 
 
-@pytest.mark.parametrize("path", ["/", "/api/status", "/api/settings", "/api/schema"])
+@pytest.mark.parametrize("path", ["/", "/api/status", "/api/settings", "/api/schema", "/api/stats"])
 def test_web_off_refuses_page_and_reads(server, path):
     server.sim.web_interface = False
     status, doc, _ = call(server, "GET", path)
@@ -371,8 +454,19 @@ def test_command_body_refusals(server):
 def test_status_shape(server):
     doc = call(server, "GET", "/api/status")[1]
     assert set(doc) == {"ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
-                        "motor_test_block", "uptime_s", "build", "web_interface"}
+                        "motor_test_block", "uptime_s", "build", "web_interface", "warnings"}
     assert doc["web_interface"] is True and doc["start_block"] is None
+
+
+def test_status_warnings_member_is_last_and_follows_dev_state(server):
+    raw = call(server, "GET", "/api/status")[1]
+    assert raw["warnings"] == [] and list(raw)[-2:] == ["web_interface", "warnings"]
+    s, d, _ = call(server, "POST", "/dev/state", '{"warnings":["load_cell_not_calibrated","motor_fault","motor_fault"]}')
+    assert s == 200 and d["warnings"] == ["motor_fault", "load_cell_not_calibrated"]
+    assert call(server, "GET", "/api/status")[1]["warnings"] == ["motor_fault", "load_cell_not_calibrated"]
+    for bad in ('{"warnings":"motor_fault"}', '{"warnings":["bogus"]}', '{"warnings":[1]}', '{"warnings":null}'):
+        assert call(server, "POST", "/dev/state", bad)[0] == 400
+    assert call(server, "POST", "/dev/state", '{"warnings":[]}')[1]["warnings"] == []
 
 
 def test_unknown_paths_and_methods(server):
@@ -407,3 +501,522 @@ def test_purge_amount_half_rounds_up_like_the_firmware():
     for text, expected in (("0.25", 0.3), ("0.45", 0.5), ("1.25", 1.3)):
         applied, adjusted = model.parse_patch(body_bytes('{"purge_amount_g":' + text + '}'))
         assert applied["purge_amount_g"] == pytest.approx(expected, abs=1e-6) and adjusted == ["purge_amount_g"]
+
+
+# ------------------------------------------------------------------------------------------ live view (chg016 step 2)
+def test_app_only_uses_element_ids_the_page_has():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    ids = set(re.findall(r"\$\('([a-z0-9-]+)'\)", app))
+    ids |= {f"{prefix}{i}" for prefix in ("start-", "target-", "badge-", "reason-start-") for i in range(3)} \
+        if "'start-' + i" in app else set()
+    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights")}
+    ids = {i for i in ids if not i.endswith("-")}
+    missing = sorted(i for i in ids if f'id="{i}"' not in page)
+    assert not missing, f"portal-app.js uses ids that page.src.html lacks: {missing}"
+
+
+def test_stop_is_never_disabled_by_the_page_code():
+    for name in ("portal-app.js", "portal-view.js"):
+        text = (ROOT / "web" / "portal" / name).read_text(encoding="utf-8")
+        assert not re.search(r"\$\('stop(-pane)?'\)\.disabled", text), name
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    # STOP is wired straight to the client, with no confirm() and no enabled-check in front of it
+    assert "confirm(" not in app and "prompt(" not in app
+    assert "$('stop').addEventListener('click', stop)" in app
+
+
+def test_every_start_tare_and_motor_test_button_has_visible_reason_text():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for button, reason in [("start-0", "reason-start-0"), ("start-1", "reason-start-1"), ("start-2", "reason-start-2"),
+                           ("tare", "reason-tare"), ("motor-test", "reason-motor-test")]:
+        tag = re.search(rf'<button id="{button}"[^>]*>', page).group(0)
+        assert f'aria-describedby="{reason}"' in tag
+        assert f'id="{reason}"' in page
+
+
+def test_real_page_is_served_and_drives_a_remote_start(server):
+    """Smoke: the page the dev server serves, then the calls the page makes for Start, in order."""
+    page = build_page.render_page()
+    server.RequestHandlerClass = dev.make_handler(server.sim, page)
+    status, _, res = call(server, "GET", "/")
+    assert status == 200
+    assert call(server, "GET", "/api/status")[1]["start_block"] is None
+    status, doc, _ = call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')
+    assert status == 202 and doc["lead_in_ms"] == 3000
+    # during the lead-in the status still reads ready and not busy (contract section 7)
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "ready" and st["busy"] is False
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["busy"] is True and st["ui_state"] == "grinding"
+    assert call(server, "POST", "/api/command", '{"cmd":"stop"}')[0] == 200
+    assert call(server, "GET", "/api/status")[1]["busy"] is False
+
+
+# ------------------------------------------------------------------------------------------ chg016 step 5: dev switches
+UPDATE_CASES = [c for c in VECTORS["decision_cases"]
+                if c["error"] == "update_in_progress" and c["cmd"] in ("start", "motor_test")]
+
+
+def _vector_block(name):
+    return None if name in ("NONE", "START_FAILED") else name.lower()
+
+
+@pytest.mark.parametrize("case", UPDATE_CASES, ids=lambda c: c["name"])
+def test_update_status_blocks_match_the_update_refusal_vectors(case):
+    sim = dev.SimGrinder(clock=FakeClock())
+    sim.update_held = case["update_held"]
+    sim.start_block = _vector_block(case["start_block"])
+    sim.motor_test_block = _vector_block(case["motor_test_block"])
+    status = sim.status_doc()
+    key = "start_block" if case["cmd"] == "start" else "motor_test_block"
+    assert status[key] == "update_in_progress"
+
+
+def test_update_held_status_keeps_screen_and_shape(server):
+    server.sim.update_held = True
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "update_in_progress" and doc["motor_test_block"] == "update_in_progress"
+    assert doc["ui_state"] == "ready" and doc["motor_available"] is True and doc["busy"] is False
+    assert set(doc) == {"ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
+                        "motor_test_block", "uptime_s", "build", "web_interface", "warnings"}
+    server.sim.update_held = False
+    assert call(server, "GET", "/api/status")[1]["start_block"] is None
+
+
+def test_update_lock_out_follows_the_firmware_block_order(server):
+    server.sim.update_held = True
+    server.sim.start_block = "load_cell_no_data"
+    server.sim.motor_test_block = "busy"
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "update_in_progress" and doc["motor_test_block"] == "update_in_progress"
+    # a disabled motor and a latched fault come before the lock-out in the firmware
+    server.sim.start_block = "motor_disabled"
+    server.sim.motor_test_block = "motor_fault"
+    doc = call(server, "GET", "/api/status")[1]
+    assert doc["start_block"] == "motor_disabled" and doc["motor_test_block"] == "motor_fault"
+    assert doc["motor_available"] is False
+
+
+def test_update_held_refuses_start_with_the_status_reason(server):
+    server.sim.update_held = True
+    assert call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')[1]["error"] == "update_in_progress"
+    assert call(server, "POST", "/api/command", '{"cmd":"motor_test"}')[1]["error"] == "update_in_progress"
+
+
+def test_drop_start_switch_drops_the_lead_in(server):
+    server.sim.drop_start = True
+    assert call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')[0] == 202
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "ready" and st["busy"] is False and st["grind_phase"] == "idle"
+    assert st["weight_g"] == 0.0
+    # nothing is left in flight: a tare goes through at once
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+
+
+@pytest.mark.parametrize("change,ui_after", [({"ui_state": "edit"}, "edit"),
+                                             ({"update_held": True}, "ready"),
+                                             ({"start_block": "load_cell_no_data"}, "ready")])
+def test_lead_in_is_dropped_when_something_took_over(server, change, ui_after):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    assert call(server, "POST", "/dev/state", json.dumps(change))[0] == 200
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["busy"] is False and st["ui_state"] == ui_after and st["grind_phase"] == "idle"
+
+
+def test_lead_in_is_dropped_at_once_when_the_screen_changes(server):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    call(server, "POST", "/dev/state", '{"ui_state":"edit"}')
+    # no time has passed: the lead-in is gone and nothing is in flight any more
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "edit" and st["busy"] is False
+    server.sim.ui_state = "ready"
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+    server.clock.now += 3.5
+    assert call(server, "GET", "/api/status")[1]["busy"] is False
+
+
+def test_drop_start_switch_waits_for_the_end_of_the_lead_in(server):
+    server.sim.drop_start = True
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 1.0
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    server.clock.now += 2.5
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+
+
+def test_in_flight_switch_refuses_commands_and_writes(server):
+    server.sim.in_flight = True
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    assert call(server, "PATCH", "/api/settings", '{"logging":true}')[1]["error"] == "command_in_flight"
+    assert call(server, "POST", "/api/command", '{"cmd":"stop"}')[0] == 200
+
+
+def test_ui_busy_switch_refuses_settings_reads_and_writes(server):
+    server.sim.ui_busy = True
+    assert call(server, "GET", "/api/settings")[1]["error"] == "ui_busy"
+    s, d, _ = call(server, "PATCH", "/api/settings", '{"logging":true}')
+    assert (s, d["error"]) == (503, "ui_busy")
+    assert call(server, "GET", "/api/status")[0] == 200
+    server.sim.ui_busy = False
+    assert call(server, "GET", "/api/settings")[0] == 200
+
+
+def test_store_failed_switch_fails_a_changing_write_and_stores_nothing(server):
+    server.sim.store_failed = True
+    s, d, _ = call(server, "PATCH", "/api/settings", '{"logging":true,"swipe":true}')
+    assert (s, d["error"]) == (500, "store_failed") and "values" not in d
+    values = call(server, "GET", "/api/settings")[1]["values"]
+    assert values["logging"] is False and values["swipe"] is False
+    # a write that changes nothing is not written, so it still succeeds
+    assert call(server, "PATCH", "/api/settings", '{"logging":false}')[0] == 200
+
+
+def test_latency_switch_delays_replies_but_not_dev_state(server):
+    server.sim.latency_ms = 800
+    t0 = time.monotonic()
+    assert call(server, "GET", "/api/status")[0] == 200
+    assert time.monotonic() - t0 >= 0.75
+    t0 = time.monotonic()
+    assert call(server, "GET", "/dev/state")[0] == 200
+    assert time.monotonic() - t0 < 0.6
+    assert call(server, "POST", "/dev/state", '{"latency_ms":0}')[0] == 200
+    assert server.sim.latency_ms == 0
+
+
+def test_weight_hold_shows_a_fixed_reading_until_released(server):
+    d = call(server, "POST", "/dev/state", '{"weight":18.04}')[1]
+    assert d["weight"] == 18.04
+    assert call(server, "GET", "/api/status")[1]["weight_g"] == 18.0
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+    assert call(server, "GET", "/api/status")[1]["weight_g"] == 0.0
+    assert call(server, "POST", "/dev/state", '{"weight":null}')[1]["weight"] is None
+
+
+def test_dev_state_lists_every_key(server):
+    doc = call(server, "GET", "/dev/state")[1]
+    assert set(doc) | set(dev.DEV_ACTION_KEYS) == set(dev.DEV_STATE_KEYS)
+    assert doc["latency_ms"] == 0 and doc["weight"] is None and doc["drop_start"] is False
+
+
+@pytest.mark.parametrize("body", ['{"latency_ms":-1}', '{"latency_ms":30001}', '{"latency_ms":1.5}',
+                                  '{"latency_ms":true}', '{"weight":"12"}', '{"weight":1001}', '{"weight":true}',
+                                  '{"drop_start":"yes"}', '{"ui_busy":1}', '{"store_failed":null}'])
+def test_dev_state_rejects_wrong_values(server, body):
+    s, d, _ = call(server, "POST", "/dev/state", body)
+    assert (s, d["error"]) == (400, "dev_state")
+
+
+def test_flags_build_the_simulator():
+    args = dev.build_parser().parse_args(["--update-held", "--drop-start", "--web-off", "--ui", "edit",
+                                          "--start-block", "load_cell_no_data", "--motor-test-block", "motor_fault"])
+    sim = dev.make_simulator(args)
+    assert sim.update_held and sim.drop_start and not sim.web_interface and sim.ui_state == "edit"
+    assert sim.start_block == "load_cell_no_data" and sim.motor_test_block == "motor_fault"
+    assert dev.make_simulator(dev.build_parser().parse_args([])).drop_start is False
+
+
+def test_legacy_status_flag_leaves_out_the_warnings_member():
+    sim = dev.make_simulator(dev.build_parser().parse_args(["--legacy-status"]))
+    assert sim.legacy_status is True
+    assert dev.make_simulator(dev.build_parser().parse_args([])).legacy_status is False
+    sim.set_dev_state({"warnings": ["motor_fault"]})
+    doc = sim.status_doc()
+    assert "warnings" not in doc
+    assert list(doc) == ["ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
+                         "motor_test_block", "uptime_s", "build", "web_interface"]
+    assert sim.dev_state()["warnings"] == ["motor_fault"]  # the dev key keeps its value
+
+
+def _readme_text():
+    return (PORTAL_TOOLS / "README.md").read_text(encoding="utf-8")
+
+
+def test_readme_documents_every_flag():
+    readme = _readme_text()
+    flags = [o for action in dev.build_parser()._actions for o in action.option_strings
+             if o.startswith("--") and o != "--help"]
+    assert flags
+    for flag in flags:
+        # A row of the Flags table, not a mention elsewhere in the README
+        assert re.search(rf"^\| `{re.escape(flag)}[ `]", readme, re.M), (
+            f"README.md has no Flags table row for {flag}")
+
+
+def test_readme_documents_every_dev_state_key():
+    readme = _readme_text()
+    keys = set(dev.SimGrinder().dev_state())  # the keys the server really reports, not the constant
+    assert keys | set(dev.DEV_ACTION_KEYS) == set(dev.DEV_STATE_KEYS)
+    for key in set(dev.DEV_STATE_KEYS):
+        assert f"| `{key}` |" in readme, f"README.md has no table row for the /dev/state key {key}"
+
+
+def test_readme_has_a_row_for_every_page_state():
+    readme = _readme_text().lower()
+    for state in ("offline", "web interface off", "busy", "not ready", "update running", "motor fault",
+                  "ui_busy", "command_in_flight", "store_failed", "invalid_device_name", "out_of_range",
+                  "empty data"):
+        assert state in readme, f"README.md lacks a reproduction for {state}"
+
+
+def test_strip_is_marked_stale_with_the_readout():
+    src = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    css = (ROOT / "web" / "portal" / "portal.css").read_text(encoding="utf-8")
+    assert 'id="strip"' in src
+    assert "setClass($('strip'), 'is-stale', readout.stale);" in app
+    assert ".strip.is-stale .weight" in css
+
+
+# ------------------------------------------------------------------------------------------ lifetime statistics
+def test_stats_vectors():
+    assert len(VECTORS["stats_cases"]) >= 10
+    for c in VECTORS["stats_cases"]:
+        assert model.encode_json(model.stats_document(c["input"])) == c["json"], c["name"]
+
+
+def test_stats_document_orders_members_and_bounds_fractions():
+    doc = model.stats_document({"powered_minutes": 5, "total_grinds": 2.0, "avg_pulses": float("nan"),
+                                "total_weight_kg": "inf", "avg_abs_error_g": -3, "unknown_member": 9})
+    assert list(doc) == list(model.STATS_KEYS) and "unknown_member" not in doc
+    assert doc["total_grinds"] == 2 and isinstance(doc["total_grinds"], int)
+    assert doc["avg_pulses"] == 0.0 and doc["total_weight_kg"] == 0.0 and doc["avg_abs_error_g"] == 0.0
+    assert doc["single"] == 0 and doc["powered_minutes"] == 5
+    assert model.stats_document({"total_weight_kg": 5e12})["total_weight_kg"] == 1e9
+
+
+def test_stats_route_shape_and_headers(server):
+    status, doc, res = call(server, "GET", "/api/stats")
+    assert status == 200 and list(doc) == list(model.STATS_KEYS)
+    assert doc["total_grinds"] == 412 and doc["total_weight_kg"] == 8.43
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "GET", "/dev/state")[1]["stats"] == doc
+
+
+def test_stats_route_is_gated_like_the_other_reads(server):
+    assert call(server, "GET", "/api/stats", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/stats", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+    assert call(server, "POST", "/api/stats", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/stats", "{}")[0] == 405
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/stats")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/stats")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_no_insights_answers_404_like_a_firmware_without_the_route(server):
+    server.sim.insights = False
+    server.sim.web_interface = False  # the HTTP server answers 404 before any gate of ours
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/stats", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/dev/state")[1]["insights"] is False
+    assert call(server, "POST", "/dev/state", '{"insights":true}')[1]["insights"] is True
+
+
+def test_a_finished_grind_joins_the_statistics_and_a_stopped_one_does_not(server):
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')  # 9 g in weight mode
+    server.clock.now += 3.5
+    call(server, "POST", "/api/command", '{"cmd":"stop"}')
+    assert call(server, "GET", "/api/stats")[1] == before
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5 + 20
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["total_grinds"] == before["total_grinds"] + 1
+    assert after["single"] == before["single"] + 1 and after["double"] == before["double"]
+    assert after["weight_mode"] == before["weight_mode"] + 1 and after["time_mode"] == before["time_mode"]
+    assert after["total_weight_kg"] == pytest.approx(before["total_weight_kg"] + 0.009, abs=0.001)
+    assert after["total_pulses"] == before["total_pulses"] + dev.SIM_GRIND_PULSES
+    assert after["motor_runtime_s"] > before["motor_runtime_s"]
+
+
+def test_the_double_bucket_and_time_mode_are_counted(server):
+    call(server, "PATCH", "/api/settings", '{"grind_mode":"time"}')
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')
+    server.clock.now += 3.5 + 60
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["time_mode"] == before["time_mode"] + 1 and after["weight_mode"] == before["weight_mode"]
+    assert after["avg_abs_error_g"] == before["avg_abs_error_g"]  # time mode has no error sample
+    assert after["single"] + after["double"] + after["custom"] == before["single"] + before["double"] + before["custom"] + 1
+
+
+def test_a_motor_test_adds_only_run_time(server):
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"motor_test"}')
+    server.clock.now += 2
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["total_grinds"] == before["total_grinds"]
+    assert after["motor_runtime_s"] == before["motor_runtime_s"] + 1  # 1.5 s on top of a whole second, rounded down
+
+
+def test_powered_minutes_follow_the_clock(server):
+    before = call(server, "GET", "/api/stats")[1]["powered_minutes"]
+    server.clock.now += 125
+    assert call(server, "GET", "/api/stats")[1]["powered_minutes"] == before + 2
+
+
+def test_stats_reset_makes_a_new_grinder_and_the_next_grind_is_the_first(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"stats_reset":true}')
+    assert s == 200 and all(v == 0 for v in d["stats"].values())
+    assert call(server, "GET", "/api/stats")[1] == d["stats"]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5 + 20
+    doc = call(server, "GET", "/api/stats")[1]
+    assert doc["total_grinds"] == 1 and doc["single"] == 1 and doc["weight_mode"] == 1
+    assert doc["avg_abs_error_g"] == dev.SIM_GRIND_ERROR_G and doc["avg_pulses"] == dev.SIM_GRIND_PULSES
+
+
+def test_stats_override_sets_members_and_rejects_bad_ones(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"stats":{"total_grinds":4294967295,"total_weight_kg":1234.5,"powered_minutes":900}}')
+    assert s == 200 and d["stats"]["total_grinds"] == 4294967295 and d["stats"]["total_weight_kg"] == 1234.5
+    assert d["stats"]["powered_minutes"] == 900 and d["stats"]["single"] == 180  # the rest is kept
+    for bad in ('{"stats":5}', '{"stats":{"nope":1}}', '{"stats":{"total_grinds":-1}}', '{"stats":{"total_grinds":"x"}}',
+                '{"stats":{"total_grinds":true}}', '{"stats_reset":false}', '{"insights":"yes"}'):
+        assert call(server, "POST", "/dev/state", bad)[0] == 400, bad
+
+
+# ------------------------------------------------------------------------------------------ recent grinds (history)
+def _vector_entries(case):
+    entries = []
+    for e in case["input"]["entries"]:
+        e = dict(e)
+        for key in ("target", "final_g"):
+            if isinstance(e[key], str):
+                e[key] = float(e[key])  # "nan", "inf", "-inf"
+        entries.append(e)
+    return entries
+
+
+def test_history_vectors():
+    assert len(VECTORS["history_cases"]) >= 10
+    for c in VECTORS["history_cases"]:
+        doc = model.history_document(_vector_entries(c), c["input"]["persistent"], c["input"]["now_s"])
+        assert model.encode_json(doc) == c["json"], c["name"]
+
+
+def test_history_document_uses_at_most_ten_entries_and_never_a_negative_age():
+    entry = {"id": 1, "ended_s": 50, "earlier_boot": False, "profile": 1, "mode": 0, "target": 18.0, "final_g": 18.0,
+             "time_ms": 1, "motor_ms": 1, "pulses": 1, "result": 0}
+    doc = model.history_document([entry] * 14, True, 10)
+    assert doc["count"] == 10 == len(doc["grinds"]) and doc["grinds"][0]["age_s"] == 0
+    assert list(doc["grinds"][0]) == list(model.HISTORY_KEYS)
+
+
+def _finish_grinds(server, count, profile=0):
+    for _ in range(count):
+        call(server, "POST", "/api/command", '{"cmd":"start","profile":%d}' % profile)
+        server.clock.now += 3.5 + 20
+        call(server, "GET", "/api/status")  # the grind finishes and the complete screen shows
+        server.clock.now += 3.5  # the complete screen ends, the next start is accepted
+
+
+def test_history_route_shape_and_headers(server):
+    status, doc, res = call(server, "GET", "/api/history")
+    assert status == 200 and doc == {"count": 0, "persistent": True, "grinds": []}
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "POST", "/api/history", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/history", "{}")[0] == 405
+    assert call(server, "GET", "/api/history", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/history", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+
+
+def test_history_route_is_gated_and_follows_ui_busy(server):
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/history")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/history")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_finished_grinds_are_listed_newest_first_and_a_stopped_one_is_not(server):
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5
+    call(server, "POST", "/api/command", '{"cmd":"stop"}')
+    assert call(server, "GET", "/api/history")[1]["count"] == 0
+    _finish_grinds(server, 1, profile=0)
+    _finish_grinds(server, 1, profile=1)
+    _finish_grinds(server, 1, profile=2)
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc["count"] == 3 and [g["profile"] for g in doc["grinds"]] == [2, 1, 0]
+    assert [g["id"] for g in doc["grinds"]] == [3, 2, 1]
+    first = doc["grinds"][2]
+    assert first["mode"] == "weight" and first["target_g"] == 9.0 and first["target_s"] is None
+    assert first["final_g"] == pytest.approx(9.1) and first["pulses"] == dev.SIM_GRIND_PULSES
+    assert first["result"] == "complete"
+    ages = [g["age_s"] for g in doc["grinds"]]
+    assert ages == sorted(ages) and all(isinstance(a, int) for a in ages)
+
+
+def test_age_grows_between_two_requests_without_a_new_grind(server):
+    _finish_grinds(server, 1)
+    before = call(server, "GET", "/api/history")[1]["grinds"][0]["age_s"]
+    server.clock.now += 90
+    assert call(server, "GET", "/api/history")[1]["grinds"][0]["age_s"] == before + 90
+
+
+def test_a_time_mode_grind_has_target_s_and_no_target_g(server):
+    call(server, "PATCH", "/api/settings", '{"grind_mode":"time"}')
+    _finish_grinds(server, 1, profile=1)
+    g = call(server, "GET", "/api/history")[1]["grinds"][0]
+    assert g["mode"] == "time" and g["target_g"] is None and g["target_s"] == 10.0 and g["pulses"] == 0
+
+
+def test_history_keeps_the_newest_ten(server):
+    _finish_grinds(server, 12)
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc["count"] == 10 and doc["grinds"][0]["id"] == 12 and doc["grinds"][-1]["id"] == 3
+
+
+def test_history_dev_switches(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"history_fill":3}')
+    assert s == 200 and call(server, "GET", "/api/history")[1]["count"] == 3
+    grinds = call(server, "GET", "/api/history")[1]["grinds"]
+    assert [g["age_s"] for g in grinds] == [120, 1260, 2400]  # the simulated grinder is made old enough for them
+    assert call(server, "POST", "/dev/state", '{"history_fill":10}')[0] == 200
+    full = call(server, "GET", "/api/history")[1]
+    assert full["count"] == 10 and {g["result"] for g in full["grinds"]} == {"complete", "max_pulses", "overshoot", "timeout"}
+    assert any(g["mode"] == "time" for g in full["grinds"])
+    call(server, "POST", "/dev/state", '{"history_restart":true}')
+    restarted = call(server, "GET", "/api/history")[1]["grinds"]
+    assert len(restarted) == 10 and all(g["age_s"] is None for g in restarted)
+    call(server, "POST", "/dev/state", '{"history_persistent":false}')
+    assert call(server, "GET", "/api/history")[1]["persistent"] is False
+    assert call(server, "GET", "/dev/state")[1]["history_persistent"] is False
+    call(server, "POST", "/dev/state", '{"history_clear":true}')
+    doc = call(server, "GET", "/api/history")[1]
+    assert doc == {"count": 0, "persistent": False, "grinds": []}
+
+
+@pytest.mark.parametrize("body", ['{"history_fill":11}', '{"history_fill":-1}', '{"history_fill":true}',
+                                  '{"history_fill":"3"}', '{"history_clear":false}', '{"history_restart":1}',
+                                  '{"history_persistent":"no"}', '{"history_route":null}'])
+def test_history_dev_switches_reject_wrong_values(server, body):
+    s, d, _ = call(server, "POST", "/dev/state", body)
+    assert (s, d["error"]) == (400, "dev_state")
+
+
+def test_no_history_answers_404_but_keeps_the_statistics(server):
+    server.sim.history_route = False
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/history", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/api/stats")[0] == 200
+    assert call(server, "GET", "/dev/state")[1]["history_route"] is False
+    server.sim.history_route = True
+    server.sim.insights = False
+    assert call(server, "GET", "/api/history")[0] == 404  # --no-insights takes the older firmware's routes away
+    args = dev.build_parser().parse_args(["--no-history"])
+    assert dev.make_simulator(args).history_route is False
+    assert dev.make_simulator(dev.build_parser().parse_args([])).history_route is True

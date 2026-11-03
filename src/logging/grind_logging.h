@@ -175,6 +175,10 @@ public:
     void start_grind_session(const GrindSessionDescriptor& descriptor, float start_weight);
     void end_grind_session(const char* final_result, float final_weight, uint8_t pulse_count);
     void discard_current_session();         // Discard current session without saving
+
+    // Id tying the recent-grinds history files to this NVS (created on first use; a factory reset erases it, which
+    // retires the old history). 0 = not available. File-IO task only.
+    uint32_t history_epoch();
     
     // Logging methods
     void log_event(GrindEvent& event);       // **MODIFIED**: Takes non-const reference to set sequence ID

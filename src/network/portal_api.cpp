@@ -92,6 +92,13 @@ const PortalField kFields[PORTAL_FIELD_COUNT] = {
 };
 
 const char* const kProfileNames[PORTAL_PROFILE_COUNT] = {"SINGLE", "DOUBLE", "CUSTOM"};
+
+// Warning codes in priority order, the order of DiagnosticsController::get_highest_priority_warning
+// (tools/tests/test_portal_api_contract.py keeps the two in step)
+const char* const kWarningNames[PORTAL_WARNING_COUNT] = {
+    "board_unrecognized", "motor_fault",    "motor_disabled",     "hx711_not_connected",     "hx711_no_data",
+    "hx711_sample_rate_invalid", "mechanical_instability", "load_cell_noisy", "load_cell_not_calibrated",
+};
 const char* const kCommandNames[] = {"stop", "tare", "start", "motor_test"};
 constexpr size_t kCommandCount = sizeof(kCommandNames) / sizeof(kCommandNames[0]);
 
@@ -499,6 +506,11 @@ struct JsonOut {
         snprintf(tmp, sizeof(tmp), "%lu", static_cast<unsigned long>(v));
         raw(tmp);
     }
+    void uinteger64(uint64_t v) {
+        char tmp[24];
+        snprintf(tmp, sizeof(tmp), "%llu", static_cast<unsigned long long>(v));
+        raw(tmp);
+    }
     void boolean(bool v) { raw(v ? "true" : "false"); }
     void key(const char* k) {
         str(k);
@@ -776,6 +788,18 @@ int portal_command_success_status(PortalCommand cmd) {
     return (cmd == PortalCommand::START || cmd == PortalCommand::MOTOR_TEST) ? 202 : 200;
 }
 
+const char* portal_warning_name(size_t index) {
+    return index < PORTAL_WARNING_COUNT ? kWarningNames[index] : "";
+}
+
+int portal_warning_index(const char* name) {
+    if (!name) return -1;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if (strcmp(name, kWarningNames[i]) == 0) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
     JsonOut j(out, cap);
     j.put('{');
@@ -800,6 +824,113 @@ bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
     if (s.build < 0) j.raw("null"); else j.integer(s.build);
     j.raw(",\"web_interface\":");
     j.boolean(s.web_interface);
+    j.raw(",\"warnings\":[");
+    bool first_warning = true;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if (!((s.warnings >> i) & 1u)) continue;
+        if (!first_warning) j.put(',');
+        first_warning = false;
+        j.str(kWarningNames[i]);
+    }
+    j.put(']');
     j.put('}');
+    return j.done();
+}
+
+namespace {
+
+// A fractional statistic as a bounded, non-negative number (NaN, infinity and negatives become 0)
+double bounded_stat(float v) {
+    if (!isfinite(v) || v < 0.0f) return 0.0;
+    return v > PORTAL_STATS_FLOAT_MAX ? PORTAL_STATS_FLOAT_MAX : static_cast<double>(v);
+}
+
+}  // namespace
+
+bool portal_encode_stats(const PortalStats& s, char* out, size_t cap) {
+    JsonOut j(out, cap);
+    j.put('{');
+    j.raw("\"total_grinds\":");
+    j.uinteger(s.total_grinds);
+    j.raw(",\"single\":");
+    j.uinteger(s.single);
+    j.raw(",\"double\":");
+    j.uinteger(s.double_shots);
+    j.raw(",\"custom\":");
+    j.uinteger(s.custom);
+    j.raw(",\"weight_mode\":");
+    j.uinteger(s.weight_mode);
+    j.raw(",\"time_mode\":");
+    j.uinteger(s.time_mode);
+    j.raw(",\"total_weight_kg\":");
+    j.num(bounded_stat(s.total_weight_kg));
+    j.raw(",\"motor_runtime_s\":");
+    j.uinteger(s.motor_runtime_s);
+    j.raw(",\"avg_abs_error_g\":");
+    j.num(bounded_stat(s.avg_abs_error_g));
+    j.raw(",\"total_pulses\":");
+    j.uinteger(s.total_pulses);
+    j.raw(",\"avg_pulses\":");
+    j.num(bounded_stat(s.avg_pulses));
+    j.raw(",\"time_pulses\":");
+    j.uinteger(s.time_pulses);
+    j.raw(",\"powered_minutes\":");
+    j.uinteger64(s.powered_minutes);
+    j.put('}');
+    return j.done();
+}
+
+namespace {
+
+// A history weight or target as a bounded number: not finite is 0, the magnitude is cut at PORTAL_HISTORY_WEIGHT_MAX and
+// a value under half a thousandth is 0.0 (so a tiny negative error never prints as "-0.0")
+double bounded_history_weight(float v) {
+    if (!isfinite(v)) return 0.0;
+    double d = static_cast<double>(v);
+    if (d > PORTAL_HISTORY_WEIGHT_MAX) d = PORTAL_HISTORY_WEIGHT_MAX;
+    if (d < -PORTAL_HISTORY_WEIGHT_MAX) d = -PORTAL_HISTORY_WEIGHT_MAX;
+    return fabs(d) < 0.0005 ? 0.0 : d;
+}
+
+}  // namespace
+
+bool portal_encode_history(const PortalHistory& h, uint32_t now_s, char* out, size_t cap) {
+    JsonOut j(out, cap);
+    const size_t count = h.count > PORTAL_HISTORY_MAX ? PORTAL_HISTORY_MAX : h.count;
+    j.raw("{\"count\":");
+    j.uinteger(static_cast<uint32_t>(count));
+    j.raw(",\"persistent\":");
+    j.boolean(h.persistent);
+    j.raw(",\"grinds\":[");
+    for (size_t i = 0; i < count; i++) {
+        const PortalHistoryEntry& e = h.entries[i];
+        const bool time_mode = e.mode == 1;
+        if (i > 0) j.put(',');
+        j.raw("{\"id\":");
+        j.uinteger(e.id);
+        j.raw(",\"age_s\":");
+        if (e.earlier_boot) j.raw("null"); else j.uinteger(now_s >= e.ended_s ? now_s - e.ended_s : 0);
+        j.raw(",\"profile\":");
+        j.uinteger(e.profile < PORTAL_PROFILE_COUNT ? e.profile : static_cast<uint32_t>(PORTAL_PROFILE_COUNT - 1));
+        j.raw(",\"mode\":");
+        j.str(time_mode ? "time" : "weight");
+        const double target = e.target < 0.0f ? 0.0 : bounded_history_weight(e.target);
+        j.raw(",\"target_g\":");
+        if (time_mode) j.raw("null"); else j.num(target);
+        j.raw(",\"target_s\":");
+        if (time_mode) j.num(target); else j.raw("null");
+        j.raw(",\"final_g\":");
+        j.num(bounded_history_weight(e.final_g));
+        j.raw(",\"time_ms\":");
+        j.uinteger(e.time_ms);
+        j.raw(",\"motor_ms\":");
+        j.uinteger(e.motor_ms);
+        j.raw(",\"pulses\":");
+        j.uinteger(e.pulses);
+        j.raw(",\"result\":");
+        j.str(portal_history_result_name(e.result));
+        j.put('}');
+    }
+    j.raw("]}");
     return j.done();
 }

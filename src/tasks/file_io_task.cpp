@@ -1,6 +1,8 @@
 #include "file_io_task.h"
 #include "../controllers/grind_controller.h"
 #include "../config/constants.h"
+#include "../logging/grind_history_fs.h"
+#include "../logging/grind_logging.h"
 #include <Arduino.h>
 #include <LittleFS.h>
 
@@ -44,7 +46,11 @@ void FileIOTask::task_impl() {
     
     // Reset performance metrics
     reset_performance_metrics();
-    
+
+    // Recent-grinds history (chg016): read the files once, before the first end-of-grind operation can be drained.
+    // Two small reads; a missing or damaged file gives an empty history and never stops this task.
+    grind_history.begin(grind_logger.history_epoch());
+
     // Main file I/O processing loop
     while (task_running) {
         uint32_t cycle_start_time = millis();

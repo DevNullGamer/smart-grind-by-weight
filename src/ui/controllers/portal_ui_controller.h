@@ -4,7 +4,9 @@
 #include "../../network/portal_api.h"
 #include "../../network/portal_apply.h"
 #include "../../network/portal_guard.h"
+#include "../../network/portal_insights.h"
 #include "../../network/portal_snapshot.h"
+#include "../../logging/grind_history.h"
 #include "../../system/state_machine.h"
 
 class UIManager;
@@ -15,6 +17,12 @@ class UIManager;
 //  - Snapshot: while the Web interface is on, republishes the status every PORTAL_STATUS_PUBLISH_MS and the
 //    stored settings (settings, grind mode, profile targets, device name) every PORTAL_VALUES_REFRESH_MS and
 //    right after a write; GET /api/status, /api/settings read that copy.
+//    The lifetime statistics (GET /api/stats) are copied from statistics_manager every PORTAL_STATS_REFRESH_MS and on a
+//    screen state change into their own slot; only this task calls the statistics getters.
+//    The recent grinds (history ring, filled by the file-IO task) are copied by gather_history() into their own slot as
+//    soon as the ring or its flags changed (checked every PORTAL_STATUS_PUBLISH_MS) and otherwise every
+//    PORTAL_HISTORY_REFRESH_MS; a new grind also refreshes the statistics slot. The UI task never reads the history
+//    files and the HTTP task never reads the ring.
 //  - Mailbox: takes a PATCH /api/settings request, decides it (portal_write_decide: READY or MENU only, never
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
@@ -54,6 +62,11 @@ private:
     void publish_snapshot(uint32_t now_ms, bool reload_values);
     void load_values(PortalValues* out) const;
     PortalStatusInputs gather_status() const;
+    PortalStats gather_stats() const;
+    // Copies the history ring into history_snap_ / history_view_ (one short spinlock section, no file access)
+    void gather_history();
+    // Publishes the history slot when the ring changed, when force is set or when it is due; true when the ring changed
+    bool refresh_history(uint32_t now_ms, bool force);
     PortalDecisionInput gather_decision() const;
     bool grinder_busy() const;
 
@@ -64,6 +77,12 @@ private:
     UIState last_state_ = UIState::READY;
     bool publish_due_ = false;       // a write just finished: publish at once
     uint32_t last_publish_ms_ = 0;
+    uint32_t last_stats_ms_ = 0;     // statistics snapshot, refreshed on its own (slower) schedule
+    uint32_t last_history_check_ms_ = 0;
+    uint32_t last_history_publish_ms_ = 0;
+    bool history_seen_ = false;      // history_snap_ holds a copy that was published
+    GrindHistorySnapshot history_snap_;  // members, not locals: the UI task stack is shared with LVGL
+    PortalHistory history_view_;
     uint32_t values_loaded_ms_ = 0;
     PortalValues values_;
     bool values_valid_ = false;

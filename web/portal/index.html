@@ -2,68 +2,589 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grinder panel (reference page)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<title>Grinder panel</title>
 <style>
-  body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 1rem; max-width: 40rem; }
-  .banner { background: #ff3d00; color: #fff; font-weight: bold; padding: .75rem 1rem; border-radius: .4rem; }
-  .warn { background: #332200; color: #ffcc66; padding: .5rem 1rem; border-radius: .4rem; margin: .75rem 0; font-size: .9rem; }
-  h1 { font-size: 1.3rem; margin: 1rem 0 .25rem; }
-  h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #333; padding-bottom: .25rem; }
-  .row { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; flex-wrap: wrap; }
-  .row label { flex: 1 1 14rem; }
-  input[type=number], input[type=text], select { background: #222; color: #eee; border: 1px solid #555; border-radius: .3rem; padding: .35rem; width: 9rem; }
-  input[type=text] { width: 12rem; }
-  button { background: #00aaff; color: #000; border: 0; border-radius: .3rem; padding: .5rem .9rem; font-size: 1rem; cursor: pointer; }
-  button.stop { background: #ff0000; color: #fff; font-weight: bold; }
-  button.link { background: none; color: #00aaff; padding: .2rem; font-size: .85rem; text-decoration: underline; }
-  button:disabled { opacity: .5; cursor: default; }
-  .unit { color: #aaa; width: 2rem; }
-  #status dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem 1rem; margin: 0; }
-  #status dt { color: #aaa; }
-  #status dd { margin: 0; }
-  #message { min-height: 1.4rem; margin: .75rem 0; }
-  #message.error { color: #ff7777; }
-  #message.ok { color: #66dd66; }
-  #notes { color: #ffcc66; font-size: .9rem; }
-  #curl { width: 100%; box-sizing: border-box; background: #222; color: #eee; border: 1px solid #555; font-family: monospace; font-size: .8rem; }
-  .hint { color: #aaa; font-size: .85rem; }
+/* Web panel styles (chg016). Mobile first; min-width queries only. All colours are the custom properties below:
+   light values by default, one prefers-color-scheme block switches them. Final values are checked by the contrast
+   test (step 4). Hard rules of the page: no url(), no @import, no external fonts (CSP default-src 'self'). */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --raised: #ececee;
+  --text: #18181b;
+  --muted: #52525b;
+  --border: #7f7f88;
+  --hairline: #d4d4d8;
+  --primary: #c2310a;
+  --on-primary: #ffffff;
+  --accent: #0b6fa8;
+  --success: #12722d;
+  --warning: #8a5a00;
+  --error: #c4161c;
+  --on-error: #ffffff;
+  --focus: #0b6fa8;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 2px 8px rgba(0, 0, 0, .06);
+  --gutter: 16px;
+  --dock-h: 56px;
+  --tabbar-h: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0c;
+    --surface: #151517;
+    --raised: #1d1d20;
+    --text: #f2f2f3;
+    --muted: #a1a1a8;
+    --border: #76767e;
+    --hairline: #2c2c31;
+    --primary: #ff5a2b;
+    --on-primary: #1a0700;
+    --accent: #4cc2ff;
+    --success: #3ddc84;
+    --warning: #f5b83d;
+    --error: #ff6b6b;
+    --on-error: #1a0000;
+    --focus: #4cc2ff;
+    --shadow: none;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* focused elements must not hide behind the sticky header or the fixed dock and tab bar (phones) */
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 104px;
+  scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + var(--savebar-h, 0px) + 8px);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  /* room for the fixed STOP dock and the tab bar on phones */
+  padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 16px);
+}
+
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 1.125rem; line-height: 1.3; overflow-wrap: anywhere; }
+h2 { font-size: 1rem; }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+[hidden] { display: none !important; }
+
+.icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.skip-link {
+  position: absolute; left: 8px; top: -100px; z-index: 30;
+  background: var(--surface); color: var(--text); border: 2px solid var(--focus); border-radius: 10px; padding: 12px 16px;
+}
+.skip-link:focus { top: 8px; }
+
+/* ---- header: top bar plus the compact status strip (phones and tablets) */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--surface); border-bottom: 1px solid var(--hairline);
+  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+.topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.brand { flex: 1 1 auto; min-width: 0; }
+.brand h1 { overflow-wrap: break-word; }
+.brand .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.strip { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0 10px; }
+.strip .state { color: var(--muted); }
+.strip .weight { font-size: 1.5rem; font-weight: 700; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px;
+  border: 1px solid var(--border); border-radius: 16px; font-size: .875rem; white-space: nowrap;
+}
+.chip .icon { width: 16px; height: 16px; }
+
+/* ---- buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; min-width: 44px; padding: 8px 16px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+/* STOP: outlined while idle, solid while busy or in a lead-in (class is-busy). Same weight at every width. */
+.stop {
+  background: var(--surface); color: var(--error); border: 3px solid var(--error); border-radius: 10px;
+  font: inherit; font-size: 1.125rem; font-weight: 800; letter-spacing: .04em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+}
+.stop.is-busy { background: var(--error); color: var(--on-error); }
+/* phones: a fixed dock above the tab bar */
+.header .stop {
+  position: fixed; left: 0; right: 0; width: 100%; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 20;
+  min-height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
+}
+/* the dock is full-bleed: an outside ring would be clipped at the screen edges, so draw it inside the box;
+   on the solid (busy) fill the ring takes the text-on-fill colour */
+.header .stop:focus-visible { outline-offset: -6px; }
+.header .stop.is-busy:focus-visible { outline-color: var(--on-error); }
+.pane-stop { display: none; }
+
+/* ---- tab bar: fixed at the bottom on phones */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; background: var(--surface); border-top: 1px solid var(--hairline);
+  padding-bottom: var(--safe-bottom);
+}
+.tab {
+  flex: 1 1 0; min-height: var(--tabbar-h); padding: 6px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: 0; color: var(--muted); font: inherit; font-size: .8125rem; cursor: pointer;
+}
+.tab[aria-current="true"] { color: var(--primary); font-weight: 700; box-shadow: inset 0 3px 0 var(--primary); }
+/* edge-to-edge tabs: draw the ring inside the box so the screen edges do not clip it */
+.tab:focus-visible { outline-offset: -6px; }
+
+/* ---- content */
+.content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
+.layout { display: block; }
+.panel { display: grid; gap: 16px; align-content: start; }
+.card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+.card h2 { margin-bottom: 8px; }
+.muted { color: var(--muted); }
+.readout .state { color: var(--muted); }
+.readout .weight { font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700; line-height: 1.05; }
+.readout .phase { min-height: 1.5em; }
+
+.notice {
+  margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+  color: var(--muted); font-size: .875rem;
+}
+.messages { display: grid; }
+.message { grid-area: 1 / 1; min-height: 1.5em; }
+.message.error { color: var(--error); }
+
+/* ---- grind tab: live cards */
+.live { display: contents; }
+.note p + .btn { margin-top: 12px; }
+.banner { display: flex; gap: 12px; align-items: flex-start; border-width: 2px; }
+.banner.warning { border-color: var(--warning); }
+.banner.error { border-color: var(--error); }
+.banner.warning .icon { color: var(--warning); }
+.banner.error .icon { color: var(--error); }
+.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
+.readout .stop { margin-top: 12px; }
+.leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
+.profiles { display: grid; gap: 12px; }
+.profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); }
+.p-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.p-target { font-size: 1.5rem; font-weight: 700; }
+.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: 12px; padding: 0 8px; font-size: .8125rem; }
+.profile .btn { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; gap: 16px; }
+.action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
+.reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
+
+/* warnings list: icon shape, a text tag and the words carry the severity, the colour only supports them */
+.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: 12px; background: var(--raised); }
+.warn-row.error { border-left-color: var(--error); }
+.warn-row.warning { border-left-color: var(--warning); }
+.warn-row.error .icon { color: var(--error); }
+.warn-row.warning .icon { color: var(--warning); }
+.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
+.warn-body { min-width: 0; display: grid; gap: 4px; }
+.warn-title { font-weight: 700; overflow-wrap: anywhere; }
+.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
+.warn-row.error .warn-tag { color: var(--error); }
+.warn-row.warning .warn-tag { color: var(--warning); }
+.warn-action { color: var(--text); overflow-wrap: anywhere; }
+
+/* ---- insights tab: statistic tiles and the weight split */
+.note-line { font-size: .875rem; margin-top: 12px; }
+.note-line:empty { display: none; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 12px; margin: 12px 0 0; }
+.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; }
+.tile dt { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.tile dd { margin: 0; }
+.tile .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
+.tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.mix-bar { display: flex; height: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 12px; }
+.mix-bar .seg { min-width: 0; }
+.mix-bar .seg + .seg { border-left: 2px solid var(--surface); }
+.seg.s0, .swatch.s0 { background: var(--accent); }
+.seg.s1, .swatch.s1 { background: var(--primary); }
+.seg.s2, .swatch.s2 { background: var(--success); }
+.mix-list { margin: 0; display: grid; gap: 6px; }
+.mix-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.mix-row dt { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mix-row dd { margin: 0; font-weight: 600; }
+.swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.mix-note { font-size: .875rem; margin-top: 12px; }
+
+/* ---- insights tab: recent grinds (list, badges, error chart built from divs) */
+.h-notice { border-left: 4px solid var(--warning); padding: 4px 0 4px 12px; margin: 8px 0; }
+.h-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.h-list:empty { display: none; }
+.h-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); min-width: 0; }
+.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
+.h-head { justify-content: space-between; }
+.h-final { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.h-target, .h-detail, .h-age { font-size: .875rem; overflow-wrap: anywhere; }
+.h-error { font-weight: 600; }
+.h-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid currentColor; border-radius: 12px; padding: 0 8px; font-size: .8125rem; font-weight: 600; }
+.h-badge .icon { width: 16px; height: 16px; }
+.h-badge.ok { color: var(--success); }
+.h-badge.warning { color: var(--warning); }
+.h-badge.error { color: var(--error); }
+.h-badge.neutral { color: var(--muted); }
+.h-badge .icon-ok, .h-badge .icon-warning, .h-badge .icon-error { display: none; }
+.h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
+.h-chart { margin: 12px 0 0; }
+.h-caption { font-size: .8125rem; margin-bottom: 8px; }
+.h-bars { display: flex; gap: 4px; height: 96px; }
+.h-col { flex: 1 1 0; max-width: 32px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+.h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
+.h-up { justify-content: flex-end; }
+.h-bar { width: 100%; }
+.h-bar.over { background: var(--warning); border-radius: 3px 3px 0 0; }
+.h-bar.under { background: var(--accent); border-radius: 0 0 3px 3px; }
+.h-axis { background: var(--border); }
+.h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
+
+/* ---- settings tab: schema-driven form */
+.settings-form { display: contents; }
+#panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
+.fields { display: grid; gap: 20px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > legend, .field .lbl { font-weight: 600; }
+fieldset.field { border: 0; margin: 0; padding: 0; }
+fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+.field .hint { color: var(--muted); font-size: .875rem; }
+.field-msg { font-size: .875rem; min-height: 0; }
+.field-msg:empty { display: none; }
+.field-msg.error { color: var(--error); font-weight: 600; }
+.field-msg.adjusted { color: var(--warning); }
+.is-invalid { border-color: var(--error) !important; }
+
+input[type="text"], input[type="number"], select {
+  width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+}
+select { appearance: auto; }
+
+.stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+/* the input keeps a readable width ("xxxx.x" at 16 px); cards are never narrower than the row needs (see .panel) */
+.stepper input { text-align: center; width: auto; min-width: 64px; flex: 1 1 64px; }
+.stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
+.name-row { display: flex; align-items: center; gap: 8px; }
+.name-row .unit { color: var(--muted); flex: none; }
+
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head output { font-weight: 700; }
+input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
+
+/* segmented control: radio inputs, the label is the button */
+.seg-opts { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
+.seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.seg-opts span {
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
+  background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+}
+.seg-opts label:first-child span { border-left: 0; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
+/* the checked segment is filled with --primary: the --focus ring would vanish on it, so use the text-on-fill colour */
+.seg-opts input:checked:focus-visible + span { outline-color: var(--on-primary); }
+
+/* switch: a real checkbox with role=switch */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; }
+.switch-row .lbl { font-weight: 600; min-width: 0; }
+input.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0; cursor: pointer;
+  width: 52px; height: 32px; border: 2px solid var(--border); border-radius: 16px; background: var(--raised);
+}
+input.switch::before {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted);
+}
+input.switch:checked { background: var(--primary); border-color: var(--primary); }
+input.switch:checked::before { left: 24px; background: var(--on-primary); }
+
+/* unsaved-changes bar: fixed above the STOP dock on phones */
+.savebar {
+  position: fixed; left: 0; right: 0; z-index: 15;
+  bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
+  background: var(--surface); border-top: 2px solid var(--primary);
+}
+.save-info { flex: 1 1 96px; min-width: 0; }
+.save-info .reason { min-height: 0; }
+.save-info .reason:empty, .save-info .field-msg:empty { display: none; }
+.savebar .btn { flex: none; }
+.rename .addr { font-weight: 700; overflow-wrap: anywhere; }
+
+/* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
+@media (max-width: 599px) and (max-height: 450px) {
+  :root { --dock-h: 44px; --tabbar-h: 44px; }
+  .tab { flex-direction: row; gap: 6px; padding: 2px 4px; }
+  .stop { font-size: 1rem; }
+  html { scroll-padding-top: 64px; }
+}
+
+/* ---- tablet: tabs on top as a segmented control, STOP in the header */
+@media (min-width: 600px) {
+  :root { --gutter: 24px; }
+  .topbar { min-height: 60px; }  /* room for the 3 px ring plus 2 px offset around the 48 px STOP */
+  html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
+  body { padding-bottom: 24px; }
+  /* last in the header on the right; DOM and keyboard order keep STOP first */
+  .header .stop { order: 3; position: static; width: auto; flex: none; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: 10px; }
+  /* static again: the normal outside ring on the page background */
+  .header .stop:focus-visible, .header .stop.is-busy:focus-visible { outline-offset: 2px; outline-color: var(--focus); }
+  .strip { display: none; }
+  .tabbar {
+    position: static; display: flex; width: max-content; max-width: 100%; margin: 16px auto 0; padding: 4px;
+    background: var(--raised); border: 1px solid var(--hairline); border-radius: 12px;
+  }
+  .tab:focus-visible { outline-offset: 2px; }
+  .tab { flex-direction: row; gap: 8px; min-width: 112px; min-height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
+  .content { max-width: 688px; margin: 0 auto; }
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+  .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
+  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #panel-settings { padding-bottom: 24px; }
+  .savebar {
+    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: 14px;
+    padding: 8px 12px; box-shadow: var(--shadow);
+  }
+}
+
+/* ---- desktop: two panes, live controls on the left */
+@media (min-width: 900px) {
+  .header { padding-inline: max(var(--gutter), calc((100% - 1120px) / 2)); }
+  .tabbar { margin: 16px max(var(--gutter), calc((100% - 1120px) / 2)) 0 auto; }
+  .content { max-width: 1120px; padding-inline: var(--gutter); }
+  .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; align-items: start; }
+  /* the left pane scrolls by itself when it is taller than the window; padding keeps focus rings inside */
+  #panel-grind {
+    position: sticky; top: 88px; display: grid; grid-template-columns: minmax(0, 1fr);
+    max-height: calc(100vh - 104px); overflow-y: auto; padding: 4px; margin: -4px;
+  }
+  #panel-grind[hidden] { display: grid !important; }
+  #tab-grind { display: none; }
+  .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+  .profiles { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* wide enough for the centred 1120 px column: the header and the cards share the same edge */
+@media (min-width: 1168px) {
+  .content { padding-inline: 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .stop, .tab { transition: background-color .15s, color .15s, opacity .15s; }
+}
 </style>
 </head>
 <body>
-<div class="banner">REFERENCE PAGE, not the final portal</div>
-<div class="warn">With the web interface on, anyone on this network can change settings and start the grinder. There is no login.
-Keep Menu, WiFi, Web interface off when you do not need it.</div>
-<h1 id="name">Grinder</h1>
-<div id="message" role="status"></div>
-
-<h2>Status</h2>
-<div id="status"><dl id="status-list"></dl></div>
-<div class="row">
-  <button id="stop" class="stop" type="button">STOP</button>
-  <button id="tare" type="button">Tare</button>
-  <button id="motor_test" type="button">Motor test</button>
-</div>
-
-<h2>Profiles</h2>
-<div id="profiles"></div>
-
-<h2>Settings</h2>
-<form id="settings-form"></form>
-<div class="row">
-  <button id="apply" type="button">Apply changes</button>
-  <button id="reload" type="button">Reload from grinder</button>
-  <button id="copy-patch" class="link" type="button">Copy as curl</button>
-</div>
-<div id="notes"></div>
-
-<h2>Copy as curl</h2>
-<p class="hint">Shows the command for the last action (or the pending changes). Select and copy it if the copy button is not allowed by your browser (plain HTTP).</p>
-<textarea id="curl" rows="3" readonly></textarea>
-<div class="row"><button id="copy" type="button">Copy</button></div>
-
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"></rect></symbol>
+  <symbol id="i-grind" viewBox="0 0 24 24"><path d="M5 4h14l-4 7v9h-6v-9z"></path><path d="M9 14h6"></path></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></symbol>
+  <symbol id="i-insights" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"></path></symbol>
+  <symbol id="i-online" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r=".8"></circle></symbol>
+  <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9 9l6 6M15 9l-6 6"></path></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></symbol>
+</svg>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="header">
+  <div class="topbar">
+    <button id="stop" class="stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+    <div class="brand">
+      <h1 id="name">Grinder</h1>
+      <div id="build" class="build"></div>
+    </div>
+    <span id="conn" class="chip" role="status"><svg class="icon" aria-hidden="true"><use id="conn-icon" href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
+  </div>
+  <div id="strip" class="strip" aria-hidden="true">
+    <span id="strip-state" class="state">Connecting</span>
+    <span id="strip-weight" class="weight">-- g</span>
+  </div>
+</header>
+<nav id="tabs" class="tabbar" aria-label="Sections">
+  <button id="tab-grind" class="tab" type="button" data-tab="grind" aria-current="true"><svg class="icon" aria-hidden="true"><use href="#i-grind"></use></svg>Grind</button>
+  <button id="tab-settings" class="tab" type="button" data-tab="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
+  <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg>Insights</button>
+</nav>
+<main id="main" class="content" tabindex="-1">
+  <div class="messages">
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <div id="alert" class="message error" role="alert"></div>
+  </div>
+  <div class="layout">
+    <section id="panel-grind" class="panel" aria-label="Grind">
+      <div id="conn-note" class="card note" hidden>
+        <p id="conn-detail"></p>
+        <button id="retry" class="btn" type="button" hidden>Retry now</button>
+      </div>
+      <div id="weboff" class="card note" hidden>
+        <h2>The web interface is off</h2>
+        <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
+      </div>
+      <div id="live" class="live">
+        <div id="banner" class="card banner" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-warning"></use></svg>
+          <p id="banner-text"></p>
+        </div>
+        <div id="readout" class="card readout">
+          <h2>Now</h2>
+          <div id="readout-state" class="state">Connecting</div>
+          <div id="readout-weight" class="weight">-- g</div>
+          <div id="readout-phase" class="phase"></div>
+          <div id="readout-hint" class="muted"></div>
+          <div id="readout-seen" class="muted"></div>
+          <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+        </div>
+        <div id="leadin" class="card leadin" hidden>
+          <p id="leadin-text"></p>
+        </div>
+        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
+          <h2 id="warnings-h">Grinder warnings</h2>
+          <ul id="warnings-list" class="warn-list" role="list"></ul>
+          <template id="warning-row">
+            <li class="warn-row">
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <div class="warn-body">
+                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
+                <p class="warn-action"></p>
+              </div>
+            </li>
+          </template>
+        </section>
+        <div class="card">
+          <h2>Profiles</h2>
+          <div class="profiles">
+          <div id="profile-0" class="profile">
+            <div class="p-head"><strong>Single</strong><span id="badge-0" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-0" class="p-target">--</div>
+            <button id="start-0" class="btn primary" type="button" aria-label="Start Single" aria-describedby="reason-start-0">Start</button>
+            <p id="reason-start-0" class="reason"></p>
+          </div>
+          <div id="profile-1" class="profile">
+            <div class="p-head"><strong>Double</strong><span id="badge-1" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-1" class="p-target">--</div>
+            <button id="start-1" class="btn primary" type="button" aria-label="Start Double" aria-describedby="reason-start-1">Start</button>
+            <p id="reason-start-1" class="reason"></p>
+          </div>
+          <div id="profile-2" class="profile">
+            <div class="p-head"><strong>Custom</strong><span id="badge-2" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-2" class="p-target">--</div>
+            <button id="start-2" class="btn primary" type="button" aria-label="Start Custom" aria-describedby="reason-start-2">Start</button>
+            <p id="reason-start-2" class="reason"></p>
+          </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Tools</h2>
+          <div class="actions">
+            <div class="action">
+              <button id="tare" class="btn" type="button" aria-describedby="reason-tare">Tare</button>
+              <p id="reason-tare" class="reason"></p>
+            </div>
+            <div class="action">
+              <button id="motor-test" class="btn" type="button" aria-describedby="reason-motor-test">Motor test</button>
+              <p id="reason-motor-test" class="reason"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="panel-settings" class="panel" aria-label="Settings" hidden>
+      <div id="settings-status" class="card full"><p id="settings-status-text" class="muted">Loading the settings.</p></div>
+      <div id="rename" class="card full note rename" hidden>
+        <h2>Device name changed</h2>
+        <p id="rename-text"></p>
+        <p><a id="rename-link" class="addr" href="#main" hidden></a></p>
+      </div>
+      <div id="settings-notice" class="card full note" hidden>
+        <p id="settings-notice-text"></p>
+      </div>
+      <div id="settings-form" class="settings-form" hidden></div>
+      <div id="savebar" class="savebar" hidden>
+        <div class="save-info">
+          <strong id="save-count" aria-live="polite">0 changes</strong>
+          <p id="save-reason" class="reason"></p>
+          <p id="save-error" class="field-msg error"></p>
+        </div>
+        <button id="discard" class="btn" type="button">Discard</button>
+        <button id="save" class="btn primary" type="button" aria-describedby="save-reason">Save</button>
+      </div>
+    </section>
+    <section id="panel-insights" class="panel" aria-label="Insights" hidden>
+      <div class="card full">
+        <h2 id="insights-h">Lifetime statistics</h2>
+        <p id="insights-message" class="muted"></p>
+        <dl id="tiles" class="tiles" hidden></dl>
+        <p id="insights-note" class="muted note-line"></p>
+      </div>
+      <section id="mix" class="card full" aria-labelledby="mix-h" hidden>
+        <h2 id="mix-h">Grinds by final weight</h2>
+        <div id="mix-bar" class="mix-bar" aria-hidden="true"></div>
+        <dl id="mix-list" class="mix-list"></dl>
+        <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
+      </section>
+      <section id="history" class="card full" aria-labelledby="history-h" hidden>
+        <h2 id="history-h">Recent grinds</h2>
+        <p id="history-message" class="muted"></p>
+        <p id="history-notice" class="h-notice" hidden></p>
+        <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
+          <p id="history-caption" class="muted h-caption"></p>
+          <div id="history-bars" class="h-bars"></div>
+        </div>
+        <ul id="history-list" class="h-list" role="list" aria-labelledby="history-h"></ul>
+        <p id="history-note" class="muted note-line"></p>
+        <template id="history-row">
+          <li class="h-row">
+            <div class="h-head"><strong class="h-name"></strong><span class="h-age muted"></span></div>
+            <div class="h-main"><span class="h-final"></span><span class="h-target muted"></span></div>
+            <div class="h-meta">
+              <span class="h-badge">
+                <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+                <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+                <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+                <span class="h-result"></span>
+              </span>
+              <span class="h-error"></span>
+              <span class="h-detail muted"></span>
+            </div>
+          </li>
+        </template>
+      </section>
+    </section>
+  </div>
+</main>
+<footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
 <script>
-// API client of the web panel (docs/PORTAL-API.md), shared by the reference page (inlined at build by
+// API client of the web panel (docs/PORTAL-API.md), shared by the page (inlined at build by
 // tools/portal/build_page.py) and the node tests (tools/tests/portal-client.test.js).
 //
 // There is no token and no stored state: the panel is open on the local network and the on-screen Web interface
@@ -229,7 +750,9 @@ Keep Menu, WiFi, Web interface off when you do not need it.</div>
             start: s.start_block ? describeError(s.start_block) : 'would be accepted',
             motorTest: s.motor_test_block ? describeError(s.motor_test_block) : 'would be accepted',
             uptime: typeof s.uptime_s === 'number' ? s.uptime_s + ' s' : '',
-            build: s.build === null || s.build === undefined ? '' : String(s.build)
+            build: s.build === null || s.build === undefined ? '' : String(s.build),
+            // a missing member (an older firmware) is no warnings
+            warnings: Array.isArray(s.warnings) ? s.warnings.filter(function (c) { return typeof c === 'string'; }) : []
         };
     }
 
@@ -339,6 +862,10 @@ Keep Menu, WiFi, Web interface off when you do not need it.</div>
             getInfo: function () { return request('GET', '/api/info'); },
             getSchema: function () { return request('GET', '/api/schema'); },
             getSettings: function () { return request('GET', '/api/settings'); },
+            // Lifetime statistics; a firmware without the route answers 404, which becomes not_supported.
+            getStats: function () { return request('GET', '/api/stats'); },
+            // The recent grinds; a firmware from before it answers 404 (not_supported) and keeps the rest.
+            getHistory: function () { return request('GET', '/api/history'); },
             // Polling-friendly: a call while one is still waiting returns the same promise.
             getStatus: function () {
                 if (statusInFlight) return statusInFlight;
@@ -382,208 +909,2299 @@ Keep Menu, WiFi, Web interface off when you do not need it.</div>
 }));
 </script>
 <script>
+// View helpers of the web panel (pure functions, no DOM, no network), inlined by tools/portal/build_page.py and
+// loaded unchanged by the node tests (tools/tests/portal-view.test.js). All logic that node can
+// test lives here or in portal-client.js; portal-app.js only wires the DOM.
+//
+// Time is always passed in (nowMs); nothing here reads a clock or starts a timer. State objects are never
+// changed in place: every transition returns a new object.
+'use strict';
+
+(function (root, factory) {
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = factory(require('./portal-client.js'));
+    } else {
+        root.PortalView = factory(root.PortalClient);
+    }
+}(typeof self !== 'undefined' ? self : this, function (PC) {
+
+    // The sections of the page in tab order. Insights stays hidden until the firmware has sent statistics.
+    var TABS = ['grind', 'settings', 'insights'];
+
+    var PROFILE_NAMES = ['Single', 'Double', 'Custom'];
+    var PROFILE_KEYS = ['single', 'double', 'custom'];
+
+    // Polling (docs: status every 1 s idle, 500 ms while busy or in a lead-in, 5 s while the web interface is off,
+    // backoff after errors).
+    var POLL_IDLE_MS = 1000;
+    var POLL_BUSY_MS = 500;
+    var POLL_WEB_OFF_MS = 5000;
+    var BACKOFF_MS = [1500, 3000, 6000, 10000];
+    // The first failure is "Reconnecting", from the second one on the chip says "Offline".
+    var OFFLINE_AFTER_FAILURES = 2;
+
+    // After the lead-in the grind should show up within this long, otherwise the grinder dropped the start.
+    var LEAD_IN_GRACE_MS = 2000;
+    var LEAD_IN_DROPPED_SHOW_MS = 8000;
+    // The status that proves a drop must have been received at least this long after the lead-in ended.
+    var LEAD_IN_STATUS_AFTER_MS = 1000;
+
+    var REASON = {
+        webOff: 'The web interface is switched off on the grinder.',
+        offline: 'The grinder is not reachable.',
+        connecting: 'Connecting to the grinder.',
+        noStatus: 'Waiting for the grinder to answer.',
+        update: 'A firmware update is running.',
+        busy: 'A grind or motor run is active.',
+        leadIn: 'A remote start is counting down. Press STOP to cancel it.',
+        pending: 'Waiting for the grinder to answer the previous request.',
+        notReady: 'Go back to the main screen on the grinder.'
+    };
+
+    // Reasons for the error codes the grinder reports in start_block / motor_test_block.
+    var BLOCK_TEXT = {
+        motor_disabled: 'The motor is disabled because the grinder has not confirmed which board it is. Check Menu, Hardware board on the grinder.',
+        update_in_progress: REASON.update,
+        load_cell_not_connected: 'The load cell is not connected.',
+        load_cell_no_data: 'The load cell is not delivering data.',
+        load_cell_rate_invalid: 'The load cell sample rate is invalid.',
+        busy: REASON.busy,
+        motor_fault: 'The motor has a fault that stays until the grinder is restarted.'
+    };
+
+    // The grinder's warnings (status.warnings): the wording belongs to the page. `level` picks the icon and the
+    // label (error: the grinder cannot work properly; warning: it works but check it). The nine codes of
+    // docs/PORTAL-API.md section 7, in the grinder's priority order.
+    var WARNING_TEXT = {
+        board_unrecognized: {
+            level: 'error', title: 'Grinder board not recognised',
+            action: 'The grinder cannot tell which hardware version it is, so the motor stays off. Choose the board on the grinder: Menu, Hardware board.'
+        },
+        motor_fault: {
+            level: 'error', title: 'Motor fault',
+            action: 'The motor output was cut off for safety and stays off until the grinder is restarted. Check the grinder, then restart it.'
+        },
+        motor_disabled: {
+            level: 'error', title: 'Motor disabled',
+            action: 'The motor output is off because the board is not confirmed or the grinder did not start up properly. Check Menu, Hardware board on the grinder, or restart it.'
+        },
+        hx711_not_connected: {
+            level: 'error', title: 'Load cell not connected',
+            action: 'The grinder cannot find the load cell amplifier. With the grinder switched off and unplugged, check its cable, then switch it on again.'
+        },
+        hx711_no_data: {
+            level: 'error', title: 'Load cell sends no data',
+            action: 'The load cell amplifier is connected but delivers no readings. With the grinder switched off and unplugged, check the wiring, then switch it on again.'
+        },
+        hx711_sample_rate_invalid: {
+            level: 'error', title: 'Load cell sample rate is wrong',
+            action: 'The load cell amplifier is wired for the wrong sample rate. With the grinder switched off and unplugged, check its rate pin wiring.'
+        },
+        mechanical_instability: {
+            level: 'warning', title: 'Mechanical instability',
+            action: 'The grinder noticed repeated odd movements while grinding. Check that the grinder and the scale sit firmly and that nothing touches the cup.'
+        },
+        load_cell_noisy: {
+            level: 'warning', title: 'Load cell is noisy',
+            action: 'The weight reading has been unsteady for over a minute. Keep the scale still, away from vibration, and check the cable.'
+        },
+        load_cell_not_calibrated: {
+            level: 'warning', title: 'Scale not calibrated',
+            action: 'Weights may be wrong. Calibrate the scale on the grinder: Menu, Tools, Calibrate.'
+        }
+    };
+    var WARNING_LABEL = { error: 'Problem', warning: 'Check' };
+    var WARNING_CODE_MAX = 40; // an unknown code from a later firmware is shown cut to this many characters
+
+    var PHASE_TEXT = {
+        initializing: 'Starting up',
+        setup: 'Setting up',
+        taring: 'Taring',
+        tare_confirm: 'Confirm the tare on the grinder',
+        predictive: 'Grinding to the target weight',
+        pulse_decision: 'Checking the weight',
+        pulse_execute: 'Fine-tuning pulse',
+        pulse_settling: 'Letting the scale settle',
+        final_settling: 'Final settling',
+        time_grinding: 'Grinding for the set time',
+        time_additional_pulse: 'Extra pulse',
+        completed: 'Done',
+        timeout: 'Timed out',
+        prime: 'Priming',
+        prime_settling: 'Settling after priming',
+        purge_confirm: 'Waiting for a tap on the grinder (purge)'
+    };
+
+    var HINT_TEXT = {
+        grind_complete: 'Waiting on the grinder screen: tap there to continue.',
+        grind_timeout: 'Waiting on the grinder screen: tap there to continue.',
+        purge_confirm: 'Waiting on the grinder screen: tap there so the grind can go on.'
+    };
+
+    function has(obj, key) {
+        return Object.prototype.hasOwnProperty.call(obj, key);
+    }
+
+    // ------------------------------------------------------------------ formatters
+
+    // A weight in grams for the big readout: one decimal, "--" while the grinder reports none.
+    function formatWeight(grams) {
+        if (typeof grams !== 'number' || !isFinite(grams)) return '-- g';
+        return grams.toFixed(1) + ' g';
+    }
+
+    function formatSeconds(seconds) {
+        if (typeof seconds !== 'number' || !isFinite(seconds)) return '-- s';
+        return seconds.toFixed(1) + ' s';
+    }
+
+    // "N s", "N min" or "N h" for an age in milliseconds; negative values count as 0.
+    function formatAge(ms) {
+        if (typeof ms !== 'number' || !isFinite(ms)) return '';
+        var s = Math.max(0, Math.floor(ms / 1000));
+        if (s < 60) return s + ' s';
+        if (s < 3600) return Math.floor(s / 60) + ' min';
+        return Math.floor(s / 3600) + ' h';
+    }
+
+    // The words for a ui_state; an unknown state is shown as it came.
+    function stateLabel(uiState) {
+        if (has(PC.STATE_TEXT, uiState)) return PC.STATE_TEXT[uiState];
+        return typeof uiState === 'string' && uiState ? uiState : '';
+    }
+
+    function phaseLabel(phase) {
+        if (phase === 'idle') return '';
+        if (has(PHASE_TEXT, phase)) return PHASE_TEXT[phase];
+        return typeof phase === 'string' ? phase : '';
+    }
+
+    function blockText(code) {
+        if (has(BLOCK_TEXT, code)) return BLOCK_TEXT[code];
+        return 'The grinder cannot do this now (' + code + ').';
+    }
+
+    // Which tab to show for the tab the user picked. From 900 px the live pane sits beside the tabs, so the Grind tab
+    // does not exist there and Settings takes its place; an unknown name also falls back to Grind or Settings.
+    function tabForViewport(requested, isWide) {
+        var name = TABS.indexOf(requested) >= 0 ? requested : 'grind';
+        if (name === 'grind' && isWide) return 'settings';
+        return name;
+    }
+
+    // ------------------------------------------------------------------ connection state machine
+
+    function newConnection() {
+        return { state: 'connecting', failures: 0, lastOkAt: null, lastError: '', uiBusy: false };
+    }
+
+    function copyConnection(conn) {
+        return { state: conn.state, failures: conn.failures, lastOkAt: conn.lastOkAt, lastError: conn.lastError, uiBusy: conn.uiBusy };
+    }
+
+    // A reply arrived: online again, backoff forgotten.
+    function connectionOk(conn, nowMs) {
+        var next = copyConnection(conn);
+        next.state = 'online';
+        next.failures = 0;
+        next.lastOkAt = nowMs;
+        next.lastError = '';
+        next.uiBusy = false;
+        return next;
+    }
+
+    // A request failed with `code` (a PortalApiError code). web_interface_off and ui_busy are answers from a
+    // reachable grinder; everything else counts as a lost connection.
+    function connectionFailed(conn, code, nowMs) {
+        var next = copyConnection(conn);
+        if (code === 'web_interface_off') {
+            next.state = 'web_off';
+            next.failures = 0;
+            next.lastError = code;
+            next.uiBusy = false;
+            return next;
+        }
+        if (code === 'ui_busy') {
+            next.state = 'online';
+            next.failures = 0;
+            next.lastOkAt = nowMs;
+            next.lastError = code;
+            next.uiBusy = true;
+            return next;
+        }
+        next.failures = conn.failures + 1;
+        next.state = next.failures >= OFFLINE_AFTER_FAILURES ? 'offline' : 'reconnecting';
+        next.lastError = typeof code === 'string' ? code : 'network';
+        next.uiBusy = false;
+        return next;
+    }
+
+    // Wait before the next retry after `failures` failures in a row: 1.5, 3, 6, then 10 s.
+    function backoffDelay(failures) {
+        if (!(failures > 0)) return 0;
+        return BACKOFF_MS[Math.min(failures, BACKOFF_MS.length) - 1];
+    }
+
+    function leadInActive(leadIn) {
+        return !!leadIn && (leadIn.phase === 'countdown' || leadIn.phase === 'watching');
+    }
+
+    // Delay before the next status request, or null while the page is hidden (polling pauses).
+    function pollDelay(conn, status, leadInIsActive, hidden) {
+        if (hidden) return null;
+        if (conn.state === 'web_off') return POLL_WEB_OFF_MS;
+        if (conn.failures > 0) return backoffDelay(conn.failures);
+        if ((status && status.busy) || leadInIsActive) return POLL_BUSY_MS;
+        return POLL_IDLE_MS;
+    }
+
+    // What the single polling loop requests next. The page makes one request at a time, so settings and info are
+    // fetched in turns between status requests instead of beside them.
+    // forceStatus: the last settings or info request failed, so status goes next and is never starved.
+    function nextPollTask(flags) {
+        if (!flags.haveStatus || !flags.online || flags.forceStatus) return 'status';
+        if (flags.needSchema) return 'schema';
+        if (flags.needSettings) return 'settings';
+        if (flags.needInfo) return 'info';
+        if (flags.statsDue) return 'stats'; // see statsDue: one request at a time, in turn with the status requests
+        if (flags.historyDue) return 'history';
+        return 'status';
+    }
+
+    // A settings reply (GET or PATCH) the page can use: an object with a values object.
+    function validSettingsDoc(doc) {
+        return !!doc && typeof doc === 'object' && !!doc.values && typeof doc.values === 'object' && !Array.isArray(doc.values);
+    }
+
+    // The needs after a good reply to `task`. `needs`: {needSchema, needSettings, needInfo}. wasOnline / prevUi: the
+    // connection state and ui_state before the reply. A settings reply that is not usable keeps needSettings and asks
+    // for status next (forceStatus) so the retry cannot starve it. `quick`: more is still missing, ask again at once.
+    function pollSucceeded(task, needs, doc, wasOnline, prevUi) {
+        var next = { needSchema: needs.needSchema, needSettings: needs.needSettings, needInfo: needs.needInfo, forceStatus: false };
+        if (!wasOnline) next.needSettings = true; // back after a gap: the grinder may have changed
+        if (task === 'status') {
+            if (prevUi && prevUi !== 'ready' && doc && doc.ui_state === 'ready') next.needSettings = true;
+        } else if (task === 'schema') {
+            next.needSchema = false;
+        } else if (task === 'settings') {
+            if (validSettingsDoc(doc)) next.needSettings = false;
+            else next.forceStatus = true;
+        } else if (task === 'info') {
+            next.needInfo = false;
+        } // 'stats' and 'history' change no need: they keep their own state (statsLoaded, historyLoaded)
+        // an unusable settings reply must not be asked again at once (a firmware/page mismatch would loop)
+        next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
+        return next;
+    }
+
+    // What a failed request means: a 404 on the schema is an older firmware (reachable, no form), anything else is a
+    // lost connection; a failing settings, schema or info request must not starve status.
+    function pollFailed(task, code) {
+        if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
+        if (task === 'stats' || task === 'history') {
+            // Statistics and the list are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
+            var lost = code !== 'not_supported' && code !== 'ui_busy' && code !== 'bad_reply' && code !== 'http_error';
+            return { schemaMissing: false, connectionLost: lost, forceStatus: true };
+        }
+        return { schemaMissing: false, connectionLost: true, forceStatus: task !== 'status' };
+    }
+
+    // The first field with a message, in the order the form shows them (groups top to bottom), or ''.
+    function firstInvalidKey(messages, fields) {
+        var found = '';
+        settingsGroups(fields).forEach(function (g) {
+            g.fields.forEach(function (f) {
+                if (!found && has(messages, f.key)) found = f.key;
+            });
+        });
+        return found;
+    }
+
+    // Chip, explanation and whether a Retry button makes sense.
+    function connectionView(conn, nowMs) {
+        var seen = conn.lastOkAt === null ? '' : ' Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago.';
+        if (conn.state === 'online') {
+            return {
+                label: 'Online', icon: 'online', retry: false,
+                detail: conn.uiBusy ? 'The grinder screen is busy right now. Trying again.' : ''
+            };
+        }
+        if (conn.state === 'web_off') {
+            return {
+                label: 'Web interface off', icon: 'warning', retry: true,
+                detail: 'The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface.'
+            };
+        }
+        if (conn.state === 'reconnecting') {
+            return { label: 'Reconnecting', icon: 'warning', retry: true, detail: 'Lost contact with the grinder. Trying again.' + seen };
+        }
+        if (conn.state === 'offline') {
+            var detail;
+            if (conn.lastError === 'bad_host' || conn.lastError === 'bad_origin') detail = PC.describeError(conn.lastError);
+            else {
+                detail = 'The grinder does not answer. Check that it is on and on the same WiFi. ' +
+                    'It serves only two connections at a time, so another device using the panel can also block this page.';
+            }
+            return { label: 'Offline', icon: 'warning', retry: true, detail: detail + seen };
+        }
+        return { label: 'Connecting', icon: 'online', retry: false, detail: '' };
+    }
+
+    // ------------------------------------------------------------------ lead-in countdown
+
+    // After an accepted start (202, lead_in_ms): count down, then watch for the grind to appear.
+    function leadInStart(profileIndex, leadInMs, nowMs) {
+        var ms = typeof leadInMs === 'number' && leadInMs >= 0 ? leadInMs : 3000;
+        return { phase: 'countdown', profile: profileIndex, startedAt: nowMs, leadInMs: ms, droppedAt: null };
+    }
+
+    // True when the status shows a grind that is running or just finished (the lead-in itself is invisible).
+    function grindVisible(status) {
+        if (!status) return false;
+        if (status.busy) return true;
+        if (status.ui_state === 'grinding' || status.ui_state === 'purge_confirm') return true;
+        return typeof status.grind_phase === 'string' && status.grind_phase !== 'idle';
+    }
+
+    // Advances the lead-in with the latest status. Returns the new lead-in, or null when it is over (the grind
+    // appeared, or the dropped notice has been shown long enough). statusAtMs is when that status was received:
+    // "dropped" needs a status that arrived at least LEAD_IN_STATUS_AFTER_MS after the lead-in ended, so a stale
+    // status (hidden tab, lost connection) never counts as proof that no grind started.
+    function leadInTick(leadIn, status, nowMs, statusAtMs) {
+        if (!leadIn) return null;
+        if (grindVisible(status)) return null;
+        var over = leadIn.startedAt + leadIn.leadInMs;
+        function make(phase, droppedAt) {
+            return { phase: phase, profile: leadIn.profile, startedAt: leadIn.startedAt, leadInMs: leadIn.leadInMs, droppedAt: droppedAt };
+        }
+        if (leadIn.phase === 'dropped') {
+            return nowMs - leadIn.droppedAt >= LEAD_IN_DROPPED_SHOW_MS ? null : leadIn;
+        }
+        var fresh = typeof statusAtMs === 'number' && statusAtMs >= over + LEAD_IN_STATUS_AFTER_MS;
+        if (nowMs >= over + LEAD_IN_GRACE_MS && fresh) return make('dropped', nowMs);
+        if (nowMs >= over) return leadIn.phase === 'watching' ? leadIn : make('watching', null);
+        return leadIn;
+    }
+
+    // STOP accepted: the start is cancelled.
+    function leadInCancel() {
+        return null;
+    }
+
+    function profileName(index) {
+        return PROFILE_NAMES[index] || 'Profile';
+    }
+
+    // Words for the lead-in card; `visible` is false when there is nothing to show.
+    function leadInView(leadIn, nowMs) {
+        if (!leadIn) return { visible: false, seconds: 0, text: '' };
+        var name = profileName(leadIn.profile).toUpperCase();
+        if (leadIn.phase === 'dropped') {
+            return { visible: true, seconds: 0, dropped: true, text: 'The start was dropped on the grinder (check its screen).' };
+        }
+        if (leadIn.phase === 'watching') {
+            return { visible: true, seconds: 0, text: 'Starting ' + name + ' now. Waiting for the grinder.' };
+        }
+        var remaining = Math.max(0, leadIn.startedAt + leadIn.leadInMs - nowMs);
+        var seconds = Math.ceil(remaining / 1000);
+        return {
+            visible: true,
+            seconds: seconds,
+            text: 'Starting ' + name + ' in ' + seconds + ' s. Touch the grinder or press STOP to cancel.'
+        };
+    }
+
+    // ------------------------------------------------------------------ controls and readout
+
+    function isOnline(conn) {
+        return !!conn && conn.state === 'online';
+    }
+
+    // The reason that blocks every action (not STOP), or '' when none does.
+    function commonReason(status, conn, extra) {
+        if (!conn || conn.state === 'connecting') return status ? '' : REASON.connecting;
+        if (conn.state === 'web_off') return REASON.webOff;
+        if (conn.state !== 'online') return REASON.offline;
+        if (!status) return REASON.noStatus;
+        if (status.ui_state === 'ota_update') return REASON.update;
+        if (status.busy) return REASON.busy;
+        if (extra && extra.leadIn) return REASON.leadIn;
+        if (extra && extra.commandPending) return REASON.pending;
+        return '';
+    }
+
+    function control(reason) {
+        return { enabled: reason === '', reason: reason };
+    }
+
+    // Which controls are usable and why not. `extra`: {leadIn: lead-in is counting down or watching,
+    // commandPending: a non-STOP command is on the wire}. STOP is always enabled and is never behind a reason; it
+    // is emphasised while something runs. The settings do not change any flag here, so they are not a parameter.
+    function deriveControls(status, conn, extra) {
+        var common = commonReason(status, conn, extra);
+        var ui = status ? status.ui_state : '';
+        var startReason = common;
+        var tareReason = common;
+        var motorReason = common;
+        if (!common && status) {
+            if (ui !== 'ready') startReason = REASON.notReady;
+            else if (status.start_block) startReason = blockText(status.start_block);
+            if (ui !== 'ready') tareReason = REASON.notReady;
+            else if (status.start_block === 'update_in_progress' || status.motor_test_block === 'update_in_progress') {
+                tareReason = REASON.update;
+            }
+            if (ui !== 'ready' && ui !== 'menu') motorReason = REASON.notReady;
+            else if (status.motor_test_block) motorReason = blockText(status.motor_test_block);
+            var motorWarning = motorWarningBlock(status);
+            if (motorWarning && !startReason) startReason = blockText(motorWarning);
+            if (motorWarning && !motorReason) motorReason = blockText(motorWarning);
+        }
+        var emphasis = !!((status && status.busy) || (extra && extra.leadIn));
+        return {
+            stop: { enabled: true, emphasis: emphasis },
+            start: control(startReason),
+            tare: control(tareReason),
+            motorTest: control(motorReason),
+            banner: bannerFor(status, conn)
+        };
+    }
+
+    // The warning codes of a status, as strings, each once, in the order received. An absent or malformed member
+    // (an older firmware) is an empty list.
+    function warningCodes(status) {
+        var out = [];
+        var list = status && Array.isArray(status.warnings) ? status.warnings : [];
+        list.forEach(function (code) {
+            if (typeof code === 'string' && code !== '' && out.indexOf(code) < 0) out.push(code);
+        });
+        return out;
+    }
+
+    // Which motor warning keeps Start and Motor test off, as a BLOCK_TEXT code, or '' (the grinder's own
+    // start_block says the same on a current firmware; this keeps the page safe when only the warning is set).
+    function motorWarningBlock(status) {
+        var codes = warningCodes(status);
+        if (codes.indexOf('motor_fault') >= 0) return 'motor_fault';
+        if (codes.indexOf('motor_disabled') >= 0) return 'motor_disabled';
+        return '';
+    }
+
+    // Persistent banner for update / motor problems, or null. `covers` lists the warning codes the banner already
+    // says, so the warnings list does not repeat them.
+    function bannerFor(status, conn) {
+        if (!status || !isOnline(conn)) return null;
+        var blocks = [status.start_block, status.motor_test_block];
+        var codes = warningCodes(status);
+        if (status.ui_state === 'ota_update' || blocks.indexOf('update_in_progress') >= 0) {
+            return { level: 'warning', covers: [], text: 'Firmware update running. Everything except STOP is disabled until it is finished.' };
+        }
+        if (status.ui_state === 'ota_update_failed') {
+            return { level: 'error', covers: [], text: 'The firmware update failed. See the grinder screen.' };
+        }
+        if (blocks.indexOf('motor_fault') >= 0 || codes.indexOf('motor_fault') >= 0) {
+            return {
+                level: 'error', covers: ['motor_fault', 'motor_disabled'], // a fault also raises motor_disabled; its board advice would mislead
+                text: 'Motor fault. The motor output has a fault that stays until the grinder is restarted. Check the grinder, then restart it.'
+            };
+        }
+        if (blocks.indexOf('motor_disabled') >= 0 || status.motor_available === false || codes.indexOf('motor_disabled') >= 0) {
+            return { level: 'error', covers: ['motor_disabled'], text: 'Motor disabled. ' + BLOCK_TEXT.motor_disabled };
+        }
+        return null;
+    }
+
+    // Cut on code points so a surrogate pair is never split.
+    function shortCode(code) {
+        var points = Array.from(code);
+        return points.length > WARNING_CODE_MAX ? points.slice(0, WARNING_CODE_MAX).join('') : code;
+    }
+
+    // One row of the warnings list for a code. A code this page does not know (a later firmware) gets generic text
+    // with the code itself, cut to WARNING_CODE_MAX characters.
+    function warningRow(code) {
+        if (has(WARNING_TEXT, code)) {
+            var t = WARNING_TEXT[code];
+            return { code: code, level: t.level, icon: t.level, label: WARNING_LABEL[t.level], title: t.title, action: t.action };
+        }
+        return {
+            code: shortCode(code), level: 'warning', icon: 'warning', label: WARNING_LABEL.warning,
+            title: 'Other warning: ' + shortCode(code),
+            action: 'The grinder reports a warning this page does not know. Check the grinder screen.'
+        };
+    }
+
+    // The warnings card: rows in the order the grinder sent them (it sends them by priority), each code once.
+    // Hidden while empty, while the connection is not online, and for a code the banner already shows.
+    function warningsView(status, conn) {
+        if (!status || !isOnline(conn)) return { visible: false, rows: [] };
+        var banner = bannerFor(status, conn);
+        var covered = banner ? banner.covers : [];
+        var rows = warningCodes(status).filter(function (code) {
+            return covered.indexOf(code) < 0;
+        }).map(warningRow).filter(function (row, i, all) {
+            // unknown codes cut to the same text show once
+            return all.findIndex(function (r) { return r.code === row.code; }) === i;
+        });
+        return { visible: rows.length > 0, rows: rows };
+    }
+
+    // Texts of the readout card. While the connection is lost the last values stay, marked stale.
+    function readoutView(status, conn, nowMs) {
+        var stale = !!conn && (conn.state === 'offline' || conn.state === 'reconnecting');
+        var seen = '';
+        if (stale && conn.lastOkAt !== null) seen = 'Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago';
+        if (!status) {
+            var label = 'Connecting';
+            if (conn && conn.state === 'offline') label = 'Offline';
+            else if (conn && conn.state === 'reconnecting') label = 'Reconnecting';
+            else if (conn && conn.state === 'web_off') label = 'Web interface off';
+            return { state: label, weight: formatWeight(null), phase: '', hint: '', stale: stale, seen: seen };
+        }
+        return {
+            state: stateLabel(status.ui_state),
+            weight: formatWeight(status.weight_g),
+            phase: phaseLabel(status.grind_phase),
+            hint: has(HINT_TEXT, status.ui_state) ? HINT_TEXT[status.ui_state] : '',
+            stale: stale,
+            seen: seen
+        };
+    }
+
+    // The three profile cards: name, the target of the current grind mode, and whether the grinder has it selected.
+    function profileCards(settings) {
+        var values = settings && settings.values ? settings.values : null;
+        var timeMode = !!values && values.grind_mode === 'time';
+        return PROFILE_KEYS.map(function (key, i) {
+            var target = '--';
+            if (values) {
+                var v = values[key + (timeMode ? '_time_s' : '_weight_g')];
+                target = timeMode ? formatSeconds(v) : formatWeight(v);
+            }
+            return {
+                index: i,
+                name: PROFILE_NAMES[i],
+                target: target,
+                selected: !!settings && settings.current_profile === i
+            };
+        });
+    }
+
+    // ------------------------------------------------------------------ Insights: lifetime statistics (chg016 step 9)
+    // GET /api/stats (docs/PORTAL-API.md section 7). The page keeps one small state object:
+    // {doc: parsed statistics or null, fetchedAt, seen: a reply with data has arrived, unavailable: the route is
+    // missing (404), error: words for the latest failure, retryAt, refreshAt / followUpAt: asked-for fetch times}.
+    // The Insights tab shows only once data has arrived, so an older firmware never gets an empty tab.
+
+    var STATS_PERIOD_MS = 30000;   // refresh while the tab is shown
+    var STATS_RETRY_MS = 10000;    // after a failed request
+    var STATS_FOLLOW_UP_MS = 6000; // the grinder republishes its statistics every 5 s: look again after a grind ended
+    var STATS_KEYS = ['total_grinds', 'single', 'double', 'custom', 'weight_mode', 'time_mode', 'total_weight_kg',
+        'motor_runtime_s', 'avg_abs_error_g', 'total_pulses', 'avg_pulses', 'time_pulses', 'powered_minutes'];
+    var STATS_NOT_AVAILABLE = 'Statistics not available. This grinder firmware does not provide them yet.';
+
+    function newStats() {
+        return { doc: null, fetchedAt: null, seen: false, unavailable: false, error: '', retryAt: 0, refreshAt: null, followUpAt: null };
+    }
+
+    function copyStats(s) {
+        return { doc: s.doc, fetchedAt: s.fetchedAt, seen: s.seen, unavailable: s.unavailable, error: s.error,
+            retryAt: s.retryAt, refreshAt: s.refreshAt, followUpAt: s.followUpAt };
+    }
+
+    function statNumber(v) {
+        return typeof v === 'number' && isFinite(v) && v >= 0 ? v : null;
+    }
+
+    // The members of a statistics reply as numbers; a member that is missing or not a plain non-negative number is
+    // null ("unknown", never 0). A reply that is no object, or has no usable total_grinds, is not a statistics reply.
+    function parseStats(doc) {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+        var out = {};
+        STATS_KEYS.forEach(function (key) { out[key] = statNumber(doc[key]); });
+        return out.total_grinds === null ? null : out;
+    }
+
+    function statsLoaded(s, doc, nowMs) {
+        var parsed = parseStats(doc);
+        return parsed ? fetched(s, parsed, nowMs) : statsFailed(s, 'bad_reply', nowMs);
+    }
+
+    // The bookkeeping of a good reply (shared with the recent-grinds list): the parsed reply and when it came
+    function fetched(s, parsed, nowMs) {
+        var next = copyStats(s);
+        next.doc = parsed;
+        next.fetchedAt = nowMs;
+        next.seen = true;
+        next.unavailable = false;
+        next.error = '';
+        next.retryAt = 0;
+        next.refreshAt = null;
+        if (next.followUpAt !== null && nowMs >= next.followUpAt) next.followUpAt = null;
+        return next;
+    }
+
+    // A failed request. 404 means the firmware has no such route: stop asking. Anything else is retried later.
+    function statsFailed(s, code, nowMs) {
+        var next = copyStats(s);
+        next.refreshAt = null;
+        if (next.followUpAt !== null && nowMs >= next.followUpAt) next.followUpAt = null;
+        if (code === 'not_supported') {
+            next.unavailable = true;
+            next.error = '';
+            return next;
+        }
+        next.error = PC.describeError(code);
+        next.retryAt = nowMs + STATS_RETRY_MS;
+        return next;
+    }
+
+    // Ask for a fetch at nowMs + afterMs (the earlier request wins).
+    function statsRefresh(s, afterMs, nowMs) {
+        var next = copyStats(s);
+        var at = nowMs + afterMs;
+        if (next.refreshAt === null || at < next.refreshAt) next.refreshAt = at;
+        return next;
+    }
+
+    // The Insights tab was opened: fetch now.
+    function statsShown(s, nowMs) {
+        return statsRefresh(s, 0, nowMs);
+    }
+
+    // The screen state of the grinder changed: a grind that just ended changes the totals. Fetch now and once more
+    // after the grinder's own refresh. ui_state values: 'grinding' and 'grind_complete' are the grind screens.
+    function grindEnded(prevUi, nextUi) {
+        var grindScreens = ['grinding', 'grind_complete'];
+        return grindScreens.indexOf(prevUi) >= 0 && nextUi !== prevUi;
+    }
+
+    function statsOnStatus(s, prevUi, nextUi, nowMs) {
+        if (!grindEnded(prevUi, nextUi)) return s;
+        var next = statsRefresh(s, 0, nowMs);
+        next.followUpAt = nowMs + STATS_FOLLOW_UP_MS;
+        return next;
+    }
+
+    // Whether the polling loop should fetch the statistics now. ctx: {online, haveStatus, hidden, tabShown,
+    // commandBusy, nowMs}. Never while a command is on the wire (the grinder serves two connections), never after a
+    // 404, and not before the status is known. Until data has arrived the page probes once (a failed probe waits for
+    // its retry time); once the tab is shown it refreshes on request and every STATS_PERIOD_MS.
+    function statsDue(s, ctx) {
+        if (s.unavailable || ctx.hidden || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+        if (ctx.nowMs < s.retryAt) return false;
+        if (!s.seen) return true;
+        var asked = (s.refreshAt !== null && ctx.nowMs >= s.refreshAt) || (s.followUpAt !== null && ctx.nowMs >= s.followUpAt);
+        if (!ctx.tabShown) return false;
+        return asked || s.fetchedAt === null || ctx.nowMs - s.fetchedAt >= STATS_PERIOD_MS;
+    }
+
+    // Whole numbers with a comma every three digits ("4,294,967,295"). Not locale based: the page is English and the
+    // result must not depend on the browser.
+    function formatCount(n) {
+        if (typeof n !== 'number' || !isFinite(n) || n < 0) return '--';
+        var digits = String(Math.floor(n));
+        if (/e/.test(digits)) return '--';
+        return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function pad2(n) {
+        return n < 10 ? '0' + n : String(n);
+    }
+
+    // "59 s", "12 min 5 s", "1 h 02 min", "3 d 4 h"; 0 is "0 s".
+    function formatDuration(seconds) {
+        if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return '--';
+        var s = Math.floor(seconds);
+        if (s < 60) return s + ' s';
+        if (s < 3600) {
+            var rest = s % 60;
+            return Math.floor(s / 60) + ' min' + (rest ? ' ' + rest + ' s' : '');
+        }
+        if (s < 86400) return Math.floor(s / 3600) + ' h ' + pad2(Math.floor((s % 3600) / 60)) + ' min';
+        return formatCount(Math.floor(s / 86400)) + ' d ' + Math.floor((s % 86400) / 3600) + ' h';
+    }
+
+    // Total ground weight: grams below 1 kg, then kg with two decimals below 10, one below 1000, whole kg above.
+    // The unit is chosen on the rounded value, so 0.9996 is "1.00 kg" (not "1000 g") and 9.999 is "10.0 kg".
+    function formatKg(kg) {
+        if (typeof kg !== 'number' || !isFinite(kg) || kg < 0) return '--';
+        var grams = Math.round(kg * 1000);
+        if (grams < 1000) return grams + ' g';
+        if (Math.round(kg * 100) < 1000) return kg.toFixed(2) + ' kg';
+        if (Math.round(kg * 10) < 10000) return kg.toFixed(1) + ' kg';
+        return formatCount(Math.round(kg)) + ' kg';
+    }
+
+    function statText(value) {
+        return value === null ? '--' : formatCount(value);
+    }
+
+    // The three weight buckets of the grinder's statistics (final weight, not the profile that was used).
+    var MIX_BUCKETS = [
+        { key: 'single', label: 'Up to 10 g' },
+        { key: 'double', label: 'Over 10 g, up to 22 g' },
+        { key: 'custom', label: 'Over 22 g' }
+    ];
+
+    // Whole percentages that add up to exactly 100 (largest remainder; the first bucket wins a tie). total > 0.
+    function percentages(counts, total) {
+        var pcts = counts.map(function (c) { return Math.floor(c * 100 / total); });
+        var left = 100 - pcts.reduce(function (a, b) { return a + b; }, 0);
+        var order = counts.map(function (c, i) { return i; }).sort(function (a, b) {
+            return ((counts[b] * 100) % total) - ((counts[a] * 100) % total) || a - b;
+        });
+        for (var k = 0; k < left; k++) pcts[order[k]] += 1;
+        return pcts;
+    }
+
+    function percentText(count, pct) {
+        if (count > 0 && pct === 0) return 'under 1 %';
+        return pct + ' %';
+    }
+
+    function mixView(doc) {
+        var counts = MIX_BUCKETS.map(function (b) { return doc[b.key]; });
+        var known = counts.every(function (c) { return c !== null; });
+        var total = known ? counts[0] + counts[1] + counts[2] : 0;
+        if (!known || total <= 0) return { visible: false, segments: [] };
+        var pcts = percentages(counts, total);
+        return {
+            visible: true,
+            segments: MIX_BUCKETS.map(function (b, i) {
+                // drawn: a bucket without grinds gets no bar segment (it would only draw a divider), but keeps its row
+                return { key: b.key, label: b.label, count: counts[i], flex: counts[i], drawn: counts[i] > 0,
+                    text: formatCount(counts[i]) + (counts[i] === 1 ? ' grind' : ' grinds') + ' (' + percentText(counts[i], pcts[i]) + ')' };
+            })
+        };
+    }
+
+    function tilesFor(doc) {
+        var noError = doc.weight_mode === null || doc.weight_mode === 0 || doc.avg_abs_error_g === null;
+        var noPulses = doc.total_grinds === 0 || doc.avg_pulses === null;
+        return [
+            { id: 'grinds', label: 'Grinds', value: statText(doc.total_grinds),
+                detail: statText(doc.weight_mode) + ' by weight, ' + statText(doc.time_mode) + ' by time' },
+            { id: 'coffee', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
+            { id: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
+                detail: 'Grinding, pulses and motor tests' },
+            { id: 'powered', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
+                detail: 'Total time the grinder has been switched on' },
+            { id: 'error', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
+                detail: noError ? 'No weight-mode grinds yet' : 'Final weight against the target, weight mode' },
+            { id: 'pulses', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
+                detail: doc.total_pulses === null ? 'Correction pulses per grind' : statText(doc.total_pulses) + ' correction pulses in total' },
+            { id: 'timepulses', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
+        ];
+    }
+
+    // What the Insights tab shows. kind: unavailable | loading | error | empty | ready. `message` is the sentence
+    // above the tiles ('' = none); `note` says how old the numbers are or why they could not be refreshed.
+    function statsView(s, conn, nowMs) {
+        var online = !!conn && conn.state === 'online';
+        var view = { tabVisible: s.seen && !s.unavailable, kind: 'ready', message: '', note: '', tiles: [], mix: { visible: false, segments: [] } };
+        if (s.unavailable) {
+            view.kind = 'unavailable';
+            view.message = STATS_NOT_AVAILABLE;
+            return view;
+        }
+        if (!s.doc) {
+            if (!online && conn && conn.state !== 'connecting') {
+                view.kind = 'error';
+                view.message = 'The grinder is not reachable, so the statistics cannot be read. This page tries again by itself.';
+            } else if (s.error) {
+                view.kind = 'error';
+                view.message = 'The statistics could not be read. ' + s.error + ' This page tries again by itself.';
+            } else {
+                view.kind = 'loading';
+                view.message = 'Loading the statistics.';
+            }
+            return view;
+        }
+        var age = formatAge(nowMs - s.fetchedAt);
+        if (!online) view.note = 'The grinder is not reachable. These numbers are from ' + age + ' ago.';
+        else if (s.error) view.note = 'The numbers could not be refreshed (' + s.error + ') and are from ' + age + ' ago.';
+        else view.note = 'Updated ' + age + ' ago.';
+        if (s.doc.total_grinds === 0) {
+            view.kind = 'empty';
+            view.message = 'No grinds recorded yet. The totals appear after the first grind.';
+            return view;
+        }
+        view.tiles = tilesFor(s.doc);
+        view.mix = mixView(s.doc);
+        return view;
+    }
+
+    // ------------------------------------------------------------------ Insights: recent grinds (chg016 step 12)
+    // GET /api/history (docs/PORTAL-API.md section 7, "Recent grinds"). Its state object is the statistics' one (newStats, statsFailed,
+    // statsRefresh and statsOnStatus work on it); only the reply is parsed differently, and it is fetched only while
+    // the Insights tab is shown (historyDue). Ages are relative to the moment the reply arrived, so they keep growing
+    // between two requests.
+
+    var HISTORY_ROWS_MAX = 10;
+    var HISTORY_CHART_MIN_SCALE_G = 0.5; // a chart of tiny errors is not stretched to the full height
+    var HISTORY_RESULTS = {
+        complete: { label: 'Complete', level: 'ok' },
+        max_pulses: { label: 'Max pulses', level: 'warning' },
+        overshoot: { label: 'Overshoot', level: 'warning' },
+        timeout: { label: 'Timeout', level: 'error' },
+        unknown: { label: 'Unknown result', level: 'neutral' }
+    };
+
+    function finiteOrNull(v) {
+        return typeof v === 'number' && isFinite(v) ? v : null;
+    }
+
+    // The reply as plain values; a grind that is not an object is skipped, a member that is not a number is null.
+    // A reply with no grinds array is not a history reply.
+    function parseHistory(doc) {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc) || !Array.isArray(doc.grinds)) return null;
+        var grinds = [];
+        doc.grinds.slice(0, HISTORY_ROWS_MAX).forEach(function (g) {
+            if (!g || typeof g !== 'object' || Array.isArray(g)) return;
+            var time = g.mode === 'time';
+            var age = finiteOrNull(g.age_s);
+            grinds.push({
+                // null: recorded before the last restart; undefined: the grinder sent nothing usable
+                ageS: g.age_s === null ? null : (age !== null && age >= 0 ? age : undefined),
+                profile: g.profile === 0 || g.profile === 1 || g.profile === 2 ? g.profile : null,
+                time: time,
+                target: finiteOrNull(time ? g.target_s : g.target_g),
+                final: finiteOrNull(g.final_g),
+                timeMs: finiteOrNull(g.time_ms),
+                pulses: finiteOrNull(g.pulses),
+                result: has(HISTORY_RESULTS, g.result) ? g.result : 'unknown'
+            });
+        });
+        return { persistent: doc.persistent !== false, grinds: grinds };
+    }
+
+    function historyLoaded(h, doc, nowMs) {
+        var parsed = parseHistory(doc);
+        return parsed ? fetched(h, parsed, nowMs) : statsFailed(h, 'bad_reply', nowMs);
+    }
+
+    // Due only while the Insights tab is shown, then by the statistics' rules (never during a command, a 404 ends it)
+    function historyDue(h, ctx) {
+        return !!ctx.tabShown && statsDue(h, ctx);
+    }
+
+    // A weight with one decimal; 1000 and more are whole numbers with commas; a value that rounds to 0.0 has no sign.
+    function tenths(v) {
+        var r = Math.round(Math.abs(v) * 10);
+        return (v < 0 && r > 0 ? '-' : '') + (r >= 10000 ? formatCount(Math.round(Math.abs(v))) : (r / 10).toFixed(1));
+    }
+
+    // "just now", "5 min ago", "1 h 05 min ago", "2 d 3 h ago"; null is a grind from before the last restart.
+    function historyAgeText(ageS) {
+        if (ageS === null) return 'before the last restart';
+        if (typeof ageS !== 'number') return '';
+        var s = Math.floor(ageS);
+        if (s < 60) return 'just now';
+        if (s < 3600) return Math.floor(s / 60) + ' min ago';
+        if (s < 86400) return Math.floor(s / 3600) + ' h ' + pad2(Math.floor((s % 3600) / 60)) + ' min ago';
+        return formatCount(Math.floor(s / 86400)) + ' d ' + Math.floor((s % 86400) / 3600) + ' h ago';
+    }
+
+    // Final minus target in words ("+0.1 g over", "-0.2 g under"; under 0.05 g it is "on target"), '' without one.
+    function historyErrorText(err) {
+        if (err === null) return '';
+        var r = Math.round(Math.abs(err) * 10);
+        if (r === 0) return 'on target';
+        return (err > 0 ? '+' : '-') + tenths(Math.abs(err)) + ' g ' + (err > 0 ? 'over' : 'under');
+    }
+
+    function historyRow(g, elapsedS) {
+        var result = HISTORY_RESULTS[g.result];
+        var err = !g.time && g.final !== null && g.target !== null ? g.final - g.target : null;
+        var detail = [];
+        if (g.timeMs !== null && g.timeMs >= 0) detail.push(g.timeMs < 60000 ? (g.timeMs / 1000).toFixed(1) + ' s' : formatDuration(g.timeMs / 1000));
+        if (g.pulses !== null && (!g.time || g.pulses > 0)) detail.push(g.pulses + (g.pulses === 1 ? ' pulse' : ' pulses'));
+        return {
+            name: g.profile === null ? 'Grind' : PROFILE_NAMES[g.profile],
+            age: historyAgeText(typeof g.ageS === 'number' ? g.ageS + elapsedS : g.ageS),
+            final: g.final === null ? '-- g' : tenths(g.final) + ' g',
+            target: g.target === null ? '' : 'target ' + tenths(g.target) + (g.time ? ' s' : ' g'),
+            error: historyErrorText(err),
+            badge: { label: result.label, level: result.level },
+            detail: detail.join(' \u00b7 '),
+            err: err
+        };
+    }
+
+    // Bars for the chart, oldest first: dir 'over' / 'under' with pct of the half height, 'on' for under 0.05 g, 'none'
+    // without an error (time mode, unreadable). Scale: the largest error, at least HISTORY_CHART_MIN_SCALE_G.
+    function historyChart(rows) {
+        var scale = HISTORY_CHART_MIN_SCALE_G;
+        rows.forEach(function (r) { if (r.err !== null && Math.abs(r.err) > scale) scale = Math.abs(r.err); });
+        var bars = rows.slice().reverse().map(function (r) {
+            if (r.err === null) return { dir: 'none', pct: 0 };
+            if (Math.round(Math.abs(r.err) * 10) === 0) return { dir: 'on', pct: 0 };
+            return { dir: r.err > 0 ? 'over' : 'under', pct: Math.max(4, Math.min(100, Math.round(Math.abs(r.err) / scale * 100))) };
+        });
+        var any = bars.some(function (b) { return b.dir !== 'none'; });
+        return {
+            visible: any,
+            bars: bars,
+            caption: 'Error of the last ' + rows.length + (rows.length === 1 ? ' grind' : ' grinds') + ', oldest on the left. Bars above the line are over the target, bars below are under it. Full height is ' + tenths(scale) + ' g.'
+        };
+    }
+
+    // What the recent-grinds card shows. visible is false only when the firmware has no such route (the tiles stay).
+    // kind: loading | error | empty | ready. notice: history not being saved. note: the list is old or could not be refreshed.
+    function historyView(h, conn, nowMs) {
+        var online = !!conn && conn.state === 'online';
+        var view = { visible: !h.unavailable, kind: 'ready', message: '', notice: '', note: '', rows: [],
+            chart: { visible: false, bars: [], caption: '' } };
+        if (h.unavailable) return view;
+        if (!h.doc) {
+            if (!online && conn && conn.state !== 'connecting') {
+                view.kind = 'error';
+                view.message = 'The grinder is not reachable, so the recent grinds cannot be read. This page tries again by itself.';
+            } else if (h.error) {
+                view.kind = 'error';
+                view.message = 'The recent grinds could not be read. ' + h.error + ' This page tries again by itself.';
+            } else {
+                view.kind = 'loading';
+                view.message = 'Loading the recent grinds.';
+            }
+            return view;
+        }
+        var age = formatAge(nowMs - h.fetchedAt);
+        if (!online) view.note = 'The grinder is not reachable. This list is from ' + age + ' ago.';
+        else if (h.error) view.note = 'The list could not be refreshed (' + h.error + ') and is from ' + age + ' ago.';
+        if (!h.doc.persistent) view.notice = 'History is not being saved on the grinder; it is lost at the next restart.';
+        if (h.doc.grinds.length === 0) {
+            view.kind = 'empty';
+            view.message = h.doc.persistent ? 'No grinds recorded yet. Finished grinds are listed here and kept across restarts.' :
+                'No grinds recorded since the grinder started.';
+            return view;
+        }
+        var elapsedS = Math.max(0, (nowMs - h.fetchedAt) / 1000);
+        view.rows = h.doc.grinds.map(function (g) { return historyRow(g, elapsedS); });
+        view.chart = historyChart(view.rows);
+        view.rows.forEach(function (r) { delete r.err; });
+        return view;
+    }
+
+    // ------------------------------------------------------------------ settings form (chg016 step 3)
+    // The form is driven by GET /api/schema. Groups come from the key table below; a key the table does not know
+    // lands in "Other", so a firmware that adds a field never hides it. The form object is
+    // {stored: values as the grinder holds them, draft: what the user has entered (raw: numbers may be text)}.
+
+    var SETTINGS_GROUPS = [
+        {
+            id: 'profiles', title: 'Profiles',
+            hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
+            keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
+        },
+        { id: 'display', title: 'Display', hint: '', keys: ['brightness_normal', 'brightness_screensaver'] },
+        {
+            id: 'grinding', title: 'Grinding', hint: '',
+            keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
+        },
+        { id: 'device', title: 'Device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
+    ];
+    var OTHER_GROUP = { id: 'other', title: 'Other', hint: '' };
+
+    // How a key is shown; anything not listed follows its type (bool: switch, enum: segmented, string: text,
+    // number: stepper).
+    var WIDGET_BY_KEY = {
+        brightness_normal: 'slider',
+        brightness_screensaver: 'slider',
+        purge_amount_g: 'slider',
+        freshness_hours: 'select'
+    };
+
+    // The nine steps of the freshness setting (hours), as in the grinder menu.
+    var FRESHNESS_STEPS = [0.5, 1, 2, 3, 4, 8, 12, 24, 48];
+
+    var CHOICE_TEXT = {
+        purge_mode: { keep: 'Prime (keep)', remove: 'Purge (remove)' },
+        grind_mode: { weight: 'Weight', time: 'Time' }
+    };
+
+    // Shorter labels where the control itself explains the choices.
+    var LABEL_OVERRIDE = { purge_mode: 'Purge mode', device_name: 'Device name' };
+
+    var FIELD_HINT = {
+        device_name: 'The grinder answers at this name followed by .local. 1 to 24 characters: lowercase a-z, 0-9 and hyphen, ' +
+            'no hyphen at the start or end. Changing it means opening this page again at the new address.'
+    };
+
+    function capitalise(text) {
+        var s = String(text);
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    // A limit or step for display: whole numbers without a decimal ("5", "1000"), others as the API writes them.
+    function formatLimit(n) {
+        if (typeof n !== 'number' || !isFinite(n)) return '';
+        return Math.floor(n) === n ? String(n) : PC.formatNumber(n);
+    }
+
+    function unitSuffix(field) {
+        return field && field.unit ? ' ' + field.unit : '';
+    }
+
+    // "5 to 1000 g" for a field with limits, '' otherwise.
+    function rangeText(field) {
+        if (!field || typeof field.min !== 'number' || typeof field.max !== 'number') return '';
+        if (field.type === 'string' || field.type === 'bool' || field.type === 'enum') return '';
+        return formatLimit(field.min) + ' to ' + formatLimit(field.max) + unitSuffix(field);
+    }
+
+    function freshnessLabel(hours) {
+        if (hours < 1) return Math.round(hours * 60) + ' minutes';
+        return hours === 1 ? '1 hour' : formatLimit(hours) + ' hours';
+    }
+
+    // The options of the freshness select; a stored value off the nine steps is added so it stays visible.
+    function freshnessOptions(current) {
+        var steps = FRESHNESS_STEPS.slice();
+        if (typeof current === 'number' && isFinite(current) && steps.indexOf(current) < 0) {
+            steps.push(current);
+            steps.sort(function (a, b) { return a - b; });
+        }
+        return steps.map(function (h) { return { value: h, label: freshnessLabel(h) }; });
+    }
+
+    function widgetKind(field) {
+        if (has(WIDGET_BY_KEY, field.key)) return WIDGET_BY_KEY[field.key];
+        if (field.type === 'bool') return 'switch';
+        if (field.type === 'enum') return 'segmented';
+        if (field.type === 'string') return 'text';
+        return 'stepper';
+    }
+
+    // Everything the DOM glue needs to build one control.
+    function fieldView(field) {
+        var kind = widgetKind(field);
+        var choices = [];
+        if (field.type === 'enum' && field.choices) {
+            choices = field.choices.map(function (c) {
+                var text = has(CHOICE_TEXT, field.key) && has(CHOICE_TEXT[field.key], c) ? CHOICE_TEXT[field.key][c] : capitalise(c);
+                return { value: c, label: text };
+            });
+        }
+        return {
+            key: field.key,
+            label: has(LABEL_OVERRIDE, field.key) ? LABEL_OVERRIDE[field.key] : capitalise(PC.fieldLabel(field.key)),
+            type: field.type,
+            kind: kind,
+            unit: field.unit || '',
+            min: typeof field.min === 'number' ? field.min : null,
+            max: typeof field.max === 'number' ? field.max : null,
+            step: stepFor(field),
+            choices: choices,
+            hint: has(FIELD_HINT, field.key) ? FIELD_HINT[field.key] : '',
+            range: rangeText(field)
+        };
+    }
+
+    // The sections of the form for the fields of the schema, in display order. Empty sections are left out and
+    // every field appears exactly once (unknown keys in "Other").
+    function settingsGroups(fields) {
+        var byKey = {};
+        var used = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var out = [];
+        SETTINGS_GROUPS.forEach(function (g) {
+            var list = [];
+            g.keys.forEach(function (key) {
+                if (has(byKey, key) && !has(used, key)) {
+                    used[key] = true;
+                    list.push(fieldView(byKey[key]));
+                }
+            });
+            if (list.length) out.push({ id: g.id, title: g.title, hint: g.hint, fields: list });
+        });
+        var rest = [];
+        (fields || []).forEach(function (f) {
+            if (!has(used, f.key)) {
+                used[f.key] = true;
+                rest.push(fieldView(f));
+            }
+        });
+        if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, hint: OTHER_GROUP.hint, fields: rest });
+        return out;
+    }
+
+    // The keys of the key table (for the static check that the table and the schema stay in step).
+    function groupedKeys() {
+        var keys = [];
+        SETTINGS_GROUPS.forEach(function (g) { keys = keys.concat(g.keys); });
+        return keys;
+    }
+
+    function currentProfileText(settings) {
+        if (!settings || typeof settings.current_profile !== 'number') return '';
+        var name = PROFILE_NAMES[settings.current_profile];
+        return name ? 'Selected on the grinder: ' + name + '. This is shown for information; it cannot be changed here.' : '';
+    }
+
+    // --- entries
+
+    // Text to a number: "9.5" and "9,5" (one comma, no dot) are numbers, anything else is not. Never NaN.
+    function parseNumberText(text) {
+        var s = String(text).replace(/^\s+|\s+$/g, '');
+        if (/^[^.,]*,[^.,]*$/.test(s)) s = s.replace(',', '.');
+        if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return undefined;
+        var n = parseFloat(s);
+        return isFinite(n) ? n : undefined;
+    }
+
+    // The value to send for a draft entry, in the type the API wants, or undefined for "not a usable entry"
+    // (an empty or unreadable number): such a key is left out of the PATCH.
+    function entryValue(field, raw) {
+        if (field.type === 'bool') return typeof raw === 'boolean' ? raw : undefined;
+        if (field.type === 'enum' || field.type === 'string') return typeof raw === 'string' ? raw : undefined;
+        if (typeof raw === 'number') return isFinite(raw) ? raw : undefined;
+        if (typeof raw === 'string') return parseNumberText(raw);
+        return undefined;
+    }
+
+    // The text for a number input from a stored or stepped value.
+    function draftText(field, raw) {
+        if (typeof raw === 'number') return field.type === 'int' ? String(raw) : PC.formatNumber(raw);
+        return typeof raw === 'string' ? raw : '';
+    }
+
+    function isNumeric(field) {
+        return field.type === 'int' || field.type === 'number';
+    }
+
+    function copyScalars(values) {
+        var out = {};
+        Object.keys(values || {}).forEach(function (key) {
+            var v = values[key];
+            if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') out[key] = v;
+        });
+        return out;
+    }
+
+    function formNew(values) {
+        return { stored: copyScalars(values), draft: copyScalars(values) };
+    }
+
+    function formSet(form, key, raw) {
+        var draft = copyScalars(form.draft);
+        draft[key] = raw;
+        return { stored: form.stored, draft: draft };
+    }
+
+    function formDiscard(form) {
+        return { stored: form.stored, draft: copyScalars(form.stored) };
+    }
+
+    // The body of a PATCH: only the keys whose entry differs from the stored value, in schema order. A key with
+    // no usable entry is not in it. `current_profile` is not a field and can never be in it.
+    function formPatch(form, fields) {
+        var entered = {};
+        (fields || []).forEach(function (f) {
+            if (has(form.draft, f.key)) entered[f.key] = entryValue(f, form.draft[f.key]);
+        });
+        return PC.diffValues(form.stored, entered);
+    }
+
+    function formChangeCount(form, fields) {
+        return Object.keys(formPatch(form, fields)).length;
+    }
+
+    function changeCountText(count) {
+        return count === 1 ? '1 change' : count + ' changes';
+    }
+
+    // Hints for numeric entries the page cannot read (they stay out of the PATCH).
+    function entryNotes(form, fields) {
+        var notes = {};
+        (fields || []).forEach(function (f) {
+            if (isNumeric(f) && has(form.draft, f.key) && entryValue(f, form.draft[f.key]) === undefined) {
+                notes[f.key] = 'Not a number. This setting stays as it is.';
+            }
+        });
+        return notes;
+    }
+
+    // After a successful PATCH: the grinder's applied values become the stored ones. A saved key shows what the
+    // grinder applied (it may have clamped it); an entry that was not part of the PATCH stays as typed.
+    // Keys the user did not edit follow the reply (formRefresh rule), so no change appears that nobody made.
+    function formSaved(form, appliedValues, patch, fields) {
+        var next = formRefresh(form, appliedValues, fields).form;
+        Object.keys(patch || {}).forEach(function (key) {
+            if (has(next.stored, key)) next.draft[key] = next.stored[key];
+        });
+        return next;
+    }
+
+    // Fresh settings from the grinder. Fields the user has edited keep their entry; the others take the new value.
+    // `notice` is non-empty when edits were kept while the grinder reports other values than before.
+    function formRefresh(form, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var fresh = copyScalars(values);
+        var draft = {};
+        var kept = false;
+        Object.keys(fresh).forEach(function (key) {
+            var raw = form.draft[key];
+            var keep = false;
+            var same = false; // the entry already equals the new value: keep the text as typed ('9' stays '9')
+            if (has(byKey, key) && has(form.draft, key)) {
+                var entry = entryValue(byKey[key], raw);
+                same = entry !== undefined && entry === fresh[key];
+                keep = entry === undefined || entry !== form.stored[key];
+            }
+            if (keep && !same) kept = true;
+            draft[key] = keep || same ? raw : fresh[key];
+        });
+        var changed = Object.keys(fresh).filter(function (key) { return form.stored[key] !== fresh[key]; });
+        var notice = '';
+        if (kept && changed.length) {
+            notice = 'The grinder reports new values for ' + changed.map(function (k) { return PC.fieldLabel(k); }).join(', ') +
+                '. Your unsaved edits are kept; Discard loads the grinder\'s values.';
+        }
+        return { form: { stored: fresh, draft: draft }, notice: notice, changed: changed };
+    }
+
+    // --- steppers (no float drift: arithmetic on thousandths)
+
+    function stepFor(field) {
+        if (typeof field.step === 'number' && field.step > 0) return field.step;
+        if (field.unit === 's') return 0.5;
+        if (field.unit === 'g') return 0.1;
+        return 1;
+    }
+
+    // The value after one press of minus (-1) or plus (+1). A blank or unreadable entry starts from `fallback`.
+    // The result stays inside the limits; typing is not limited, so the grinder can still say no.
+    function stepValue(raw, direction, field, fallback) {
+        var current = entryValue(field, raw);
+        if (current === undefined) current = typeof fallback === 'number' ? fallback : (typeof field.min === 'number' ? field.min : 0);
+        var step = Math.round(stepFor(field) * 1000);
+        var next = (Math.round(current * 1000) + (direction < 0 ? -step : step)) / 1000;
+        if (typeof field.min === 'number' && next < field.min) next = field.min;
+        if (typeof field.max === 'number' && next > field.max) next = field.max;
+        return next;
+    }
+
+    // --- saving
+
+    // Why Save cannot be used right now ('' when it can): the same connection and busy reasons as the actions, and
+    // writes also need the main screen or a menu page (never an edit screen, dialog or calibration).
+    function saveReason(status, conn, extra) {
+        var common = commonReason(status, conn, extra);
+        if (common) return common;
+        if (status && (status.start_block === 'update_in_progress' || status.motor_test_block === 'update_in_progress')) {
+            return REASON.update;
+        }
+        if (status && status.ui_state !== 'ready' && status.ui_state !== 'menu') return REASON.notReady;
+        return '';
+    }
+
+    function saveBarView(form, fields, status, conn, extra) {
+        var count = form ? formChangeCount(form, fields) : 0;
+        var reason = count > 0 ? saveReason(status, conn, extra) : '';
+        return {
+            visible: count > 0,
+            count: count,
+            countText: changeCountText(count),
+            canSave: count > 0 && reason === '',
+            reason: reason
+        };
+    }
+
+    // Words for the keys the grinder clamped or snapped, per key, shown beside the field.
+    function adjustedNotes(adjusted, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var notes = {};
+        (adjusted || []).forEach(function (key) {
+            var v = values ? values[key] : undefined;
+            var f = has(byKey, key) ? byKey[key] : {};
+            var whole = typeof v === 'number' && Math.floor(v) === v && (f.type === 'int' || f.unit === 'h');
+            var shown = typeof v === 'number' ? (whole ? String(v) : PC.formatNumber(v)) : String(v);
+            notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
+        });
+        return notes;
+    }
+
+    // What to show for a refused PATCH: text beside fields where the page can tell which one, and a sentence for the
+    // whole form. `patch` is what was sent. `reload` asks for a fresh read of the settings.
+    function saveErrorView(code, patch, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var keys = Object.keys(patch || {});
+        var out = { fields: {}, form: PC.describeError(code) + ' Your edits are kept.', reload: false };
+        // the firmware also answers malformed_json for a device name it cannot read (non-ASCII, backslash)
+        if ((code === 'invalid_device_name' || code === 'malformed_json') && has(patch || {}, 'device_name')) {
+            out.fields.device_name = PC.describeError('invalid_device_name');
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'out_of_range') {
+            keys.forEach(function (key) {
+                var f = byKey[key];
+                if (f && isNumeric(f) && typeof f.min === 'number' && typeof f.max === 'number' &&
+                        (patch[key] < f.min || patch[key] > f.max)) {
+                    out.fields[key] = 'Outside the allowed range (' + rangeText(f) + ').';
+                }
+            });
+            if (Object.keys(out.fields).length) out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if ((code === 'wrong_type' || code === 'invalid_value') && keys.length === 1) {
+            out.fields[keys[0]] = PC.describeError(code);
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'ui_busy' || code === 'store_failed') {
+            out.form = PC.describeError(code);
+            out.reload = true;
+        } else if (code === 'network' || code === 'timeout') {
+            // the grinder may have stored the values before the reply was lost: read them back
+            out.form = PC.describeError(code) + ' The change may or may not have been saved; the page checks. Your edits are kept.';
+            out.reload = true;
+        }
+        return out;
+    }
+
+    // Rename: the sentence for the reply's `address`, '' when it is not a plain .local name.
+    function renameNotice(address) {
+        if (!/^[a-z0-9-]{1,63}\.local$/.test(String(address))) return '';
+        return 'The grinder is now called ' + address + '. Open this page again at that address; the old name stops ' +
+            'answering. The IP address keeps working.';
+    }
+
+    // Link target for the new address, built from how this page was opened ('' when that is not plain http).
+    function renameLink(address, protocol, port) {
+        if (renameNotice(address) === '' || protocol !== 'http:') return '';
+        return protocol + '//' + address + (port ? ':' + port : '') + '/';
+    }
+
+    // What the settings area says while the form cannot be shown yet.
+    function settingsPlaceholder(haveSchema, haveSettings, conn, schemaMissing) {
+        if (haveSchema && haveSettings) return '';
+        if (schemaMissing) return 'This grinder firmware does not offer the settings form yet. Update the firmware.';
+        if (conn && conn.state === 'web_off') return REASON.webOff;
+        if (conn && (conn.state === 'offline' || conn.state === 'reconnecting')) return REASON.offline;
+        return 'Loading the settings.';
+    }
+
+    return {
+        TABS: TABS,
+        PROFILE_NAMES: PROFILE_NAMES,
+        BACKOFF_MS: BACKOFF_MS,
+        POLL_IDLE_MS: POLL_IDLE_MS,
+        POLL_BUSY_MS: POLL_BUSY_MS,
+        POLL_WEB_OFF_MS: POLL_WEB_OFF_MS,
+        LEAD_IN_GRACE_MS: LEAD_IN_GRACE_MS,
+        LEAD_IN_DROPPED_SHOW_MS: LEAD_IN_DROPPED_SHOW_MS,
+        LEAD_IN_STATUS_AFTER_MS: LEAD_IN_STATUS_AFTER_MS,
+        OFFLINE_AFTER_FAILURES: OFFLINE_AFTER_FAILURES,
+        REASON: REASON,
+        tabForViewport: tabForViewport,
+        formatWeight: formatWeight,
+        formatSeconds: formatSeconds,
+        formatAge: formatAge,
+        stateLabel: stateLabel,
+        phaseLabel: phaseLabel,
+        blockText: blockText,
+        newConnection: newConnection,
+        connectionOk: connectionOk,
+        connectionFailed: connectionFailed,
+        backoffDelay: backoffDelay,
+        pollDelay: pollDelay,
+        nextPollTask: nextPollTask,
+        validSettingsDoc: validSettingsDoc,
+        pollSucceeded: pollSucceeded,
+        pollFailed: pollFailed,
+        firstInvalidKey: firstInvalidKey,
+        connectionView: connectionView,
+        leadInStart: leadInStart,
+        leadInTick: leadInTick,
+        leadInCancel: leadInCancel,
+        leadInActive: leadInActive,
+        leadInView: leadInView,
+        grindVisible: grindVisible,
+        deriveControls: deriveControls,
+        warningsView: warningsView,
+        WARNING_TEXT: WARNING_TEXT,
+        WARNING_CODE_MAX: WARNING_CODE_MAX,
+        readoutView: readoutView,
+        profileCards: profileCards,
+        STATS_PERIOD_MS: STATS_PERIOD_MS,
+        STATS_RETRY_MS: STATS_RETRY_MS,
+        STATS_FOLLOW_UP_MS: STATS_FOLLOW_UP_MS,
+        STATS_KEYS: STATS_KEYS,
+        STATS_NOT_AVAILABLE: STATS_NOT_AVAILABLE,
+        newStats: newStats,
+        parseStats: parseStats,
+        statsLoaded: statsLoaded,
+        statsFailed: statsFailed,
+        statsRefresh: statsRefresh,
+        statsShown: statsShown,
+        grindEnded: grindEnded,
+        statsOnStatus: statsOnStatus,
+        statsDue: statsDue,
+        statsView: statsView,
+        formatCount: formatCount,
+        formatDuration: formatDuration,
+        formatKg: formatKg,
+        HISTORY_RESULTS: HISTORY_RESULTS,
+        HISTORY_CHART_MIN_SCALE_G: HISTORY_CHART_MIN_SCALE_G,
+        parseHistory: parseHistory,
+        historyLoaded: historyLoaded,
+        historyDue: historyDue,
+        historyAgeText: historyAgeText,
+        historyErrorText: historyErrorText,
+        historyView: historyView,
+        FRESHNESS_STEPS: FRESHNESS_STEPS,
+        settingsGroups: settingsGroups,
+        groupedKeys: groupedKeys,
+        fieldView: fieldView,
+        freshnessOptions: freshnessOptions,
+        rangeText: rangeText,
+        currentProfileText: currentProfileText,
+        parseNumberText: parseNumberText,
+        entryValue: entryValue,
+        draftText: draftText,
+        formNew: formNew,
+        formSet: formSet,
+        formDiscard: formDiscard,
+        formPatch: formPatch,
+        formChangeCount: formChangeCount,
+        changeCountText: changeCountText,
+        entryNotes: entryNotes,
+        formSaved: formSaved,
+        formRefresh: formRefresh,
+        stepValue: stepValue,
+        saveReason: saveReason,
+        saveBarView: saveBarView,
+        adjustedNotes: adjustedNotes,
+        saveErrorView: saveErrorView,
+        renameNotice: renameNotice,
+        renameLink: renameLink,
+        settingsPlaceholder: settingsPlaceholder
+    };
+}));
+</script>
+<script>
+// DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
+// into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
+// The Grind, Settings and Insights tabs are live (chg016 steps 2, 3, 9 and 12; the Insights tab shows once the
+// firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history).
 (function () {
   'use strict';
   var P = PortalClient;
+  var V = PortalView;
   var client = P.createClient();
-  var schema = null;
-  var known = {};
-  var currentProfile = -1;
-  var inputs = {};
-  var lastStatusError = '';
 
   function $(id) { return document.getElementById(id); }
-  function el(tag, props, children) {
-    var node = document.createElement(tag);
-    Object.keys(props || {}).forEach(function (k) { node[k] = props[k]; });
-    (children || []).forEach(function (c) { node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
-    return node;
-  }
-  function say(text, kind) {
-    var m = $('message');
-    m.textContent = text;
-    m.className = kind || '';
-  }
-  function fail(err) {
-    say(err && err.message ? err.message : 'Something went wrong.', 'error');
-    // One reload after a failed write; loadSettings reports its own failure and never calls fail() again.
-    if (err && (err.code === 'ui_busy' || err.code === 'store_failed')) loadSettings();
-  }
-  function showCurl(method, path, body) {
-    try { $('curl').value = P.toCurl(location.host, method, path, body); } catch (e) { $('curl').value = ''; }
-  }
+  function now() { return Date.now(); }
 
-  // ---- form built from /api/schema
-  function fieldInput(f) {
-    var input;
-    if (f.type === 'bool') {
-      input = el('input', { type: 'checkbox' });
-    } else if (f.type === 'enum') {
-      input = el('select', {}, f.choices.map(function (c) { return el('option', { value: c, textContent: c }); }));
-    } else if (f.type === 'string') {
-      input = el('input', { type: 'text', maxLength: f.max, autocapitalize: 'off', spellcheck: false });
-    } else {
-      input = el('input', { type: 'number', min: f.min, max: f.max, step: f.step || 'any' });
+  // --- state of the page (everything else is derived from it by the view module)
+  var conn = V.newConnection();
+  var status = null;
+  var settings = null;
+  var leadIn = null;
+  var commandPending = false;
+  var needSettings = true;
+  var settingsGen = 0; // bumped when a save finishes: settings replies requested earlier are stale and dropped
+  var needInfo = true;
+  var needSchema = true;
+  var schema = null; // the field list of GET /api/schema
+  var schemaMissing = false; // the firmware has no /api/schema
+  var form = null; // the settings form state (stored values and the user's entries), see portal-view.js
+  var currentProfileEl = null; // the "selected on the grinder" line of the Profiles group
+  var fieldControls = {}; // key -> {write, msg, inputs, focusEl} of the built settings controls
+  var fieldErrors = {}; // key -> text of a refusal beside the field
+  var fieldNotes = {}; // key -> text of an "adjusted by the grinder" note
+  var formError = ''; // refusal text for the whole form
+  var settingsNotice = ''; // "the grinder changed values while you were editing"
+  var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
+  var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
+  var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+  var polling = false;
+  var pollTimer = null;
+  var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
+  var forceStatus = false; // the last settings or info request failed: status goes next
+  var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
+
+  // matchMedia may be missing in old browsers: then the narrow layout (one tab at a time) is assumed.
+  var wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 900px)') : null;
+  var requestedTab = 'grind';
+
+  function showTab(requested) {
+    requestedTab = requested;
+    var name = V.tabForViewport(requested, !!(wide && wide.matches));
+    V.TABS.forEach(function (tab) {
+      $('panel-' + tab).hidden = tab !== name;
+      var button = $('tab-' + tab);
+      if (tab === name) button.setAttribute('aria-current', 'true');
+      else button.removeAttribute('aria-current');
+    });
+    setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
+    if (name === 'insights') {
+      stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
+      history = V.statsShown(history, now());
+      pollNow();
     }
-    input.id = 'f_' + f.key;
-    inputs[f.key] = { field: f, node: input };
-    return input;
   }
-  function fieldRow(f) {
-    var input = fieldInput(f);
-    return el('div', { className: 'row' }, [
-      el('label', { htmlFor: input.id, textContent: P.fieldLabel(f.key) }), input,
-      el('span', { className: 'unit', textContent: f.unit || '' })
-    ]);
+
+  // Writes only when the text differs, so a poll does not touch the DOM (or re-announce) for an unchanged value.
+  function setText(el, text) {
+    if (el.textContent !== text) el.textContent = text;
   }
-  function buildForm() {
-    var form = $('settings-form');
-    var box = $('profiles');
-    form.textContent = '';
-    box.textContent = '';
-    inputs = {};
-    var profileKeys = {};
-    schema.profiles.forEach(function (p) { profileKeys[p.weight_key] = true; profileKeys[p.time_key] = true; });
-    var byKey = {};
-    schema.fields.forEach(function (f) { byKey[f.key] = f; });
-    schema.fields.forEach(function (f) {
-      if (!profileKeys[f.key]) form.appendChild(fieldRow(f));
-    });
-    schema.profiles.forEach(function (p) {
-      var start = el('button', { type: 'button', textContent: 'Start', id: 'start_' + p.index });
-      start.addEventListener('click', function () { runCommand('start', p.index); });
-      var title = el('strong', { id: 'profile_title_' + p.index, textContent: p.name });
-      box.appendChild(el('div', { className: 'row' }, [title, start]));
-      box.appendChild(fieldRow(byKey[p.weight_key]));
-      box.appendChild(fieldRow(byKey[p.time_key]));
-    });
+
+  function setClass(el, name, on) {
+    if (on) el.classList.add(name);
+    else el.classList.remove(name);
   }
-  function fillForm(values) {
-    known = values;
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      if (!(key in values)) return;
-      if (entry.field.type === 'bool') entry.node.checked = values[key];
-      else entry.node.value = values[key];
-    });
+
+  // A repeated text is announced again: the region is emptied first and filled on the next tick.
+  // Both regions are emptied at once; only the wanted one is filled, in one place.
+  var sayTimer = null;
+  function say(text, isError) {
+    $('alert').textContent = '';
+    $('message').textContent = '';
+    if (sayTimer !== null) clearTimeout(sayTimer);
+    sayTimer = setTimeout(function () {
+      sayTimer = null;
+      $(isError ? 'alert' : 'message').textContent = text;
+    }, 0);
   }
-  function readForm() {
-    var entered = {};
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      var type = entry.field.type;
-      if (type === 'bool') entered[key] = entry.node.checked;
-      else if (type === 'number' || type === 'int') {
-        if (entry.node.value !== '') entered[key] = Number(entry.node.value);
-      } else entered[key] = entry.node.value;
-    });
-    return entered;
+
+  function sayError(err, fallback) {
+    say(err && err.message ? err.message : fallback, true);
   }
-  function markProfile(index) {
-    currentProfile = index;
-    schema.profiles.forEach(function (p) {
-      $('profile_title_' + p.index).textContent = p.name + (p.index === index ? ' (selected on the grinder)' : '');
+
+  // --- rendering
+  function leadInIsActive() { return V.leadInActive(leadIn); }
+
+  function setControl(button, reasonEl, control) {
+    button.disabled = !control.enabled;
+    setText(reasonEl, control.enabled ? '' : control.reason);
+  }
+
+  // The warnings card is rebuilt only when its rows change, so a poll does not re-announce an unchanged list.
+  var warningsKey = '';
+  function renderWarnings() {
+    var view = V.warningsView(status, conn);
+    $('warnings').hidden = !view.visible;
+    var key = JSON.stringify(view.rows);
+    if (key === warningsKey) return;
+    warningsKey = key;
+    var list = $('warnings-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.rows.forEach(function (row) {
+      // cloned from the <template> in the page: the icons are the page's own inline sprite symbols
+      var item = $('warning-row').content.firstElementChild.cloneNode(true);
+      item.classList.add(row.level);
+      item.querySelector('.warn-tag').textContent = row.label;
+      item.querySelector('.warn-name').textContent = row.title;
+      item.querySelector('.warn-action').textContent = row.action;
+      list.appendChild(item);
     });
   }
 
-  // ---- actions
-  function loadSettings() {
-    return client.getSettings().then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      return true;
-    }, function (err) {
-      say(err.message, 'error');
-      return false;
+  // The tiles are rebuilt only when their content changes. Values go in with textContent only.
+  var insightsKey = '';
+  function renderInsights() {
+    var view = V.statsView(stats, conn, now());
+    var tab = $('tab-insights');
+    if (tab.hidden === view.tabVisible) {
+      tab.hidden = !view.tabVisible;
+      if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
+    }
+    setText($('insights-message'), view.message);
+    setText($('insights-note'), view.note);
+    $('tiles').hidden = view.tiles.length === 0;
+    $('mix').hidden = !view.mix.visible;
+    var key = JSON.stringify([view.tiles, view.mix]);
+    if (key === insightsKey) return;
+    insightsKey = key;
+    var tiles = $('tiles');
+    while (tiles.firstChild) tiles.removeChild(tiles.firstChild);
+    view.tiles.forEach(function (tile) {
+      var item = el('div', 'tile');
+      item.appendChild(el('dt', '', tile.label));
+      // a line may break after a comma (never inside a group of digits): a <wbr> after each comma, so copied text stays clean
+      var value = el('dd', 'stat-value');
+      tile.value.split(',').forEach(function (part, n, parts) {
+        if (n > 0) value.appendChild(el('wbr'));
+        value.appendChild(document.createTextNode(n < parts.length - 1 ? part + ',' : part));
+      });
+      item.appendChild(value);
+      item.appendChild(el('dd', 'stat-detail', tile.detail));
+      tiles.appendChild(item);
     });
-  }
-  function apply() {
-    var patch = P.diffValues(known, readForm());
-    if (Object.keys(patch).length === 0) { say('Nothing to change.', ''); return; }
-    var body = JSON.stringify(patch);
-    showCurl('PATCH', '/api/settings', body);
-    $('apply').disabled = true;
-    $('notes').textContent = '';
-    client.patchSettings(patch).then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      $('notes').textContent = P.describeAdjusted(r.adjusted, r.values, schema.fields).join(' ');
-      if (r.address) {
-        say('Saved. The grinder is now at http://' + r.address + ' - open the page there; the old name no longer answers.', 'ok');
-      } else {
-        say('Saved.', 'ok');
+    var bar = $('mix-bar');
+    var list = $('mix-list');
+    while (bar.firstChild) bar.removeChild(bar.firstChild);
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.mix.segments.forEach(function (segment, i) {
+      if (segment.drawn) {
+        var seg = el('span', 'seg s' + i);
+        seg.style.flexGrow = String(segment.flex);
+        bar.appendChild(seg);
       }
-    }).then(null, fail).then(function () { $('apply').disabled = false; });
-  }
-  function runCommand(cmd, profile) {
-    var body = { cmd: cmd };
-    if (profile !== undefined) body.profile = profile;
-    showCurl('POST', '/api/command', JSON.stringify(body));
-    client.command(cmd, profile).then(function (r) {
-      if (cmd === 'start') say('Start accepted. The grinder starts in ' + Math.round((r.lead_in_ms || 0) / 1000) + ' s; touch the grinder or press STOP to cancel.', 'ok');
-      else if (cmd === 'stop') say('Stop sent.', 'ok');
-      else say('Command accepted: ' + cmd.replace('_', ' ') + '.', 'ok');
-      pollStatus();
-    }, fail);
-  }
-  function copyCurl() {
-    var box = $('curl');
-    if (!box.value) { showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm()))); }
-    box.focus();
-    box.select();
-    var done = false;
-    try { done = document.execCommand('copy'); } catch (e) { done = false; }
-    say(done ? 'Copied.' : 'Press Ctrl+C (the text is selected).', done ? 'ok' : '');
-  }
-
-  // ---- status
-  function renderStatus(s) {
-    var d = P.describeStatus(s);
-    var rows = [['State', d.state], ['Grind phase', d.phase], ['Weight', d.weight], ['Busy', d.busy],
-      ['Motor', d.motor], ['Start', d.start], ['Motor test', d.motorTest], ['Uptime', d.uptime], ['Build', d.build]];
-    var list = $('status-list');
-    list.textContent = '';
-    rows.forEach(function (r) {
-      list.appendChild(el('dt', { textContent: r[0] }));
-      list.appendChild(el('dd', { textContent: r[1] }));
-    });
-  }
-  function pollStatus() {
-    client.getStatus().then(function (s) {
-      lastStatusError = '';
-      renderStatus(s);
-    }, function (err) {
-      $('status-list').textContent = '';
-      $('status-list').appendChild(el('dd', { textContent: err.message }));
-      // announce a new problem once, not every poll
-      if (err.code === 'web_interface_off' && lastStatusError !== err.code) say(err.message, 'error');
-      lastStatusError = err.code;
+      var row = el('div', 'mix-row');
+      var name = el('dt');
+      name.appendChild(el('span', 'swatch s' + i));
+      name.appendChild(el('span', '', segment.label));
+      row.appendChild(name);
+      row.appendChild(el('dd', '', segment.text));
+      list.appendChild(row);
     });
   }
 
-  // ---- start
-  $('stop').addEventListener('click', function () { runCommand('stop'); });
-  $('tare').addEventListener('click', function () { runCommand('tare'); });
-  $('motor_test').addEventListener('click', function () { runCommand('motor_test'); });
-  $('apply').addEventListener('click', apply);
-  $('reload').addEventListener('click', function () { loadSettings().then(function (ok) { if (ok) say('Reloaded.', 'ok'); }); });
-  $('copy-patch').addEventListener('click', function () {
-    showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm())));
-  });
-  $('copy').addEventListener('click', copyCurl);
-  $('settings-form').addEventListener('submit', function (e) { e.preventDefault(); apply(); });
+  // The recent-grinds card is rebuilt only when its content changes (an age text changes once a minute).
+  var historyKey = '';
+  function renderHistory() {
+    var view = V.historyView(history, conn, now());
+    $('history').hidden = !view.visible;
+    setText($('history-message'), view.message);
+    setText($('history-note'), view.note);
+    setText($('history-notice'), view.notice);
+    $('history-notice').hidden = view.notice === '';
+    $('history-chart').hidden = !view.chart.visible;
+    var key = JSON.stringify([view.rows, view.chart]);
+    if (key === historyKey) return;
+    historyKey = key;
+    setText($('history-caption'), view.chart.caption);
+    var bars = $('history-bars');
+    var list = $('history-list');
+    while (bars.firstChild) bars.removeChild(bars.firstChild);
+    while (list.firstChild) list.removeChild(list.firstChild);
+    // the chart is plain divs with a height in percent (the list carries the same numbers in words)
+    view.chart.bars.forEach(function (bar) {
+      var col = el('div', 'h-col ' + bar.dir);
+      var up = el('div', 'h-up');
+      var down = el('div', 'h-down');
+      if (bar.dir === 'over' || bar.dir === 'under') {
+        var fill = el('div', 'h-bar ' + bar.dir);
+        fill.style.height = bar.pct + '%';
+        (bar.dir === 'over' ? up : down).appendChild(fill);
+      }
+      col.appendChild(up);
+      col.appendChild(el('div', 'h-axis'));
+      col.appendChild(down);
+      bars.appendChild(col);
+    });
+    view.rows.forEach(function (row) {
+      var item = $('history-row').content.firstElementChild.cloneNode(true);
+      item.querySelector('.h-name').textContent = row.name;
+      item.querySelector('.h-age').textContent = row.age;
+      item.querySelector('.h-final').textContent = row.final;
+      item.querySelector('.h-target').textContent = row.target;
+      item.querySelector('.h-error').textContent = row.error;
+      item.querySelector('.h-detail').textContent = row.detail;
+      item.querySelector('.h-result').textContent = row.badge.label;
+      item.querySelector('.h-badge').classList.add(row.badge.level);
+      list.appendChild(item);
+    });
+  }
 
-  client.getInfo().then(function (info) {
-    $('name').textContent = info.name + '.local (firmware ' + info.version + ', build ' + info.build + ')';
-  }, function () {});
-  client.getSchema().then(function (s) {
-    schema = s;
+  function render() {
+    var t = now();
+    var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
+    var view = V.connectionView(conn, t);
+    var readout = V.readoutView(status, conn, t);
+
+    // connection chip, explanation, empty state
+    setText($('conn-text'), view.label);
+    var icon = '#i-' + view.icon;
+    if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
+    var webOff = conn.state === 'web_off';
+    $('weboff').hidden = !webOff;
+    $('live').hidden = webOff;
+    $('conn-note').hidden = webOff || view.detail === '';
+    setText($('conn-detail'), view.detail);
+    $('retry').hidden = !view.retry;
+
+    // readout
+    setText($('readout-state'), readout.state);
+    setText($('readout-weight'), readout.weight);
+    setText($('readout-phase'), readout.phase);
+    setText($('readout-hint'), readout.hint);
+    setText($('readout-seen'), readout.seen);
+    setClass($('readout'), 'is-stale', readout.stale);
+    setText($('strip-state'), readout.state);
+    setText($('strip-weight'), readout.weight);
+    setClass($('strip'), 'is-stale', readout.stale);
+
+    // banner
+    $('banner').hidden = !controls.banner;
+    if (controls.banner) {
+      setText($('banner-text'), controls.banner.text);
+      setClass($('banner'), 'error', controls.banner.level === 'error');
+      setClass($('banner'), 'warning', controls.banner.level === 'warning');
+    }
+
+    // STOP: never disabled; emphasised while something runs
+    setClass($('stop'), 'is-busy', controls.stop.emphasis);
+    setClass($('stop-pane'), 'is-busy', controls.stop.emphasis);
+
+    // lead-in card
+    var li = V.leadInView(leadIn, t);
+    $('leadin').hidden = !li.visible;
+    setText($('leadin-text'), li.text);
+
+    // profile cards
+    V.profileCards(settings).forEach(function (card) {
+      setText($('target-' + card.index), card.target);
+      $('badge-' + card.index).hidden = !card.selected;
+      setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
+    });
+    setControl($('tare'), $('reason-tare'), controls.tare);
+    setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
+    renderWarnings();
+    renderSettings();
+    renderInsights();
+    renderHistory();
+  }
+
+  // --- settings form
+  function el(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function setValue(input, value) {
+    if (input.value !== value) input.value = value;
+  }
+
+  function onEdit(key, raw) {
+    form = V.formSet(form, key, raw);
+    delete fieldErrors[key];
+    delete fieldNotes[key];
+    formError = '';
+    renderSettings();
+  }
+
+  function numberText(view, raw) { return V.draftText(view, raw); }
+
+  // Builds one control; returns its wrapper. The registry entry knows how to show a draft value.
+  function buildField(view) {
+    var key = view.key;
+    var id = 'f-' + key;
+    var msg = el('p', 'field-msg');
+    msg.id = 'msg-' + key;
+    var describedBy = msg.id;
+    var hintText = view.hint || (view.kind === 'stepper' && view.range ? 'Allowed: ' + view.range : '');
+    var hint = null;
+    if (hintText) {
+      hint = el('p', 'hint', hintText);
+      hint.id = 'hint-' + key;
+      describedBy = hint.id + ' ' + msg.id;
+    }
+    var reg = { msg: msg, inputs: [], focusEl: null, write: null };
+    var wrap;
+    var input;
+
+    if (view.kind === 'switch') {
+      wrap = el('div', 'field');
+      var row = el('label', 'switch-row');
+      row.setAttribute('for', id);
+      row.appendChild(el('span', 'lbl', view.label));
+      input = el('input', 'switch');
+      input.type = 'checkbox';
+      input.id = id;
+      input.setAttribute('role', 'switch');
+      row.appendChild(input);
+      wrap.appendChild(row);
+      input.addEventListener('change', function () { onEdit(key, input.checked); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { input.checked = raw === true; };
+    } else if (view.kind === 'segmented') {
+      wrap = el('fieldset', 'field');
+      wrap.setAttribute('role', 'radiogroup');
+      wrap.appendChild(el('legend', '', view.label));
+      var opts = el('div', 'seg-opts');
+      view.choices.forEach(function (choice, i) {
+        var label = el('label');
+        var radio = el('input');
+        radio.type = 'radio';
+        radio.name = id;
+        radio.value = choice.value;
+        radio.id = id + '-' + i;
+        radio.addEventListener('change', function () { if (radio.checked) onEdit(key, choice.value); });
+        label.appendChild(radio);
+        label.appendChild(el('span', '', choice.label));
+        opts.appendChild(label);
+        reg.inputs.push(radio);
+      });
+      wrap.appendChild(opts);
+      reg.focusEl = reg.inputs[0] || null;
+      reg.write = function (raw) {
+        reg.inputs.forEach(function (radio) { radio.checked = radio.value === raw; });
+      };
+    } else if (view.kind === 'slider') {
+      wrap = el('div', 'field');
+      var head = el('div', 'slider-head');
+      var label = el('label', '', view.label);
+      label.setAttribute('for', id);
+      var out = el('output');
+      out.setAttribute('for', id);
+      head.appendChild(label);
+      head.appendChild(out);
+      wrap.appendChild(head);
+      input = el('input');
+      input.type = 'range';
+      input.id = id;
+      if (view.min !== null) input.min = String(view.min);
+      if (view.max !== null) input.max = String(view.max);
+      input.step = String(view.step);
+      wrap.appendChild(input);
+      var showOut = function () { setText(out, numberText(view, V.entryValue(view, input.value)) + (view.unit ? ' ' + view.unit : '')); };
+      input.addEventListener('input', function () { showOut(); onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, numberText(view, raw)); showOut(); };
+    } else if (view.kind === 'select') {
+      wrap = el('div', 'field');
+      var selLabel = el('label', '', view.label);
+      selLabel.setAttribute('for', id);
+      wrap.appendChild(selLabel);
+      input = el('select');
+      input.id = id;
+      wrap.appendChild(input);
+      input.addEventListener('change', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) {
+        var entry = V.entryValue(view, raw);
+        var wanted = entry === undefined ? '' : String(entry);
+        var have = false;
+        for (var i = 0; i < input.options.length; i++) if (input.options[i].value === wanted) have = true;
+        if (!have) {
+          while (input.firstChild) input.removeChild(input.firstChild);
+          V.freshnessOptions(entry).forEach(function (o) {
+            var option = el('option', '', o.label);
+            option.value = String(o.value);
+            input.appendChild(option);
+          });
+        }
+        setValue(input, wanted);
+      };
+    } else if (view.kind === 'text') {
+      wrap = el('div', 'field');
+      var textLabel = el('label', '', view.label);
+      textLabel.setAttribute('for', id);
+      wrap.appendChild(textLabel);
+      var nameRow = el('div', 'name-row');
+      input = el('input');
+      input.type = 'text';
+      input.id = id;
+      input.setAttribute('autocapitalize', 'none');
+      input.setAttribute('autocomplete', 'off');
+      input.setAttribute('autocorrect', 'off');
+      input.spellcheck = false;
+      if (view.max !== null) input.maxLength = view.max;
+      nameRow.appendChild(input);
+      if (key === 'device_name') nameRow.appendChild(el('span', 'unit', '.local'));
+      wrap.appendChild(nameRow);
+      input.addEventListener('input', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, typeof raw === 'string' ? raw : ''); };
+    } else {
+      // stepper: minus, number, plus. The step is a convenience; typing any value is allowed.
+      wrap = el('div', 'field');
+      var numLabel = el('label', '', view.label);
+      numLabel.setAttribute('for', id);
+      wrap.appendChild(numLabel);
+      var stepper = el('div', 'stepper');
+      var minus = el('button', 'btn', '−');
+      minus.type = 'button';
+      minus.setAttribute('aria-label', 'Decrease ' + view.label);
+      var plus = el('button', 'btn', '+');
+      plus.type = 'button';
+      plus.setAttribute('aria-label', 'Increase ' + view.label);
+      input = el('input');
+      input.type = 'number';
+      input.id = id;
+      input.step = 'any';
+      input.setAttribute('inputmode', 'decimal');
+      stepper.appendChild(minus);
+      stepper.appendChild(input);
+      if (view.unit) stepper.appendChild(el('span', 'unit', view.unit));
+      stepper.appendChild(plus);
+      wrap.appendChild(stepper);
+      var press = function (direction) {
+        var next = V.stepValue(form.draft[key], direction, view, form.stored[key]);
+        onEdit(key, next);
+        setValue(input, numberText(view, next));
+      };
+      minus.addEventListener('click', function () { press(-1); });
+      plus.addEventListener('click', function () { press(1); });
+      input.addEventListener('input', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, numberText(view, raw)); };
+    }
+
+    reg.inputs.forEach(function (i) { i.setAttribute('aria-describedby', describedBy); });
+    if (hint) wrap.appendChild(hint);
+    wrap.appendChild(msg);
+    fieldControls[key] = reg;
+    return wrap;
+  }
+
+  function buildForm() {
+    var host = $('settings-form');
+    while (host.firstChild) host.removeChild(host.firstChild);
+    fieldControls = {};
+    currentProfileEl = null;
+    V.settingsGroups(schema).forEach(function (group) {
+      var card = el('section', 'card group');
+      var headingId = 'group-' + group.id;
+      var h = el('h2', '', group.title);
+      h.id = headingId;
+      card.setAttribute('aria-labelledby', headingId);
+      card.appendChild(h);
+      if (group.hint) card.appendChild(el('p', 'hint', group.hint));
+      if (group.id === 'profiles') {
+        currentProfileEl = el('p', 'hint');
+        card.appendChild(currentProfileEl);
+      }
+      var fields = el('div', 'fields');
+      group.fields.forEach(function (view) { fields.appendChild(buildField(view)); });
+      card.appendChild(fields);
+      host.appendChild(card);
+    });
+  }
+
+  function writeFields() {
+    Object.keys(fieldControls).forEach(function (key) {
+      if (form && Object.prototype.hasOwnProperty.call(form.draft, key)) fieldControls[key].write(form.draft[key]);
+    });
+  }
+
+  // The form exists once the schema and the settings are both known.
+  function ensureForm() {
+    if (form || !schema || !settings) return;
+    form = V.formNew(settings.values);
     buildForm();
-    return loadSettings();
-  }).then(function () {
-    pollStatus();
-    setInterval(function () { if (!document.hidden) pollStatus(); }, 1000);
-  }, fail);
+    writeFields();
+  }
+
+  // A settings reply: the first one builds the form, later ones never overwrite the user's entries.
+  function onSettings() {
+    if (!form) { ensureForm(); return; }
+    var result = V.formRefresh(form, settings.values, schema);
+    form = result.form;
+    if (result.notice && !quietRefresh) settingsNotice = result.notice;
+    quietRefresh = false;
+    writeFields();
+  }
+
+  // The save bar covers the bottom of the page: tell the CSS how tall it is so a focused field scrolls above it.
+  var savebarHeight = '0px';
+  function setSavebarHeight() {
+    var bar = $('savebar');
+    var h = bar.hidden ? '0px' : bar.offsetHeight + 'px';
+    if (h !== savebarHeight) {
+      savebarHeight = h;
+      document.documentElement.style.setProperty('--savebar-h', h);
+    }
+  }
+
+  function renderSettings() {
+    var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
+    $('settings-status').hidden = placeholder === '';
+    setText($('settings-status-text'), placeholder);
+    $('settings-form').hidden = !form;
+    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
+
+    var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
+    if (!bar.visible) { settingsNotice = ''; formError = ''; }
+    $('savebar').hidden = !bar.visible;
+    setText($('save-count'), bar.countText);
+    setText($('save-reason'), bar.reason);
+    setText($('save-error'), formError);
+    $('save').disabled = !bar.canSave;
+    $('settings-notice').hidden = settingsNotice === '';
+    setText($('settings-notice-text'), settingsNotice);
+    if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
+    setSavebarHeight();
+
+    var notes = V.entryNotes(form, schema);
+    Object.keys(fieldControls).forEach(function (key) {
+      var reg = fieldControls[key];
+      var error = fieldErrors[key] || notes[key] || '';
+      var text = error || fieldNotes[key] || '';
+      setText(reg.msg, text);
+      setClass(reg.msg, 'error', error !== '');
+      setClass(reg.msg, 'adjusted', error === '' && text !== '');
+      reg.inputs.forEach(function (i) {
+        if (error) i.setAttribute('aria-invalid', 'true');
+        else i.removeAttribute('aria-invalid');
+        setClass(i, 'is-invalid', error !== '' && i.type !== 'radio');
+      });
+    });
+  }
+
+  function showRename(address) {
+    var text = V.renameNotice(address);
+    $('rename').hidden = text === '';
+    setText($('rename-text'), text);
+    var href = V.renameLink(address, window.location.protocol, window.location.port);
+    var link = $('rename-link');
+    link.hidden = href === '';
+    if (href) {
+      setText(link, address);
+      link.setAttribute('href', href);
+    }
+  }
+
+  function saveSettings() {
+    if (!form) return;
+    var patch = V.formPatch(form, schema);
+    var count = Object.keys(patch).length;
+    var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
+    if (!bar.canSave) return;
+    commandPending = true;
+    formError = '';
+    render();
+    client.patchSettings(patch).then(function (doc) {
+      commandPending = false;
+      settingsGen++;
+      if (!V.validSettingsDoc(doc)) {
+        // saved, but the reply cannot be read: read the settings back instead of guessing
+        needSettings = true;
+        quietRefresh = true;
+        say('The grinder answered in a way this page cannot read. The page checks the settings.', true);
+        render();
+        pollNow();
+        return;
+      }
+      form = V.formSaved(form, doc.values, patch, schema);
+      settings = { values: doc.values, current_profile: doc.current_profile };
+      fieldErrors = {};
+      fieldNotes = V.adjustedNotes(doc.adjusted, doc.values, schema);
+      settingsNotice = '';
+      writeFields();
+      if (doc.address) showRename(doc.address);
+      var adjusted = doc.adjusted && doc.adjusted.length ? ' The grinder adjusted some values.' : '';
+      say('Saved ' + V.changeCountText(count) + '.' + adjusted, false);
+      render();
+    }, function (err) {
+      commandPending = false;
+      settingsGen++;
+      var code = err && err.code;
+      var shown = V.saveErrorView(code, patch, schema);
+      fieldErrors = shown.fields;
+      formError = shown.form;
+      say(err && err.message ? err.message : shown.form, true);
+      if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
+      if (shown.reload) { needSettings = true; quietRefresh = true; }
+      render();
+      var first = V.firstInvalidKey(fieldErrors, schema);
+      if (first && fieldControls[first] && fieldControls[first].focusEl) fieldControls[first].focusEl.focus();
+      pollNow();
+    });
+  }
+
+  function discardSettings() {
+    if (!form) return;
+    form = V.formDiscard(form);
+    fieldErrors = {};
+    fieldNotes = {};
+    formError = '';
+    settingsNotice = '';
+    writeFields();
+    render();
+    say('Changes discarded.', false);
+  }
+
+  function setLeadIn(next) {
+    var wasDropped = !!leadIn && leadIn.phase === 'dropped';
+    if (next && next.phase === 'dropped' && !wasDropped) {
+      say(V.leadInView(next, now()).text, true);
+    } else if (wasDropped && !(next && next.phase === 'dropped')) {
+      // The notice is over (a grind appeared or it timed out): do not leave it standing in the alert region.
+      var droppedText = V.leadInView(leadIn, now()).text;
+      if ($('alert').textContent === droppedText) $('alert').textContent = '';
+    }
+    leadIn = next;
+  }
+
+  // --- polling: one request at a time (status, settings or info in turns)
+  function schedule(ms) {
+    if (pollTimer !== null) clearTimeout(pollTimer);
+    pollTimer = null;
+    if (ms === null) return;
+    pollTimer = setTimeout(poll, ms);
+  }
+
+  function pollNow() {
+    if (!polling) schedule(0);
+  }
+
+  function poll() {
+    pollTimer = null;
+    if (polling) return;
+    polling = true;
+    var statsDue = V.statsDue(stats, {
+      online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+    });
+    var historyDue = V.historyDue(history, {
+      online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+    });
+    var task = V.nextPollTask({
+      haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
+      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue
+    });
+    forceStatus = false;
+    quickNext = false;
+    var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
+      task === 'info' ? client.getInfo() : task === 'stats' ? client.getStats() :
+      task === 'history' ? client.getHistory() : client.getStatus();
+    // Runs after success and after failure, even if the handler or render() throws: polling must go on.
+    function finalize() {
+      polling = false;
+      try {
+        render();
+      } finally {
+        schedule(document.hidden ? null : quickNext ? 100 : V.pollDelay(conn, status, leadInIsActive(), document.hidden));
+      }
+    }
+    var gen = settingsGen;
+    request.then(function (doc) {
+      var wasOnline = conn.state === 'online';
+      var before = status ? status.ui_state : '';
+      conn = V.connectionOk(conn, now());
+      // A settings reply that started before a save finished is older than the saved values: drop it.
+      if (task === 'settings' && gen !== settingsGen) {
+        quickNext = needSchema || needSettings || needInfo;
+        return;
+      }
+      var next = V.pollSucceeded(task, { needSchema: needSchema, needSettings: needSettings, needInfo: needInfo }, doc, wasOnline, before);
+      needSchema = next.needSchema;
+      needSettings = next.needSettings;
+      needInfo = next.needInfo;
+      forceStatus = next.forceStatus;
+      if (task === 'status') {
+        status = doc;
+        statusAt = now();
+        stats = V.statsOnStatus(stats, before, status.ui_state, statusAt);
+        history = V.statsOnStatus(history, before, status.ui_state, statusAt);
+        setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
+      } else if (task === 'schema') {
+        schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
+        ensureForm();
+      } else if (task === 'settings') {
+        if (V.validSettingsDoc(doc)) {
+          settings = doc;
+          onSettings();
+        }
+      } else if (task === 'stats') {
+        stats = V.statsLoaded(stats, doc, now());
+      } else if (task === 'history') {
+        history = V.historyLoaded(history, doc, now());
+      } else {
+        setText($('name'), doc.name);
+        setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
+      }
+      quickNext = next.quick;
+    }, function (err) {
+      var failed = V.pollFailed(task, err && err.code);
+      if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
+      if (task === 'history') history = V.statsFailed(history, err && err.code, now());
+      if (failed.schemaMissing) {
+        // an older firmware without /api/schema: reachable, but there is no settings form
+        schemaMissing = true;
+        needSchema = false;
+      }
+      if (failed.connectionLost) conn = V.connectionFailed(conn, err && err.code, now());
+      else conn = V.connectionOk(conn, now());
+      if (failed.forceStatus) forceStatus = true; // do not let a failing settings or info request starve status
+    }).then(finalize, finalize);
+  }
+
+  // --- commands
+  // STOP always tries; a failure is reported in words (the page keeps no other state).
+  function stop() {
+    client.command('stop').then(function () {
+      setLeadIn(V.leadInCancel());
+      say('Stop sent.', false);
+      render();
+      pollNow();
+    }, function (err) {
+      if (err && (err.code === 'network' || err.code === 'timeout')) {
+        say('STOP was not confirmed by the grinder. Press STOP again and check the grinder. ' + (err.message || ''), true);
+      } else {
+        sayError(err, 'Stop could not be sent.');
+      }
+      if (err && err.code === 'web_interface_off') { conn = V.connectionFailed(conn, err.code, now()); render(); }
+    });
+  }
+
+  // Start, Tare and Motor test: one at a time; the buttons carry the reason while a request is on the wire.
+  function runCommand(cmd, profile, onAccepted) {
+    commandPending = true;
+    render();
+    client.command(cmd, profile).then(function (doc) {
+      commandPending = false;
+      onAccepted(doc);
+      render();
+      pollNow();
+    }, function (err) {
+      commandPending = false;
+      sayError(err, 'The command could not be sent.');
+      if (err && err.code === 'web_interface_off') conn = V.connectionFailed(conn, err.code, now());
+      render();
+      pollNow();
+    });
+  }
+
+  function startProfile(index) {
+    runCommand('start', index, function (doc) {
+      setLeadIn(V.leadInStart(index, doc.lead_in_ms, now()));
+      say(V.leadInView(leadIn, now()).text, false);
+    });
+  }
+
+  V.TABS.forEach(function (tab) {
+    $('tab-' + tab).addEventListener('click', function () { showTab(tab); });
+  });
+  $('stop').addEventListener('click', stop);
+  $('stop-pane').addEventListener('click', stop);
+  [0, 1, 2].forEach(function (i) {
+    $('start-' + i).addEventListener('click', function () { startProfile(i); });
+  });
+  $('tare').addEventListener('click', function () {
+    runCommand('tare', null, function () { say('Tare started.', false); });
+  });
+  $('motor-test').addEventListener('click', function () {
+    runCommand('motor_test', null, function () { say('Motor test running.', false); });
+  });
+  $('retry').addEventListener('click', pollNow);
+  $('save').addEventListener('click', saveSettings);
+  $('discard').addEventListener('click', discardSettings);
+
+  showTab('grind');
+  // The save bar wraps differently at another width: keep the scroll padding in step.
+  window.addEventListener('resize', setSavebarHeight);
+  // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
+  if (wide) {
+    if (typeof wide.addEventListener === 'function') wide.addEventListener('change', function () { showTab(requestedTab); });
+    else if (typeof wide.addListener === 'function') wide.addListener(function () { showTab(requestedTab); });
+  }
+
+  // Polling pauses while the page is hidden and resumes at once when it is shown again.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) schedule(null);
+    else pollNow();
+  });
+  // The lead-in countdown and "last seen" move between polls.
+  setInterval(function () {
+    if (document.hidden) return;
+    if (leadIn) setLeadIn(V.leadInTick(leadIn, status, now(), statusAt));
+    render();
+  }, 250);
+
+  render();
+  poll();
 }());
 </script>
 </body>

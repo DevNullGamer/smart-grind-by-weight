@@ -214,6 +214,15 @@ bool DiagnosticsController::has_active_diagnostics() const {
     return !active_diagnostics_.empty();
 }
 
+uint32_t DiagnosticsController::active_mask() const {
+    uint32_t mask = 0;
+    for (const auto& diag : active_diagnostics_) {
+        const int value = static_cast<int>(diag.code);
+        if (value > 0 && value < 32) mask |= 1u << value;
+    }
+    return mask;
+}
+
 void DiagnosticsController::acknowledge_diagnostic(DiagnosticCode code) {
     DiagnosticState* diag = find_diagnostic(code);
     if (diag) {

@@ -23,6 +23,26 @@ bool PortalCommandGate::read_snapshot(PortalValues* values, PortalStatus* status
     return true;
 }
 
+bool PortalCommandGate::read_stats(PortalStats* stats) {
+    Section section(&stats_mux_);
+    if (!ui_attached_ ||
+        !portal_snapshot_fresh(stats_published_, stats_published_ms_, millis(), PORTAL_STATS_STALE_MS)) {
+        return false;
+    }
+    if (stats) *stats = stats_;
+    return true;
+}
+
+bool PortalCommandGate::read_history(PortalHistory* history) {
+    Section section(&history_mux_);  // one struct copy (about 300 bytes), no call out
+    if (!ui_attached_ ||
+        !portal_snapshot_fresh(history_published_, history_published_ms_, millis(), PORTAL_HISTORY_STALE_MS)) {
+        return false;
+    }
+    if (history) *history = history_;
+    return true;
+}
+
 PortalError PortalCommandGate::submit_patch(const PortalPatch& patch, PortalMailboxResult* result) {
     if (!ui_attached_) return PortalError::UI_BUSY;
     {
@@ -79,8 +99,32 @@ void PortalCommandGate::publish(const PortalValues& values, const PortalStatus& 
     published_ms_ = millis();
 }
 
+void PortalCommandGate::publish_stats(const PortalStats& stats) {
+    Section section(&stats_mux_);
+    stats_ = stats;
+    stats_published_ = true;
+    stats_published_ms_ = millis();
+}
+
+void PortalCommandGate::publish_history(const PortalHistory& history) {
+    Section section(&history_mux_);
+    history_ = history;
+    history_published_ = true;
+    history_published_ms_ = millis();
+}
+
 void PortalCommandGate::attach_ui(bool attached) {
-    Section section(&mux_);
-    ui_attached_ = attached;
-    if (!attached) published_ = false;  // a snapshot nobody refreshes any more is stale
+    {
+        Section section(&mux_);
+        ui_attached_ = attached;
+        if (!attached) published_ = false;  // a snapshot nobody refreshes any more is stale
+    }
+    if (!attached) {
+        Section section(&stats_mux_);
+        stats_published_ = false;
+    }
+    if (!attached) {
+        Section section(&history_mux_);
+        history_published_ = false;
+    }
 }

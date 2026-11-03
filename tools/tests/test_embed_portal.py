@@ -55,7 +55,8 @@ def test_real_page_embeds_within_budget_and_is_labelled(tmp_path):
     assert 0 < gz_size <= 64 * 1024
     assert raw_size > gz_size or raw_size < 1024
     page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
-    assert "REFERENCE PAGE, not the final portal" in page
+    assert "<title>Grinder panel</title>" in page and "REFERENCE PAGE" not in page
+    assert "prefers-color-scheme" in page
     assert Path(header).name == "portal_page_data.h"
 
 

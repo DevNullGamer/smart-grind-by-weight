@@ -8,6 +8,7 @@ The vectors themselves are executed by test_native/test_portal_api.cpp and test_
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -305,7 +306,7 @@ def test_document_names_every_key_error_and_command():
         assert text in doc
 
 
-PURE_MODULES = ["portal_api", "portal_guard", "portal_mailbox", "portal_apply", "portal_snapshot"]
+PURE_MODULES = ["portal_api", "portal_guard", "portal_mailbox", "portal_apply", "portal_snapshot", "portal_insights"]
 
 
 @pytest.mark.parametrize("module", [f"src/network/{name}.{ext}" for name in PURE_MODULES for ext in ("h", "cpp")])
@@ -324,7 +325,7 @@ def test_portal_modules_are_in_the_native_build_and_registered():
         assert f"+<network/{name}.cpp>" in ini
     main = read("test_native/test_main.cpp")
     for name in ("run_portal_api_tests", "run_portal_guard_tests", "run_portal_mailbox_tests",
-                 "run_portal_apply_tests", "run_portal_snapshot_tests"):
+                 "run_portal_apply_tests", "run_portal_snapshot_tests", "run_portal_insights_tests"):
         assert main.count(name) == 2
 
 
@@ -346,6 +347,107 @@ def test_status_names_follow_the_firmware_enums_and_the_document():
         assert f"`{phase.lower()}`" in doc, f"grind_phase {phase.lower()} missing in PORTAL-API.md"
 
 
+def test_warning_codes_follow_diagnostics_priority_and_the_document():
+    diagnostics = read("src/system/diagnostics_controller.cpp")
+    codes = enum_members(read("src/system/diagnostics_controller.h"), "DiagnosticCode")
+    assert codes[0] == "NONE"
+    # Priority order = the order of the checks in get_highest_priority_warning
+    body = re.search(r"get_highest_priority_warning\(\) const \{(.*?)\n\}", diagnostics, re.S).group(1)
+    priority = re.findall(r"find_diagnostic\(DiagnosticCode::([A-Z0-9_]+)\)\) \{\s*return", body)
+    assert sorted(priority) == sorted(codes[1:]), "every DiagnosticCode except NONE has a priority"
+    # The API code is the lower-case enumerator, except the sustained-noise code
+    rename = {"LOAD_CELL_NOISY_SUSTAINED": "load_cell_noisy"}
+    expected = [rename.get(c, c.lower()) for c in priority]
+    api = read("src/network/portal_api.cpp")
+    table = re.search(r"kWarningNames\[PORTAL_WARNING_COUNT\] = \{(.*?)\};", api, re.S).group(1)
+    assert re.findall(r'"([a-z0-9_]+)"', table) == expected
+    assert re.search(r"PORTAL_WARNING_COUNT\s*=\s*(\d+)", read("src/network/portal_api.h")).group(1) == str(len(expected))
+    # The snapshot's DiagnosticCode values (bit n of the mask) follow the enum declaration order
+    snapshot = read("src/network/portal_snapshot.h")
+    values = re.search(r"PORTAL_WARNING_DIAG_CODES\[PORTAL_WARNING_COUNT\] = \{(.*?)\};", snapshot, re.S).group(1)
+    assert [int(v) for v in re.findall(r"^\s*(\d+),", values, re.M)] == [codes.index(c) for c in priority]
+    # The dev server mirror and the document
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    assert list(portal_model.WARNING_CODES) == expected
+    doc = read("docs/PORTAL-API.md")
+    for name in expected:
+        assert f"`{name}`" in doc, f"warning {name} missing in PORTAL-API.md"
+    # Vectors: every code appears in a status case
+    used = {w for c in VECTORS["status_cases"] for w in c["input"]["warnings"]}
+    assert used == set(expected)
+
+
+def test_stats_route_members_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/stats`" in doc
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_stats\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == list(portal_model.STATS_KEYS), "the encoder's members and their order equal the Python mirror"
+    for name in members:
+        assert f"`{name}`" in doc, f"stats member {name} missing in PORTAL-API.md"
+    for case in VECTORS["stats_cases"]:
+        assert list(case["input"]) == members and list(json.loads(case["json"])) == members, case["name"]
+    # The UI task copies the counters under one statistics lock (the HTTP side only reads the snapshot slot) and the
+    # pure function converts them
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    assert "portal_stats_from_counters(statistics_manager.get_snapshot())" in controller
+    assert "get_snapshot() const" in read("src/system/statistics_manager.h")
+    snapshot_body = re.search(r"StatisticsSnapshot StatisticsManager::get_snapshot\(\) const \{.*?\r?\n\}\r?\n",
+                              read("src/system/statistics_manager.cpp"), re.S).group(0)
+    assert snapshot_body.count("StatsLockGuard") == 1 and "LOG_" not in snapshot_body
+    assert "publish_stats(gather_stats())" in controller
+    assert "read_stats(" in read("src/network/portal_routes.cpp")
+    assert "`GET /api/stats`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert macro(read("src/config/portal.h"), "PORTAL_STATS_JSON_MAX") >= 400
+    # The statistics slot has its own age limit and its own mutex, not the status snapshot's
+    gate = read("src/network/portal_command_gate.cpp")
+    read_stats = re.search(r"bool PortalCommandGate::read_stats\(.*?\r?\n\}\r?\n", gate, re.S).group(0)
+    assert re.search(r"\bPORTAL_STATS_STALE_MS\b", read_stats) and re.search(r"\bstats_mux_\b", read_stats)
+    assert "PORTAL_SNAPSHOT_STALE_MS" not in read_stats
+
+
+def test_history_route_members_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/history`" in doc
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_history\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == ["count", "persistent", "grinds"] + list(portal_model.HISTORY_KEYS), (
+        "the encoder's members and their order equal the Python mirror")
+    for name in members:
+        assert f"`{name}`" in doc, f"history member {name} missing in PORTAL-API.md"
+    for name in ("complete", "max_pulses", "overshoot", "timeout", "unknown"):
+        assert f"`{name}`" in doc, f"history result {name} missing in PORTAL-API.md"
+    names = re.findall(r'return "([a-z_]+)";', re.search(r"portal_history_result_name\(.*?\n\}\n",
+                                                          read("src/network/portal_insights.cpp"), re.S).group(0))
+    assert names == [portal_model.HISTORY_RESULTS[i] for i in range(4)] + ["unknown"]
+    cases = VECTORS["history_cases"]
+    for case in cases:
+        assert set(case["input"]) == {"now_s", "persistent", "entries"}, case["name"]
+        assert list(json.loads(case["json"])) == ["count", "persistent", "grinds"], case["name"]
+        for grind in json.loads(case["json"])["grinds"]:
+            assert list(grind) == list(portal_model.HISTORY_KEYS), case["name"]
+    assert {g["result"] for c in cases for g in json.loads(c["json"])["grinds"]} == {
+        "complete", "max_pulses", "overshoot", "timeout", "unknown"}
+    assert any(g["age_s"] is None for c in cases for g in json.loads(c["json"])["grinds"])
+    assert any(g["target_g"] is None for c in cases for g in json.loads(c["json"])["grinds"])
+    # The route reads its own slot on the HTTP task, answers 503 ui_busy until the boot load finished, and its buffer
+    # fits the worst case; the document names the gate row
+    routes = read("src/network/portal_routes.cpp")
+    handler = re.search(r"int portal_handle_history\(.*?\n\}\n", routes, re.S).group(0)
+    assert "read_history(" in handler and "!history.loaded" in handler and "PortalError::UI_BUSY" in handler
+    assert "PortalRoute::API_READ" in handler and "ReplyBuffer json(PORTAL_HISTORY_JSON_MAX)" in handler
+    assert "`GET /api/history`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert macro(read("src/config/portal.h"), "PORTAL_HISTORY_JSON_MAX") >= 2400
+    assert "portal_history_result_name(" in encoder and "portal_encode_history(" in handler
+
+
 def test_http_task_code_stays_off_the_ui_side():
     # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
     # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
@@ -356,7 +458,8 @@ def test_http_task_code_stays_off_the_ui_side():
             for forbidden in ("lvgl", "ui_manager", "profile_controller", "grind_controller", "ui_settings",
                               "nvs_settings_store", "Preferences", "hardware_manager", "menu_screen"):
                 assert forbidden not in include, f"{module} (HTTP task) includes {include}"
-        for token in ("Preferences", "ui_settings", "lv_", "profile_controller", "set_device_name", "nvs_"):
+        for token in ("Preferences", "ui_settings", "lv_", "profile_controller", "set_device_name", "nvs_",
+                      "statistics_manager", "diagnostics_controller", "grind_logger", "grind_history", "LittleFS"):
             assert token not in text, f"{module} (HTTP task) mentions {token}"
 
 
@@ -374,7 +477,8 @@ def test_ui_task_wiring():
     assert ui.index("portal_controller_->update()") < ui.index("wifi_update_controller_->update()")
     # the routes are registered with the methods the document names
     server = read("src/network/update_server.cpp")
-    for uri, method in (("/api/status", "HTTP_GET"), ("/api/schema", "HTTP_GET"), ("/api/settings", "HTTP_GET"),
+    for uri, method in (("/api/status", "HTTP_GET"), ("/api/stats", "HTTP_GET"), ("/api/schema", "HTTP_GET"),
+                        ("/api/settings", "HTTP_GET"), ("/api/history", "HTTP_GET"),
                         ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
         assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
     max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")

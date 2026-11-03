@@ -25,6 +25,9 @@ PURGE_MIN_G, PURGE_MAX_G = 0.1, 2.5
 FRESHNESS_STEPS_H = (0.5, 1.0, 2.0, 3.0, 4.0, 8.0, 12.0, 24.0, 48.0)
 PROFILE_NAMES = ("SINGLE", "DOUBLE", "CUSTOM")
 COMMANDS = ("stop", "tare", "start", "motor_test")
+# Status warning codes in priority order (kWarningNames in portal_api.cpp)
+WARNING_CODES = ("board_unrecognized", "motor_fault", "motor_disabled", "hx711_not_connected", "hx711_no_data",
+                 "hx711_sample_rate_invalid", "mechanical_instability", "load_cell_noisy", "load_cell_not_calibrated")
 
 # code -> (HTTP status, reason). Same table as kErrors in portal_api.cpp.
 ERRORS = {
@@ -153,6 +156,95 @@ def encode_json(obj):
     if isinstance(obj, dict):
         return "{" + ",".join(json.dumps(k) + ":" + encode_json(v) for k, v in obj.items()) + "}"
     raise TypeError(f"cannot encode {type(obj).__name__}")
+
+
+def ordered_warnings(codes):
+    """The warnings member of the status: the known codes among `codes`, once each, highest priority first
+    (unknown codes are dropped, like unknown mask bits in the firmware)."""
+    present = set(codes)
+    return [c for c in WARNING_CODES if c in present]
+
+
+def status_document(ui_state, grind_phase, busy, weight_g, motor_available, start_block, motor_test_block,
+                    uptime_s, build, web_interface=True, warnings=()):
+    """The GET /api/status document, members in the firmware's order (portal_encode_status)."""
+    return {
+        "ui_state": ui_state,
+        "grind_phase": grind_phase,
+        "busy": busy,
+        "weight_g": weight_g,
+        "motor_available": motor_available,
+        "start_block": start_block,
+        "motor_test_block": motor_test_block,
+        "uptime_s": uptime_s,
+        "build": build,
+        "web_interface": web_interface,
+        "warnings": ordered_warnings(warnings),
+    }
+
+
+STATS_KEYS = ("total_grinds", "single", "double", "custom", "weight_mode", "time_mode", "total_weight_kg",
+              "motor_runtime_s", "avg_abs_error_g", "total_pulses", "avg_pulses", "time_pulses", "powered_minutes")
+STATS_FLOAT_KEYS = ("total_weight_kg", "avg_abs_error_g", "avg_pulses")
+STATS_FLOAT_MAX = 1e9
+
+
+def bounded_stat(value):
+    """A fractional statistic as the firmware encodes it: not finite or negative is 0, above 1e9 it is 1e9."""
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return 0.0
+    return min(value, STATS_FLOAT_MAX)
+
+
+def stats_document(stats):
+    """The GET /api/stats document (portal_encode_stats): the 13 members in the firmware's order. `stats` maps the
+    member names to numbers; missing members are 0, fractional ones are bounded."""
+    doc = {}
+    for key in STATS_KEYS:
+        value = stats.get(key, 0)
+        doc[key] = bounded_stat(value) if key in STATS_FLOAT_KEYS else int(value)
+    return doc
+
+
+HISTORY_MAX = 10
+HISTORY_KEYS = ("id", "age_s", "profile", "mode", "target_g", "target_s", "final_g", "time_ms", "motor_ms", "pulses",
+                "result")
+HISTORY_WEIGHT_MAX = 1e6
+HISTORY_RESULTS = {0: "complete", 1: "max_pulses", 2: "overshoot", 3: "timeout"}  # anything else is "unknown"
+
+
+def bounded_history_weight(value):
+    """A history weight as the firmware encodes it: not finite is 0, magnitude at most 1e6, under 0.0005 is 0.0."""
+    value = float(value)
+    if not math.isfinite(value):
+        return 0.0
+    value = max(-HISTORY_WEIGHT_MAX, min(HISTORY_WEIGHT_MAX, value))
+    return 0.0 if abs(value) < 0.0005 else value
+
+
+def history_document(entries, persistent, now_s):
+    """The GET /api/history document (portal_encode_history). `entries` are dicts with the members id, ended_s,
+    earlier_boot, profile, mode (0 weight, 1 time), target, final_g, time_ms, motor_ms, pulses, result (newest first);
+    at most 10 are used. age_s is now_s - ended_s, never negative, and null for an entry from an earlier boot."""
+    grinds = []
+    for e in list(entries)[:HISTORY_MAX]:
+        time_mode = e["mode"] == 1
+        target = 0.0 if float(e["target"]) < 0 else bounded_history_weight(e["target"])
+        grinds.append({
+            "id": int(e["id"]),
+            "age_s": None if e["earlier_boot"] else max(0, int(now_s) - int(e["ended_s"])),
+            "profile": min(int(e["profile"]), len(PROFILE_NAMES) - 1),
+            "mode": "time" if time_mode else "weight",
+            "target_g": None if time_mode else target,
+            "target_s": target if time_mode else None,
+            "final_g": bounded_history_weight(e["final_g"]),
+            "time_ms": int(e["time_ms"]),
+            "motor_ms": int(e["motor_ms"]),
+            "pulses": int(e["pulses"]),
+            "result": HISTORY_RESULTS.get(int(e["result"]), "unknown"),
+        })
+    return {"count": len(grinds), "persistent": bool(persistent), "grinds": grinds}
 
 
 def error_body(code):

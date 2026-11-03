@@ -204,11 +204,42 @@ int portal_handle_status(httpd_req* req) {
 
     PortalStatus status;
     if (!portal_command_gate.read_snapshot(nullptr, &status)) return portal_send_error(req, PortalError::UI_BUSY);
-    char json[PORTAL_STATUS_JSON_MAX];
-    if (!portal_encode_status(status, json, sizeof(json))) return send_internal_error(req);
+    ReplyBuffer json(PORTAL_STATUS_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_status(status, json.data, json.capacity)) return send_internal_error(req);
     static bool stack_logged = false;
-    const int sent = send_json_ok(req, json);
+    const int sent = send_json_ok(req, json.data);
     log_stack_once(&stack_logged, "GET /api/status");
+    return sent;
+}
+
+int portal_handle_stats(httpd_req* req) {
+    const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
+    if (refused != PortalError::NONE) return portal_send_error(req, refused);
+
+    PortalStats stats;  // about 60 bytes
+    if (!portal_command_gate.read_stats(&stats)) return portal_send_error(req, PortalError::UI_BUSY);
+    ReplyBuffer json(PORTAL_STATS_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_stats(stats, json.data, json.capacity)) return send_internal_error(req);
+    static bool stack_logged = false;
+    const int sent = send_json_ok(req, json.data);
+    log_stack_once(&stack_logged, "GET /api/stats");
+    return sent;
+}
+
+int portal_handle_history(httpd_req* req) {
+    const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
+    if (refused != PortalError::NONE) return portal_send_error(req, refused);
+
+    PortalHistory history;  // about 330 bytes of the task stack (the PATCH path already holds a 512 byte body)
+    // Not loaded yet: the boot load of the history has not finished, so the list is not real (not merely empty)
+    if (!portal_command_gate.read_history(&history) || !history.loaded) return portal_send_error(req, PortalError::UI_BUSY);
+    ReplyBuffer json(PORTAL_HISTORY_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_history(history, millis() / 1000, json.data, json.capacity)) {
+        return send_internal_error(req);
+    }
+    static bool stack_logged = false;
+    const int sent = send_json_ok(req, json.data);
+    log_stack_once(&stack_logged, "GET /api/history");
     return sent;
 }
 

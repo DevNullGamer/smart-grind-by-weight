@@ -34,6 +34,9 @@ void run_portal_page_logic_tests();
 void run_portal_mailbox_tests();
 void run_portal_apply_tests();
 void run_portal_snapshot_tests();
+void run_grind_history_tests();
+void run_grind_history_store_tests();
+void run_portal_insights_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -72,5 +75,8 @@ int main() {
     run_portal_mailbox_tests();
     run_portal_apply_tests();
     run_portal_snapshot_tests();
+    run_grind_history_tests();
+    run_grind_history_store_tests();
+    run_portal_insights_tests();
     return UNITY_END();
 }

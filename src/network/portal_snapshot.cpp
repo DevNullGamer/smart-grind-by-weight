@@ -15,6 +15,14 @@ const char* const kGrindPhaseNames[PORTAL_GRIND_PHASE_COUNT] = {
 
 }  // namespace
 
+uint16_t portal_warnings_from_diag_mask(uint32_t diag_mask) {
+    uint16_t warnings = 0;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if ((diag_mask >> PORTAL_WARNING_DIAG_CODES[i]) & 1u) warnings = static_cast<uint16_t>(warnings | (1u << i));
+    }
+    return warnings;
+}
+
 const char* portal_ui_state_name(UIState state) {
     switch (state) {
         case UIState::READY: return "ready";
@@ -57,7 +65,28 @@ PortalStatus portal_build_status(const PortalStatusInputs& in) {
     status.uptime_s = in.uptime_s;
     status.build = in.build;
     status.web_interface = true;
+    status.warnings = portal_warnings_from_diag_mask(in.diag_mask);
     return status;
+}
+
+PortalStats portal_stats_from_counters(const StatisticsSnapshot& raw) {
+    PortalStats s;
+    s.total_grinds = raw.total_grinds;
+    s.single = raw.single_shots;
+    s.double_shots = raw.double_shots;
+    s.custom = raw.custom_shots;
+    s.weight_mode = raw.weight_mode_grinds;
+    s.time_mode = raw.time_mode_grinds;
+    s.total_weight_kg = raw.total_weight_kg;
+    const uint64_t motor_ms = static_cast<uint64_t>(raw.motor_runtime_sec) * 1000ULL + raw.motor_runtime_ms_remainder;
+    const uint64_t motor_s = motor_ms / 1000ULL;
+    s.motor_runtime_s = motor_s > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(motor_s);
+    s.avg_abs_error_g = raw.accuracy_sample_count == 0 ? 0.0f : raw.accuracy_sum / static_cast<float>(raw.accuracy_sample_count);
+    s.total_pulses = raw.total_pulses;
+    s.avg_pulses = raw.pulse_sample_count == 0 ? 0.0f : raw.pulse_sum / static_cast<float>(raw.pulse_sample_count);
+    s.time_pulses = raw.time_pulses;
+    s.powered_minutes = static_cast<uint64_t>(raw.device_uptime_hrs) * 60ULL + raw.device_uptime_min_remainder;
+    return s;
 }
 
 void portal_device_name_from_host(const char* host, char* out) {

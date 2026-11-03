@@ -7,8 +7,30 @@
 #include "../config/constants.h"
 #include "../system/nvs_settings_store.h"
 #include "../system/statistics_manager.h"
+#include "grind_history_fs.h"
 
 namespace {
+
+// Key of the id that ties /hist0.bin and /hist1.bin to this NVS; a factory reset erases it (chg016)
+constexpr const char* kHistoryEpochKey = "hist_epoch";
+
+// The history record of a finished session (weights and times as the session holds them)
+GrindHistoryEntry history_entry_of(const GrindSession& session, GrindMode mode, const char* final_result,
+                                   float final_weight, uint8_t pulse_count) {
+    GrindHistoryEntry entry;
+    entry.session_id = session.session_id;
+    entry.ended_s = millis() / 1000;
+    entry.time_ms = session.total_time_ms;
+    entry.motor_ms = session.total_motor_on_time_ms;
+    entry.target = (mode == GrindMode::TIME) ? static_cast<float>(session.target_time_ms) / 1000.0f
+                                             : session.target_weight;
+    entry.final_g = final_weight;
+    entry.profile = session.profile_id;
+    entry.mode = static_cast<uint8_t>(mode);
+    entry.pulses = pulse_count;
+    entry.result = static_cast<uint8_t>(grind_history_result_from_string(final_result));
+    return entry;
+}
 
 GrindTerminationReason classify_termination_reason(const char* final_result) {
     if (!final_result) {
@@ -239,10 +261,27 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
         }
     }
 
+    // Recent-grinds history (chg016): last, so a failure here can never skip the statistics or the session file.
+    // Independent of the Logging setting. Cancelled grinds leave no entry. Runs on the file-IO task: one flash write.
+    if (!is_cancelled) {
+        grind_history.record(history_entry_of(*current_session, mode, final_result, final_weight, pulse_count));
+    }
+
     // Clear buffers to ensure clean state for next session
     clear_buffers();
 
     logging_active = false;
+}
+
+uint32_t GrindLogger::history_epoch() {
+    if (!_preferences) return 0;
+    const uint32_t stored = _preferences->getUInt(kHistoryEpochKey, 0);
+    const HistoryEpochPlan plan = history_epoch_plan(stored, esp_random());
+    if (plan.store && _preferences->putUInt(kHistoryEpochKey, plan.epoch) == 0) {
+        LOG_BLE("[HISTORY] could not store the history id: history stays in RAM\n");
+        return 0;
+    }
+    return plan.epoch;
 }
 
 void GrindLogger::discard_current_session() {

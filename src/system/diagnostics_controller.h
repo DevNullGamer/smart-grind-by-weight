@@ -47,6 +47,8 @@ public:
     DiagnosticCode get_highest_priority_warning() const;
     std::vector<DiagnosticState> get_active_diagnostics() const;
     bool has_active_diagnostics() const;
+    // Bit n set = DiagnosticCode with value n is active (no allocation; for the web panel status snapshot)
+    uint32_t active_mask() const;
 
     // User interactions
     void acknowledge_diagnostic(DiagnosticCode code);

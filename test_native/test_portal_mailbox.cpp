@@ -175,6 +175,14 @@ static void test_snapshot_freshness() {
     TEST_ASSERT_FALSE(portal_snapshot_fresh(true, 0xFFFFFFF0u, 0xFFFFFFF0u + PORTAL_SNAPSHOT_STALE_MS, PORTAL_SNAPSHOT_STALE_MS));
 }
 
+static void test_stats_snapshot_has_its_own_longer_freshness() {
+    // The statistics are republished every PORTAL_STATS_REFRESH_MS: a healthy UI task never lets the slot go stale
+    TEST_ASSERT_TRUE(PORTAL_STATS_STALE_MS >= 2 * PORTAL_STATS_REFRESH_MS);
+    TEST_ASSERT_FALSE(portal_snapshot_fresh(false, 1000, 1000, PORTAL_STATS_STALE_MS));  // never published
+    TEST_ASSERT_TRUE(portal_snapshot_fresh(true, 1000, 1000 + PORTAL_STATS_REFRESH_MS, PORTAL_STATS_STALE_MS));
+    TEST_ASSERT_FALSE(portal_snapshot_fresh(true, 1000, 1000 + PORTAL_STATS_STALE_MS, PORTAL_STATS_STALE_MS));
+}
+
 static PortalCommandRequest tare_request() {
     PortalCommandRequest r;
     r.cmd = PortalCommand::TARE;
@@ -283,6 +291,7 @@ void run_portal_mailbox_tests() {
     RUN_TEST(test_timeouts_survive_the_millis_wrap);
     RUN_TEST(test_the_patch_and_result_are_copies);
     RUN_TEST(test_snapshot_freshness);
+    RUN_TEST(test_stats_snapshot_has_its_own_longer_freshness);
     RUN_TEST(test_a_command_travels_through_the_mailbox);
     RUN_TEST(test_each_take_only_accepts_its_own_kind);
     RUN_TEST(test_patches_and_commands_share_the_one_request_in_flight);

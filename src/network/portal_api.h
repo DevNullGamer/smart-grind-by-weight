@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../config/portal.h"
+#include "portal_insights.h"
 
 // Pure model of the web panel API (docs/PORTAL-API.md): the settings/profile field table, the strict parser
 // for PATCH /api/settings and POST /api/command bodies, the error table and the JSON encoders. No
@@ -200,5 +201,43 @@ struct PortalStatus {
     uint32_t uptime_s = 0;
     int32_t build = -1;                 // -1 encodes null
     bool web_interface = true;
+    uint16_t warnings = 0;              // bit i = warning i of the table below (priority order); other bits are ignored
 };
+// "warnings":[...] member of the status: the active diagnostics as stable snake_case codes, highest priority first.
+// The table is fixed (no text from the device); user-facing wording lives in the page.
+constexpr size_t PORTAL_WARNING_COUNT = 9;
+// Code of warning index 0 (highest priority) .. PORTAL_WARNING_COUNT - 1; "" for anything else
+const char* portal_warning_name(size_t index);
+// Index of a code, or -1 (exact match)
+int portal_warning_index(const char* name);
 bool portal_encode_status(const PortalStatus& status, char* out, size_t cap);
+
+// GET /api/stats: the lifetime statistics of the grinder (StatisticsManager) as the UI task copied them. Counters are
+// whole numbers; the three fractional values are bounded when encoded (not finite or negative = 0, above
+// PORTAL_STATS_FLOAT_MAX = that maximum), so the reply is always valid JSON with numbers a page can show.
+// single/double/custom are weight buckets of the final weight (<= 10 g, <= 22 g, larger), not profiles.
+constexpr double PORTAL_STATS_FLOAT_MAX = 1000000000.0;
+struct PortalStats {
+    uint32_t total_grinds = 0;
+    uint32_t single = 0;
+    uint32_t double_shots = 0;
+    uint32_t custom = 0;
+    uint32_t weight_mode = 0;
+    uint32_t time_mode = 0;
+    float total_weight_kg = 0.0f;
+    uint32_t motor_runtime_s = 0;     // whole seconds of motor run time, rounded down
+    float avg_abs_error_g = 0.0f;     // mean |final - target| of the weight-mode grinds, 0 with no samples
+    uint32_t total_pulses = 0;
+    float avg_pulses = 0.0f;          // 0 with no samples
+    uint32_t time_pulses = 0;
+    uint64_t powered_minutes = 0;     // device_uptime_hrs * 60 + the minutes remainder
+};
+bool portal_encode_stats(const PortalStats& stats, char* out, size_t cap);
+
+// GET /api/history: the newest grinds (at most PORTAL_HISTORY_MAX, newest first) as the UI task copied them. now_s is the
+// uptime second of the request (millis() / 1000, the clock ended_s was taken from). age_s is now_s - ended_s, never
+// negative, and null for an entry recorded before the last restart. Weights are bounded (not finite = 0, magnitude at
+// most PORTAL_HISTORY_WEIGHT_MAX, under 0.0005 = 0.0), so the reply is always valid JSON. Time-mode grinds carry
+// target_s and a null target_g, weight-mode grinds the reverse. No text from the device other than fixed names.
+constexpr double PORTAL_HISTORY_WEIGHT_MAX = 1000000.0;
+bool portal_encode_history(const PortalHistory& history, uint32_t now_s, char* out, size_t cap);

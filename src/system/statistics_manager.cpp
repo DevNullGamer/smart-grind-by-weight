@@ -252,6 +252,12 @@ float StatisticsManager::get_avg_pulses() const {
     return snapshot_.pulse_sum / static_cast<float>(snapshot_.pulse_sample_count);
 }
 
+StatisticsSnapshot StatisticsManager::get_snapshot() const {
+    if (!initialized_) return StatisticsSnapshot();
+    StatsLockGuard lock(g_stats_mutex);
+    return snapshot_;
+}
+
 void StatisticsManager::reset_all() {
     if (!initialized_) return;
 

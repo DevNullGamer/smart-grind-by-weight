@@ -33,6 +33,29 @@ COMPLETE_SHOW_S = 3.0
 MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
+DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed", "insights",
+                 "history_route", "history_persistent")
+# Accepted by a POST, not part of the state a GET reports
+DEV_ACTION_KEYS = ("stats_reset", "history_clear", "history_fill", "history_restart")
+DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings",
+                                  "stats") + DEV_ACTION_KEYS
+# Lifetime statistics a fresh simulated grinder starts with (the example of docs/PORTAL-API.md)
+START_STATS = {"total_grinds": 412, "single": 180, "double": 200, "custom": 32, "weight_mode": 390, "time_mode": 22,
+               "total_weight_kg": 8.43, "motor_runtime_s": 5120, "avg_abs_error_g": 0.12, "total_pulses": 1100,
+               "avg_pulses": 2.7, "time_pulses": 14, "powered_minutes": 22890}
+# Sample grinds for the history_fill switch, newest first: profile, mode (0 weight, 1 time), target (g, or s in time
+# mode), final weight, time_ms, motor_ms, pulses, result code, seconds before now (every outcome and sign is there)
+HISTORY_SAMPLES = (
+    (1, 0, 18.0, 18.1, 14230, 9800, 2, 0, 120), (1, 0, 18.0, 17.9, 15100, 10400, 3, 0, 1260),
+    (0, 0, 9.0, 9.0, 9400, 6100, 1, 0, 2400), (1, 0, 18.0, 19.6, 13800, 9500, 0, 2, 3900),
+    (2, 1, 12.0, 20.4, 12000, 12000, 0, 0, 5100), (1, 0, 18.0, 18.0, 16000, 11000, 4, 1, 7300),
+    (2, 0, 21.5, 15.2, 60000, 30000, 5, 3, 9000), (0, 0, 9.0, 9.1, 8900, 5800, 2, 0, 15000),
+    (1, 0, 18.0, 18.2, 14900, 10100, 2, 0, 33000), (1, 0, 18.0, 17.8, 15500, 10600, 3, 0, 90000),
+)
+SIM_GRIND_ERROR_G = 0.1  # every simulated weight-mode grind lands this far from its target, in 2 pulses
+SIM_GRIND_PULSES = 2
+LATENCY_MAX_MS = 30000
+WEIGHT_MAX_G = 1000.0
 PAGE_HEADERS = {
     "Cache-Control": "no-cache",
     "X-Content-Type-Options": "nosniff",
@@ -55,11 +78,28 @@ class SimGrinder:
         self.in_flight = False        # forces "another request is in flight" (dev switch)
         self.start_block = None       # error code the grinder-side start checks would give
         self.motor_test_block = None
+        self.drop_start = False       # stays on: every lead-in is dropped when it ends (another screen took over)
+        self.ui_busy = False          # settings reads and writes answer 503 ui_busy
+        self.store_failed = False     # a settings write that changes a value answers 500 store_failed
+        self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
+        self.insights = True          # --no-insights: /api/stats and /api/history do not exist (404), like an old firmware
+        self.history_route = True     # --no-history: only /api/history does not exist (a firmware from before step 12)
+        self.history_persistent = True  # false: the flash store is unavailable, the list is only kept in RAM
+        self.history = []             # newest first; members as the vector inputs of history_cases (ended_s is uptime)
+        self.history_next_id = 1
+        self.legacy_status = False    # --legacy-status: the status has no "warnings" member (an older firmware)
+        self.warnings = []            # active diagnostics as warning codes (status member "warnings", priority order)
+        self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
         self.stored = {k: v for k, v in model.default_values().items()}
         self.stored["brightness_normal"] = float(self.stored["brightness_normal"])
         self.stored["brightness_screensaver"] = float(self.stored["brightness_screensaver"])
         self.current_profile = 1
         self.weight = 0.0
+        self.stats = dict(START_STATS)  # lifetime statistics; powered_minutes is the stored base, see stats_doc
+        self.powered_origin = clock()   # powered_minutes grows by the minutes since this moment
+        self.error_samples = START_STATS["weight_mode"]  # averages are kept as mean and sample count
+        self.pulse_samples = START_STATS["total_grinds"]
+        self.motor_s = float(START_STATS["motor_runtime_s"])
         self.run = None               # dict: kind, started, ... while something is running
         self.complete_until = None
 
@@ -69,22 +109,91 @@ class SimGrinder:
         run = self.run
         if run is not None:
             elapsed = now - run["started"]
-            if run["kind"] == "start" and not run["live"] and elapsed >= LEAD_IN_S:
-                run["live"] = True
-                run["started"] += LEAD_IN_S  # the grind itself starts when the lead-in ends
+            if self._in_lead_in():
+                self._poll_lead_in(run, elapsed)
+                run = self.run
+            if run is not None and run["live"]:
                 elapsed = now - run["started"]
-            if run["live"]:
                 if run["kind"] == "start":
                     self.weight = min(run["target_g"], elapsed * run["rate"])
                     if elapsed >= run["duration"]:
+                        self._count_grind(run)
                         self.run = None
                         self.ui_state = "grind_complete"
                         self.complete_until = now + COMPLETE_SHOW_S
                 elif elapsed >= MOTOR_TEST_S:
+                    self.motor_s += MOTOR_TEST_S  # a motor test only adds run time
                     self.run = None
         if self.complete_until is not None and now >= self.complete_until:
             self.complete_until = None
             self.ui_state = "ready"
+
+    def _record_history(self, run):
+        """A finished simulated grind joins the recent-grinds list (a stopped one never gets here)."""
+        time_mode = run["mode"] == "time"
+        self._push_history(
+            profile=run["profile"], mode=1 if time_mode else 0, target=run["duration"] if time_mode else run["target_g"],
+            final_g=run["target_g"] if time_mode else run["target_g"] + SIM_GRIND_ERROR_G,
+            time_ms=int(run["duration"] * 1000), motor_ms=int(run["duration"] * 850),
+            pulses=0 if time_mode else SIM_GRIND_PULSES, result=0, ended_s=int(self.clock() - self.boot))
+
+    def _push_history(self, **entry):
+        entry.update(id=self.history_next_id, earlier_boot=False)
+        self.history_next_id += 1
+        self.history.insert(0, entry)
+        del self.history[model.HISTORY_MAX:]
+
+    def history_doc(self):
+        with self.lock:
+            self._tick()
+            return model.history_document(self.history, self.history_persistent, int(self.clock() - self.boot))
+
+    def fill_history(self, count):
+        """Replaces the list with `count` sample grinds (newest first, ages up to a day) to see every look of the list."""
+        with self.lock:
+            oldest = max((sample[-1] for sample in HISTORY_SAMPLES[:count]), default=0)
+            if self.clock() - self.boot < oldest:
+                self.boot = self.clock() - oldest  # the simulated grinder has been up long enough to have these grinds
+            now_s = int(self.clock() - self.boot)
+            self.history = []
+            for profile, mode, target, final, time_ms, motor_ms, pulses, result, age in reversed(HISTORY_SAMPLES[:count]):
+                self._push_history(profile=profile, mode=mode, target=target, final_g=final, time_ms=time_ms,
+                                   motor_ms=motor_ms, pulses=pulses, result=result, ended_s=max(0, now_s - age))
+
+    def _count_grind(self, run):
+        """A finished simulated grind joins the lifetime statistics (a stopped one never gets here)."""
+        self._record_history(run)
+        s = self.stats
+        grams = run["target_g"]
+        s["total_grinds"] += 1
+        s["single" if grams <= 10 else "double" if grams <= 22 else "custom"] += 1
+        s["total_weight_kg"] += grams / 1000.0
+        self.motor_s += run["duration"]
+        s["total_pulses"] += SIM_GRIND_PULSES
+        s["avg_pulses"] = (s["avg_pulses"] * self.pulse_samples + SIM_GRIND_PULSES) / (self.pulse_samples + 1)
+        self.pulse_samples += 1
+        if run["mode"] == "weight":
+            s["weight_mode"] += 1
+            s["avg_abs_error_g"] = (s["avg_abs_error_g"] * self.error_samples + SIM_GRIND_ERROR_G) / (self.error_samples + 1)
+            self.error_samples += 1
+        else:
+            s["time_mode"] += 1
+
+    def _poll_lead_in(self, run, elapsed):
+        """Like the firmware's lead-in poll (contract section 6): the start is decided again on every look while it
+        waits, and dropped at once when the screen, an update or a start block says no (the screen stays as it is).
+        drop_start is the dev switch for "another screen took over at the very end", so it acts when the lead-in
+        ends. A start that still passes then runs the grind."""
+        refused = model.decide_command(
+            "start", self._ui_mode(), False, self.update_held, False, self.start_block or "NONE", "NONE")
+        if refused or (elapsed >= LEAD_IN_S and self.drop_start):
+            self.run = None
+            return
+        if elapsed < LEAD_IN_S:
+            return
+        run["live"] = True
+        self.ui_state = "grinding"  # during the lead-in the status still reads ready (contract section 7)
+        run["started"] += LEAD_IN_S  # the grind itself starts when the lead-in ends
 
     def _ui_mode(self):
         if self.ui_state == "ready":
@@ -94,14 +203,32 @@ class SimGrinder:
     def _busy(self):
         return self.run is not None and self.run["live"]
 
+    def _in_lead_in(self):
+        return self.run is not None and self.run["kind"] == "start" and not self.run["live"]
+
     def _in_flight(self):
-        # The lead-in counts as in flight (contract section 6, rule for step 7)
-        return self.in_flight or (self.run is not None and self.run["kind"] == "start" and not self.run["live"])
+        # The lead-in counts as in flight (contract section 6)
+        return self.in_flight or self._in_lead_in()
+
+    def _effective_blocks(self):
+        """The block codes the status reports. While an update holds the grinder the firmware reports its lock-out,
+        after the checks that come first (grind_start_check.cpp, motor_test_check.cpp)."""
+        start = self.start_block
+        if self.update_held and start != "motor_disabled":
+            start = "update_in_progress"
+        motor = self.motor_test_block
+        if self.update_held and motor not in ("motor_fault", "motor_disabled"):
+            motor = "update_in_progress"
+        return start, motor
 
     def _phase(self):
         if self.run is None or not self.run["live"] or self.run["kind"] != "start":
             return "completed" if self.ui_state == "grind_complete" else "idle"
         return "predictive" if self.run["mode"] == "weight" else "time_grinding"
+
+    def has_route(self, path):
+        """True for /api/stats and /api/history when this firmware has them (--no-insights, --no-history)."""
+        return self.insights and (path == "/api/stats" or (path == "/api/history" and self.history_route))
 
     # --- reads
     def values(self):
@@ -122,24 +249,44 @@ class SimGrinder:
     def status_doc(self):
         with self.lock:
             self._tick()
-            return {
-                "ui_state": self.ui_state,
-                "grind_phase": self._phase(),
-                "busy": self._busy(),
-                "weight_g": round(self.weight, 1),
-                "motor_available": self.start_block != "motor_disabled",
-                "start_block": self.start_block,
-                "motor_test_block": self.motor_test_block,
-                "uptime_s": int(self.clock() - self.boot),
-                "build": BUILD_NUMBER,
-                "web_interface": True,
-            }
+            start, motor = self._effective_blocks()
+            weight = self.weight if self.weight_hold is None else self.weight_hold
+            doc = model.status_document(
+                self.ui_state, self._phase(), self._busy(), round(weight, 1), self.start_block != "motor_disabled",
+                start, motor, int(self.clock() - self.boot), BUILD_NUMBER, True, self.warnings)
+            if self.legacy_status:
+                del doc["warnings"]
+            return doc
 
-    # --- writes
-    def patch(self, applied, adjusted):
-        """Apply a validated patch (the decision was already made). Returns the reply document."""
+    def stats_doc(self):
         with self.lock:
             self._tick()
+            doc = dict(self.stats)
+            doc["motor_runtime_s"] = int(self.motor_s)
+            doc["powered_minutes"] += int((self.clock() - self.powered_origin) // 60)
+            return model.stats_document(doc)
+
+    def reset_stats(self):
+        """Statistics reset to zero (a factory reset): the next grind is the first one."""
+        with self.lock:
+            self.stats = {k: 0 for k in model.STATS_KEYS}
+            self.powered_origin = self.clock()
+            self.error_samples = self.pulse_samples = 0
+            self.motor_s = 0.0
+
+    # --- writes
+    def read_settings_refusal(self):
+        """The refusal a settings or statistics read gets (503 while the UI task is simulated as stuck), or None."""
+        return "ui_busy" if self.ui_busy else None
+
+    def patch(self, applied, adjusted):
+        """Apply a validated patch (the decision was already made). Returns the reply document or raises Refusal.
+        Like the firmware, a value equal to the stored one is not written; with store_failed the first value that
+        would be written cannot be saved, so nothing is stored."""
+        with self.lock:
+            self._tick()
+            if self.store_failed and any(self.stored[k] != v for k, v in applied.items()):
+                raise model.Refusal("store_failed")
             name_before = self.stored["device_name"]
             for key, value in applied.items():
                 self.stored[key] = value
@@ -151,6 +298,8 @@ class SimGrinder:
     def decide_write(self):
         with self.lock:
             self._tick()
+            if self.ui_busy:
+                return "ui_busy"
             return model.decide_write(self._ui_mode(), self._busy(), self.update_held, self._in_flight())
 
     def command(self, cmd, profile):
@@ -170,6 +319,8 @@ class SimGrinder:
                 return 200, {"ok": True, "cmd": "stop"}
             if cmd == "tare":
                 self.weight = 0.0
+                if self.weight_hold is not None:
+                    self.weight_hold = 0.0  # the tare zeroes the reading the hold stands in for
                 return 200, {"ok": True, "cmd": "tare"}
             if cmd == "motor_test":
                 self.run = {"kind": "motor_test", "started": now, "live": True}
@@ -184,9 +335,8 @@ class SimGrinder:
                 duration = self.stored[f"{names[profile]}_time_s"]
                 target = duration * GRIND_RATE_G_PER_S
             self.weight = 0.0
-            self.ui_state = "grinding"
             self.run = {"kind": "start", "started": now, "live": False, "mode": mode, "target_g": target,
-                        "duration": duration, "rate": target / duration}
+                        "duration": duration, "rate": target / duration, "profile": profile}
             return 202, {"ok": True, "cmd": "start", "profile": profile, "lead_in_ms": model.LEAD_IN_MS}
 
     # --- dev controls
@@ -195,13 +345,39 @@ class SimGrinder:
             self._tick()
             return {"web_interface": self.web_interface, "ui_state": self.ui_state, "update_held": self.update_held,
                     "in_flight": self.in_flight, "start_block": self.start_block,
-                    "motor_test_block": self.motor_test_block}
+                    "motor_test_block": self.motor_test_block, "drop_start": self.drop_start,
+                    "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
+                    "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings),
+                    "insights": self.insights, "history_route": self.history_route,
+                    "history_persistent": self.history_persistent, "stats": self.stats_doc()}
+
+    @staticmethod
+    def _stats_problem(value):
+        if not isinstance(value, dict) or any(k not in model.STATS_KEYS for k in value):
+            return "stats must be an object with members of: " + ", ".join(model.STATS_KEYS)
+        for v in value.values():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e12:
+                return "stats members must be numbers from 0 to 1e12"
+        return None
+
+    def _set_stats(self, value):
+        """Overrides statistics members (any number of them) to see how the page copes with unusual values."""
+        for key, number in value.items():
+            if key == "motor_runtime_s":
+                self.motor_s = float(number)
+            elif key == "powered_minutes":
+                self.stats[key] = int(number)
+                self.powered_origin = self.clock()
+            else:
+                self.stats[key] = float(number) if key in model.STATS_FLOAT_KEYS else int(number)
 
     def set_dev_state(self, changes):
         """Applies the members of a /dev/state body. Returns an error text or None."""
         with self.lock:
             for key, value in changes.items():
-                if key in ("web_interface", "update_held", "in_flight"):
+                if key not in DEV_STATE_KEYS:
+                    return f"unknown dev setting {key}"
+                if key in DEV_BOOL_KEYS:
                     if not isinstance(value, bool):
                         return f"{key} must be true or false"
                 elif key == "ui_state":
@@ -210,11 +386,54 @@ class SimGrinder:
                 elif key in ("start_block", "motor_test_block"):
                     if value is not None and value not in BLOCK_CODES:
                         return f"{key} must be null or one of " + ", ".join(BLOCK_CODES)
-                else:
-                    return f"unknown dev setting {key}"
+                elif key == "latency_ms":
+                    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= LATENCY_MAX_MS:
+                        return f"latency_ms must be a whole number of milliseconds from 0 to {LATENCY_MAX_MS}"
+                elif key == "warnings":
+                    if not isinstance(value, list) or any(c not in model.WARNING_CODES for c in value):
+                        return "warnings must be a list of: " + ", ".join(model.WARNING_CODES)
+                elif key == "stats_reset":
+                    if value is not True:
+                        return "stats_reset must be true (it zeroes the statistics)"
+                elif key in ("history_clear", "history_restart"):
+                    if value is not True:
+                        return f"{key} must be true"
+                elif key == "history_fill":
+                    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= model.HISTORY_MAX:
+                        return f"history_fill must be a whole number from 0 to {model.HISTORY_MAX}"
+                elif key == "stats":
+                    problem = self._stats_problem(value)
+                    if problem:
+                        return problem
+                elif key == "weight":
+                    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                              or abs(value) > WEIGHT_MAX_G):
+                        return f"weight must be null or a number from -{WEIGHT_MAX_G:g} to {WEIGHT_MAX_G:g} g"
             for key, value in changes.items():
+                if key == "stats_reset":
+                    self.reset_stats()
+                    continue
+                if key == "history_clear":
+                    self.history = []
+                    continue
+                if key == "history_fill":
+                    self.fill_history(value)
+                    continue
+                if key == "history_restart":  # a reboot: the grinds stay, their uptime no longer means anything
+                    for entry in self.history:
+                        entry["earlier_boot"] = True
+                    continue
+                if key == "stats":
+                    self._set_stats(value)
+                    continue
+                if key == "warnings":
+                    value = model.ordered_warnings(value)
+                if key == "weight":
+                    value = None if value is None else float(value)
+                    key = "weight_hold"
                 setattr(self, key, value)
-            if "ui_state" in changes:
+            # A screen change ends a grind or a motor run. A lead-in is kept: its next look decides it.
+            if "ui_state" in changes and not self._in_lead_in():
                 self.run = None
                 self.complete_until = None
             return None
@@ -239,9 +458,17 @@ def make_handler(sim, page_text):
             for name, value in (extra or {}).items():
                 self.send_header(name, value)
             self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.end_headers()
+                self.wfile.write(data)
+            except ConnectionError:
+                pass  # the page gave up while the reply was delayed (latency_ms): nothing to tell
             self.close_connection = True
+
+        def _delay(self, path):
+            """Dev switch latency_ms: every reply but /dev/state waits, so the page's timeout can be reproduced."""
+            if path != "/dev/state" and sim.latency_ms:
+                time.sleep(sim.latency_ms / 1000.0)
 
         def _api(self, status, doc):
             self._send(status, model.encode_json(doc), extra={"Cache-Control": "no-store"})
@@ -277,19 +504,32 @@ def make_handler(sim, page_text):
         # --- verbs
         def do_GET(self):
             path = self._path()
+            self._delay(path)
             if path == "/api/info":
                 self._api(200, {"name": sim.stored["device_name"], "version": "dev-server", "build": BUILD_NUMBER,
                                 "board": "dev", "busy": sim.status_doc()["busy"], "confirm": True})
             elif path in ("/", "/index.html"):
                 if self._admit(False):
                     self._send(200, page_bytes, "text/html; charset=utf-8", PAGE_HEADERS)
-            elif path in ("/api/status", "/api/settings", "/api/schema"):
+            elif path in ("/api/stats", "/api/history") and not sim.has_route(path):
+                self._send(404, "Not found", "text/plain")  # the HTTP server of a firmware without the route
+            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats", "/api/history"):
                 if not self._admit(False):
                     return
                 if path == "/api/status":
                     self._api(200, sim.status_doc())
+                elif path in ("/api/stats", "/api/history"):
+                    refusal = sim.read_settings_refusal()
+                    if refusal:
+                        self._refuse(refusal)
+                    else:
+                        self._api(200, sim.stats_doc() if path == "/api/stats" else sim.history_doc())
                 elif path == "/api/settings":
-                    self._api(200, sim.settings_doc())
+                    refusal = sim.read_settings_refusal()
+                    if refusal:
+                        self._refuse(refusal)
+                    else:
+                        self._api(200, sim.settings_doc())
                 else:
                     self._api(200, model.schema())
             elif path == "/dev/state":
@@ -300,8 +540,10 @@ def make_handler(sim, page_text):
                 self._send(404, "Not found", "text/plain")
 
         def do_PATCH(self):
+            self._delay(self._path())
             if self._path() != "/api/settings":
                 self._send(404 if self._path() not in ("/api/status", "/api/schema", "/api/command", "/api/info", "/")
+                           and not sim.has_route(self._path())
                            else 405, "", "text/plain")
                 return
             if not self._admit(True):
@@ -312,13 +554,15 @@ def make_handler(sim, page_text):
                 error = sim.decide_write()
                 if error:
                     raise model.Refusal(error)
+                doc = sim.patch(applied, adjusted)
             except model.Refusal as r:
                 self._refuse(r.code)
                 return
-            self._api(200, sim.patch(applied, adjusted))
+            self._api(200, doc)
 
         def do_POST(self):
             path = self._path()
+            self._delay(path)
             if path == "/dev/state":
                 try:  # same rule as the API, so a foreign web page cannot flip the switches
                     model.check_content_type(self.headers.get("Content-Type"))
@@ -338,7 +582,7 @@ def make_handler(sim, page_text):
                 return
             if path != "/api/command":
                 self._send(405 if path in ("/api/status", "/api/settings", "/api/schema", "/api/info", "/")
-                           else 404, "", "text/plain")
+                           or sim.has_route(path) else 404, "", "text/plain")
                 return
             if not self._admit(True):
                 return
@@ -362,17 +606,34 @@ def build_parser():
     p.add_argument("--update-held", action="store_true", help="simulate a running firmware update")
     p.add_argument("--start-block", choices=BLOCK_CODES, help="simulate a grinder-side refusal of start")
     p.add_argument("--motor-test-block", choices=BLOCK_CODES, help="simulate a grinder-side refusal of the motor test")
+    p.add_argument("--drop-start", action="store_true",
+                   help="every remote start is dropped when its lead-in ends (another screen took over)")
+    p.add_argument("--legacy-status", action="store_true",
+                   help="the status has no warnings member, like a firmware from before chg016 step 6")
+    p.add_argument("--no-insights", action="store_true",
+                   help="GET /api/stats and /api/history answer 404, like a firmware from before chg016 step 8 (the page hides Insights)")
+    p.add_argument("--no-history", action="store_true",
+                   help="GET /api/history answers 404 but /api/stats works, like a firmware from before chg016 step 12")
     return p
 
 
-def main(argv=None):
-    args = build_parser().parse_args(argv)
+def make_simulator(args):
     sim = SimGrinder()
     sim.web_interface = not args.web_off
     sim.ui_state = args.ui
     sim.update_held = args.update_held
     sim.start_block = args.start_block
     sim.motor_test_block = args.motor_test_block
+    sim.drop_start = args.drop_start
+    sim.legacy_status = args.legacy_status
+    sim.insights = not args.no_insights
+    sim.history_route = not args.no_history
+    return sim
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    sim = make_simulator(args)
     try:
         page = build_page.render_page()  # always the current sources, even if index.html was not rebuilt
     except (build_page.PageBuildError, OSError) as e:

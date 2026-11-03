@@ -9,9 +9,11 @@
 #include "../../hardware/display_manager.h"
 #include "../../network/portal_command_gate.h"
 #include "../../network/wifi_manager.h"
+#include "../../logging/grind_history_fs.h"
 #include "../../system/menu_setting_models.h"
 #include "../../system/menu_setting_table.h"
 #include "../../system/nvs_settings_store.h"
+#include "../../system/statistics_manager.h"
 #include "../../system/update_guard.h"
 #include "../ui_manager.h"
 #include "autotune_controller.h"
@@ -28,6 +30,21 @@ static_assert(static_cast<int>(GrindPhase::IDLE) == 0 && static_cast<int>(GrindP
                   static_cast<int>(GrindPhase::COMPLETED) == 12 && static_cast<int>(GrindPhase::PRIME) == 14 &&
                   static_cast<int>(GrindPhase::PURGE_CONFIRM) == static_cast<int>(PORTAL_GRIND_PHASE_COUNT) - 1,
               "GrindPhase order changed: update kGrindPhaseNames in network/portal_snapshot.cpp");
+
+// The pure snapshot module maps DiagnosticCode values to warning codes without including the enum
+#define PORTAL_ASSERT_WARNING(index, code)                                                    \
+    static_assert(PORTAL_WARNING_DIAG_CODES[index] == static_cast<int>(DiagnosticCode::code), \
+                  "DiagnosticCode changed: update PORTAL_WARNING_DIAG_CODES in network/portal_snapshot.h")
+PORTAL_ASSERT_WARNING(0, BOARD_UNRECOGNIZED);
+PORTAL_ASSERT_WARNING(1, MOTOR_FAULT);
+PORTAL_ASSERT_WARNING(2, MOTOR_DISABLED);
+PORTAL_ASSERT_WARNING(3, HX711_NOT_CONNECTED);
+PORTAL_ASSERT_WARNING(4, HX711_NO_DATA);
+PORTAL_ASSERT_WARNING(5, HX711_SAMPLE_RATE_INVALID);
+PORTAL_ASSERT_WARNING(6, MECHANICAL_INSTABILITY);
+PORTAL_ASSERT_WARNING(7, LOAD_CELL_NOISY_SUSTAINED);
+PORTAL_ASSERT_WARNING(8, LOAD_CELL_NOT_CALIBRATED);
+#undef PORTAL_ASSERT_WARNING
 
 namespace {
 
@@ -86,10 +103,22 @@ void PortalUIController::update() {
     // Leaving the menu: the user may have changed settings there, read them now instead of waiting
     const UIState state = ui_manager_->state_machine->get_current_state();
     const bool left_menu = last_state_ == UIState::MENU && state != UIState::MENU;
+    const bool state_changed = state != last_state_;
     last_state_ = state;
     if (just_enabled || left_menu || publish_due_ ||
         static_cast<uint32_t>(now - last_publish_ms_) >= PORTAL_STATUS_PUBLISH_MS) {
         publish_snapshot(now, just_enabled || left_menu);
+    }
+    // A finished grind changes the history ring, and with it the lifetime statistics
+    bool history_changed = false;
+    if (just_enabled || static_cast<uint32_t>(now - last_history_check_ms_) >= PORTAL_STATUS_PUBLISH_MS) {
+        history_changed = refresh_history(now, just_enabled);
+    }
+    // The lifetime statistics change at the end of a grind or a motor test; a screen state change is the cue to look
+    if (just_enabled || state_changed || history_changed ||
+        static_cast<uint32_t>(now - last_stats_ms_) >= PORTAL_STATS_REFRESH_MS) {
+        portal_command_gate.publish_stats(gather_stats());
+        last_stats_ms_ = now;
     }
 }
 
@@ -145,7 +174,39 @@ PortalStatusInputs PortalUIController::gather_status() const {
     in.motor_test_block = ui_manager_->motor_pulse_block();
     in.uptime_s = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
     in.build = BUILD_NUMBER;
+    in.diag_mask = ui_manager_->diagnostics_controller_ ? ui_manager_->diagnostics_controller_->active_mask() : 0;
     return in;
+}
+
+// get_snapshot() takes the statistics mutex once (also taken by the file-IO task while it saves), so this runs on the
+// UI task only
+PortalStats PortalUIController::gather_stats() const {
+    return portal_stats_from_counters(statistics_manager.get_snapshot());
+}
+
+// grind_history.snapshot() copies at most GRIND_HISTORY_RING_CAPACITY entries under a spinlock; the files are read
+// only by the file-IO task
+void PortalUIController::gather_history() {
+    grind_history.snapshot(&history_snap_);
+    portal_history_from_snapshot(history_snap_, &history_view_);
+}
+
+bool PortalUIController::refresh_history(uint32_t now_ms, bool force) {
+    last_history_check_ms_ = now_ms;
+    const uint32_t seen_sequence = history_snap_.sequence;
+    const bool seen_loaded = history_snap_.loaded;
+    const bool seen_persistent = history_snap_.persistent;
+    gather_history();
+    const bool changed = !history_seen_ || history_snap_.sequence != seen_sequence ||
+                         history_snap_.loaded != seen_loaded || history_snap_.persistent != seen_persistent;
+    if (changed || force || static_cast<uint32_t>(now_ms - last_history_publish_ms_) >= PORTAL_HISTORY_REFRESH_MS) {
+        portal_command_gate.publish_history(history_view_);
+        last_history_publish_ms_ = now_ms;
+    }
+    // The very first copy is not "a grind finished"
+    const bool grind_recorded = history_seen_ && history_snap_.sequence != seen_sequence;
+    history_seen_ = true;
+    return grind_recorded;
 }
 
 PortalDecisionInput PortalUIController::gather_decision() const {
