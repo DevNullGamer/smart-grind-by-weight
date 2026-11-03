@@ -414,6 +414,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   +-- WiFi
     |   |   |-- Status, network, IP, signal, name
     |   |   |-- Forget WiFi
+    |   |   |-- Web interface: Web toggle (web panel, off by default)
     |   |   |-- Receive / Confirm toggles
     |   |   \-- Firmware: Beta toggle, Check for update, Install
     |   |
@@ -503,10 +504,21 @@ Open **Menu → Settings → WiFi**. The page shows:
 
 - **Status** (Connected, Connecting..., Retry in Ns, Not set up), **Network**, **IP**, **Signal** (for example `-62 dBm Good`) and the **Name** (`grindbyweight.local`).
 - **Forget WiFi** (once set up): removes the network, password and update token after a confirmation. Updates over WiFi stop until you set it up again.
+- **Web interface → Web** (off by default; greyed out until WiFi is set up): turns the web panel on or off. See [Web panel](#web-panel) below.
 - **Updates → Receive** (off by default): lets your computer send firmware to the grinder. Only turn it on when you want to update. **Confirm** (on by default; it appears once Receive is on): every update must be accepted with a tap on the grinder. Turning Confirm off lets anyone who has the token install firmware without touching the grinder; the grinder warns you before it allows that.
 - **Firmware**: the installed version, the latest version found, a **Beta** switch (include release candidates and betas), **Check for update** and **Install**.
 
 While this page is on screen the grinder accepts new WiFi details over Bluetooth. Leave the page when you are done.
+
+### Web panel
+
+With **Web interface → Web** on, the grinder serves a small page on your home network: settings, profile targets, status and the commands Stop, Tare, Start and Motor test. Open `http://grindbyweight.local` (the name follows the device name shown on the WiFi page) in a browser on the same WiFi (or the IP address the WiFi page shows, if the name does not resolve). No app and no token.
+
+> **Remote actions are possible from the local network.** With the Web interface on, any device on the same WiFi can change settings and start the grinder with nobody at the machine. There is no login. A start from the page shows "Remote start" on the grinder for 3 seconds; touching the screen or pressing its STOP button cancels it. Motor test runs the 1 s motor pulse without a confirmation. Leave the switch off unless you want this, and do not forward port 80 to the grinder.
+
+The Web interface switch is separate from **Receive**: Receive still only controls firmware updates from your computer. Forget WiFi turns the Web interface off again.
+
+> **Status:** the panel was tested on a development board with host tests, a PC mDNS check and command runs against the device. The on-screen touch cancel, the overlay, the page in a real browser and the real motor and load cell under a remote start have not been checked yet. For working on the page without a grinder see [tools/portal/README.md](../tools/portal/README.md); the API is in [PORTAL-API.md](PORTAL-API.md).
 
 ### Update from the computer
 

@@ -18,6 +18,12 @@ public:
     void handle_reset();
     void handle_purge();
     void handle_motor_test();
+    // Starts the motor test without the confirm dialog (web panel): re-checks motor_pulse_block(), starts the pulse,
+    // shows the overlay and the poll timer. NONE = running; anything else = refused, nothing started and no notice
+    // shown. UI task only.
+    MotorTestBlock begin_motor_test();
+    // True from a started Motor Test until finish_motor_test() (the poll timer is the single source)
+    bool is_motor_test_active() const { return motor_timer_ != nullptr; }
     void handle_scale_open();
     void handle_scale_tare();
     void handle_autotune();
@@ -32,6 +38,7 @@ public:
     void handle_board_override_radio_button();
     void handle_wifi_forget();
     void handle_wifi_push_toggle();
+    void handle_wifi_web_toggle();
     void handle_wifi_confirm_toggle();
     void handle_wifi_beta_toggle();
     void handle_wifi_check_update();

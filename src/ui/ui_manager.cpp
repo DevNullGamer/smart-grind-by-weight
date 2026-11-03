@@ -143,6 +143,12 @@ void UIManager::update() {
         screen_timeout_controller_->update();
     }
 
+    // Web panel: serves the settings mailbox and publishes the snapshot (before the update screens, so a write
+    // during an update is answered with update_in_progress instead of timing out)
+    if (portal_controller_) {
+        portal_controller_->update();
+    }
+
     // WiFi update: Accept dialog and progress screen (consumes the frame while the progress screen is up)
     if (wifi_update_controller_ && wifi_update_controller_->update()) {
         return;
@@ -387,6 +393,19 @@ void UIManager::show_motor_pulse_blocked_notice(MotorTestBlock block) {
         nullptr);  // Single OK button
 }
 
+void UIManager::show_calibration_failed_notice(CalibrationResult result) {
+    if (result == CalibrationResult::OK) {
+        return;
+    }
+    show_confirmation(
+        calibration_result_title(result),
+        calibration_result_message(result),
+        "OK",
+        lv_color_hex(THEME_COLOR_WARNING),
+        nullptr,
+        nullptr);  // Single OK button
+}
+
 void UIManager::show_notice_after_dialog(std::function<void()> show_notice) {
     if (!show_notice) {
         return;
@@ -455,6 +474,7 @@ void UIManager::init_controllers() {
     screen_timeout_controller_ = std::make_unique<ScreenTimeoutController>(this);
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
     wifi_update_controller_ = std::make_unique<WifiUpdateUIController>(this);
+    portal_controller_ = std::make_unique<PortalUIController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller
@@ -528,8 +548,10 @@ void UIManager::update_auto_actions() {
     const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
 
     // Auto-start stays off while a grind could not start (motor disabled, update running, load cell
-    // fault): a refused start would pop up the notice repeatedly
-    if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_ &&
+    // fault): a refused start would pop up the notice repeatedly. Also off while a Motor Test runs.
+    const bool motor_test_active = menu_controller_ && menu_controller_->is_motor_test_active();
+    if (auto_actions_.auto_start_enabled && auto_start_allowed(motor_test_active) && on_ready_tab &&
+        !grinder_active && grinding_controller_ &&
         grind_controller && grind_controller->start_block() == GrindStartBlock::NONE) {
         auto* filter = sensor->get_raw_filter();
 

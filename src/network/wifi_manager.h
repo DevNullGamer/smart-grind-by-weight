@@ -29,7 +29,7 @@ public:
     // Validates and stores the credentials and the API token (always rewritten; the provisioning tool
     // generates it), then (re)connects from tick(). Write order: password, token, SSID last (commit marker).
     SetResult set_credentials(const char* ssid, const char* password, const char* token);
-    // Removes SSID, password, token and the push flag, and takes the radio down from tick().
+    // Removes SSID, password, token, the push flag and the web interface flag, and takes the radio down from tick().
     // Returns false (state and flags unchanged) if NVS could not be opened.
     bool clear_credentials();
 
@@ -44,7 +44,14 @@ public:
     // Dotted IP (empty string when not connected), RSSI in dBm (0 when not connected)
     void get_ip(char* out, size_t out_len) const;
     int rssi() const;
-    const char* hostname() const { return host_name; }
+    // The mDNS host name (without ".local"). The pointer stays valid across a rename (two buffers are swapped), so
+    // the HTTP task can read it while the UI task renames the device.
+    const char* hostname() const { return host_names[host_name_index]; }
+    // Changes the device name (mDNS host, default WIFI_DEFAULT_HOSTNAME): validates it (wifi_validate_hostname),
+    // stores it in NVS, switches the RAM copy and has tick() restart mDNS only (WiFi stays connected, the IP does
+    // not change). Setting the name it already has stores nothing and sets *changed = false. Returns false if the
+    // name is invalid or could not be stored (nothing changes then). Reads/writes NVS: call from the UI task.
+    bool set_device_name(const char* name, bool* changed);
     // Milliseconds until the next connect attempt (0 unless WAITING_RETRY)
     uint32_t retry_in_ms() const;
     // Stored SSID (empty string if none). Reads NVS: call on page entry / after changes, not per frame.
@@ -52,9 +59,17 @@ public:
     // Constant-time check of a candidate token against the stored one (false if none is stored)
     bool token_matches(const char* candidate);
 
-    bool push_enabled();
-    // Returns false if the value could not be stored
+    // "Receive" (firmware push). Served from a RAM copy (loaded in begin()), so the HTTP task can call it per
+    // request without touching NVS.
+    bool push_enabled() const { return push_cached; }
+    // Returns false if the value could not be stored (the RAM copy then keeps its old value)
     bool set_push_enabled(bool enabled);
+
+    // "Web interface" (web panel page and API, default off, changed only from the touchscreen). Same RAM copy
+    // rule as push_enabled(). Forgetting the WiFi resets it to off.
+    bool web_enabled() const { return web_cached; }
+    // Returns false if the value could not be stored (the RAM copy then keeps its old value)
+    bool set_web_enabled(bool enabled);
 
     // "Confirm on the grinder" (default true): every update needs a tap on INSTALL. Served from a RAM copy
     // (loaded in begin()), so it is safe to call while an update owns the flash. Turning it off only takes
@@ -94,17 +109,22 @@ private:
     volatile bool credentials_present = false;
     volatile uint32_t credentials_rev = 0;
     volatile bool http_service_wanted = false;
+    volatile bool mdns_restart_requested = false;  // set by set_device_name(), consumed by tick()
     volatile bool accept_cached = true;  // fail closed until begin() has read NVS
+    volatile bool push_cached = false;   // RAM copies of the Receive and Web interface switches (off until begin() has read NVS)
+    volatile bool web_cached = false;
     bool radio_started = false;
     bool events_registered = false;
     bool mdns_started = false;
+    uint32_t mdns_last_try_ms = 0;
     bool http_service_registered = false;
     bool reapplying = false;  // old connection is being dropped for new credentials: ignore its link state
     uint32_t backoff_ms = 0;
     uint32_t retry_at_ms = 0;
     uint32_t connect_started_ms = 0;
     int last_disconnect_reason = 0;
-    char host_name[WIFI_HOSTNAME_MAX_LEN + 1] = WIFI_DEFAULT_HOSTNAME;
+    char host_names[2][WIFI_HOSTNAME_MAX_LEN + 1] = {WIFI_DEFAULT_HOSTNAME, WIFI_DEFAULT_HOSTNAME};
+    volatile uint8_t host_name_index = 0;  // the buffer hostname() returns; a rename fills the other one, then flips
 
     void set_state(WiFiState next);
     void load_host_name();

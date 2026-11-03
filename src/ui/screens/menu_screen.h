@@ -76,7 +76,9 @@ private:
     lv_obj_t* wifi_forget_button = nullptr;
     lv_obj_t* wifi_push_toggle = nullptr;      // "Receive": arms the push endpoint
     lv_obj_t* wifi_confirm_toggle = nullptr;   // "Confirm": every update needs a tap on INSTALL
-    lv_obj_t* wifi_listen_label = nullptr;     // "Listening: <name>.local" while the endpoint runs
+    lv_obj_t* wifi_listen_label = nullptr;     // "Listening: <name>.local" while Receive is on and the endpoint runs
+    lv_obj_t* wifi_web_toggle = nullptr;       // "Web": switches the web interface (page and API) on or off
+    lv_obj_t* wifi_web_label = nullptr;        // "Web interface: <name>.local and the IP" while it is on and the server runs
     // Firmware section (pull update)
     lv_obj_t* wifi_fw_latest_label = nullptr;  // "Latest:" value
     lv_obj_t* wifi_beta_toggle = nullptr;      // include prereleases
@@ -171,6 +173,7 @@ public:
     lv_obj_t* get_setting_radio(RadioSetting id) const { return setting_radios_[static_cast<size_t>(id)]; }
     static EventBridgeLVGL::EventType setting_radio_event(RadioSetting id);
     lv_obj_t* get_wifi_push_toggle() const { return wifi_push_toggle; }
+    lv_obj_t* get_wifi_web_toggle() const { return wifi_web_toggle; }
     lv_obj_t* get_wifi_confirm_toggle() const { return wifi_confirm_toggle; }
     lv_obj_t* get_wifi_beta_toggle() const { return wifi_beta_toggle; }
     lv_obj_t* get_wifi_check_button() const { return wifi_check_button; }

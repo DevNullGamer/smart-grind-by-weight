@@ -111,7 +111,14 @@ void CalibrationUIController::handle_ok() {
             break;
         case CAL_STEP_WEIGHT: {
             float cal_weight = ui_manager_->calibration_screen.get_calibration_weight();
-            UIOperations::execute_calibration(ui_manager_->get_hardware_manager(), cal_weight, [this]() {
+            UIOperations::execute_calibration(ui_manager_->get_hardware_manager(), cal_weight, [this](CalibrationResult result) {
+                if (result != CalibrationResult::OK) {
+                    // Old factor was kept. Leave the calibration screen: the notice is only shown on the menu
+                    handle_cancel();
+                    auto* ui = ui_manager_;
+                    ui->show_notice_after_dialog([ui, result]() { ui->show_calibration_failed_notice(result); });
+                    return;
+                }
                 ui_manager_->calibration_screen.set_step(CAL_STEP_NOISE_CHECK);
                 start_noise_check();
                 if (ui_manager_) {

@@ -57,9 +57,21 @@ void MenuUIController::handle_motor_test() {
 void MenuUIController::run_motor_test() {
     if (!ui_manager_ || motor_timer_) return;
 
+    const MotorTestBlock block = begin_motor_test();
+    if (block != MotorTestBlock::NONE) {
+        auto* ui = ui_manager_;
+        ui->show_notice_after_dialog([ui, block]() { ui->show_motor_pulse_blocked_notice(block); });
+    }
+}
+
+// Shared by the confirm dialog (run_motor_test) and the web panel's motor_test command. Opens no dialog.
+MotorTestBlock MenuUIController::begin_motor_test() {
+    if (!ui_manager_) return MotorTestBlock::MOTOR_DISABLED;
+    if (motor_timer_) return MotorTestBlock::BUSY;  // a test is already running
+
     auto* hardware = ui_manager_->get_hardware_manager();
     auto* grinder = hardware ? hardware->get_grinder() : nullptr;
-    if (!grinder) return;
+    if (!grinder) return MotorTestBlock::MOTOR_DISABLED;
 
     // Re-check: a firmware update may have locked the grinder out while the dialog was open
     MotorTestBlock block = ui_manager_->motor_pulse_block();
@@ -68,9 +80,7 @@ void MenuUIController::run_motor_test() {
     }
     if (block != MotorTestBlock::NONE) {
         LOG_BLE("[MotorTest] Refused - %s\n", motor_test_block_reason(block));
-        auto* ui = ui_manager_;
-        ui->show_notice_after_dialog([ui, block]() { ui->show_motor_pulse_blocked_notice(block); });
-        return;
+        return block;
     }
 
     motor_test_start_ms_ = millis();
@@ -89,10 +99,9 @@ void MenuUIController::run_motor_test() {
         // Cannot poll for the end: do not leave the output running unobserved
         LOG_BLE("[MotorTest] ERROR: could not create the poll timer, stopping\n");
         finish_motor_test(false, true);
-        auto* ui = ui_manager_;
-        ui->show_notice_after_dialog(
-            [ui]() { ui->show_motor_pulse_blocked_notice(MotorTestBlock::START_FAILED); });
+        return MotorTestBlock::START_FAILED;
     }
+    return MotorTestBlock::NONE;
 }
 
 // Every way out of a running test. completed: the output went low by itself. A test that is not

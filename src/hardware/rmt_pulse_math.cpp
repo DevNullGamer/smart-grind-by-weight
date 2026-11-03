@@ -5,6 +5,10 @@ uint32_t continuous_deadman_ms(uint32_t timeout_sec, uint32_t margin_ms) {
     return total > UINT32_MAX ? UINT32_MAX : (uint32_t)total;
 }
 
+bool rmt_pulse_complete(bool trans_done_flag, bool pin_is_high) {
+    return trans_done_flag || !pin_is_high;
+}
+
 size_t rmt_pulse_symbol_count(uint32_t high_us) {
     if (high_us == 0) return 0;
     const uint32_t halves = (high_us + RMT_MAX_HALF_US - 1) / RMT_MAX_HALF_US;  // HIGH halves

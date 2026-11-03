@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include "../../controllers/grind_start_check.h"
 
 class UIManager;
 enum class UIState;
@@ -18,6 +19,8 @@ public:
     void update(UIState current_state);
 
     void handle_grind_button();
+    // Starts a grind with the stored target of `profile` (0-2) in the current mode; NONE when it started
+    GrindStartBlock start_profile_grind(int profile);
     void handle_pulse_button();
     void handle_layout_toggle();
     void handle_purge_confirm_continue();
@@ -31,6 +34,7 @@ public:
     static void dispatch_event(const GrindEventData& event_data);
 
 private:
+    const char* session_profile_name() const;
     void enter_ready_state();
     void enter_edit_state();
     void enter_grinding_state();

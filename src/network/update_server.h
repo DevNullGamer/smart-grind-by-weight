@@ -13,9 +13,13 @@ struct httpd_req;  // esp_http_server request, kept out of this header
 /**
  * UpdateServer - plain-HTTP push endpoint for raw firmware images (port 80, esp_http_server).
  *
- * Runs only while WiFi is connected AND WiFiManager::push_enabled() is set; tick() starts/stops it (and the
- * mDNS "http" service) from the Bluetooth task loop. Contract:
- *   GET  /api/info                no auth; {"name","version","build","board","busy","confirm"}
+ * Runs while WiFi is connected AND (the Web interface switch OR Receive is on) (portal_server_should_run);
+ * tick() starts/stops it (and the mDNS "http" service) from the Bluetooth task loop. Because the server can run
+ * for the web interface alone, the update routes check Receive (WiFiManager::push_enabled(), RAM copy)
+ * themselves and answer 403 receive_off when it is off; the web routes (portal_routes.*) check the Web interface
+ * switch. Contract:
+ *   GET  /api/info                no auth, always open; {"name","version","build","board","busy","confirm"}
+ *   GET  /, /index.html           the embedded web panel page (Web interface on, see docs/PORTAL-API.md)
  *   POST /api/update/begin        Bearer token; body {"size","sha256"[,"build","version"]};
  *                                 200 {"session":"<8hex>"}; errors carry {"error","reason"}. Unless Confirm is
  *                                 off, the reply waits (up to UPDATE_PROMPT_TIMEOUT_MS) for the user to tap

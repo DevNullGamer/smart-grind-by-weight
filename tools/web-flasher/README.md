@@ -51,6 +51,8 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 5. **Save the token now** with "Copy" or "Download config" (a file for `~/.grinder-wifi.json`; the browser may rename the download, for example drop the leading dot, so save it as `~/.grinder-wifi.json`). It is shown only on this page and the grinder never shows it again. Then turn on **Receive** in Menu → WiFi when you want to push an update
 6. "Remove WiFi from grinder" deletes the stored details (also needs Menu → WiFi open once the grinder is set up)
 
+The web panel on the grinder (Menu -> WiFi -> **Web** under "Web interface") has no token. It is switched on only on the grinder's screen, and the token above protects firmware push (`wifi-upload`) only. With the Web interface on, anyone on the same network can change settings and start the grinder; see [Web panel](../../docs/DOC.md#web-panel).
+
 What the page does with your data:
 - The password and token only travel over Bluetooth to the grinder (and the token to your clipboard/download if you press those buttons). Nothing is sent to any server, nothing is stored in the browser, and nothing is written to the console
 - The token is generated in the browser with `crypto.getRandomValues` (16 lowercase hex characters)
@@ -107,6 +109,8 @@ python3 -m http.server 8000 --directory tools/web-flasher
 ```
 
 **Note:** While the production site requires HTTPS for Web Bluetooth, `localhost` is an exception and works with plain HTTP.
+
+**Web panel without a grinder:** `python3 tools/portal/dev_server.py`, then open `http://127.0.0.1:8080` (use the IP address, not `localhost`). Details in [tools/portal/README.md](../portal/README.md).
 
 ## Security
 

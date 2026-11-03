@@ -79,3 +79,13 @@ const char* update_listening_text(const char* host, char* out, size_t out_len) {
     snprintf(out, out_len, "Listening:\n%.63s.local", host ? host : "");
     return out;
 }
+
+const char* web_listening_text(const char* host, const char* ip, char* out, size_t out_len) {
+    if (!out || out_len == 0) return out;
+    if (ip && ip[0] != '\0') {
+        snprintf(out, out_len, "Web interface:\n%.63s.local\n%.15s", host ? host : "", ip);
+    } else {
+        snprintf(out, out_len, "Web interface:\n%.63s.local", host ? host : "");
+    }
+    return out;
+}

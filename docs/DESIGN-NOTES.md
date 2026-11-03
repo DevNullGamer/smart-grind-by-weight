@@ -109,7 +109,7 @@ LVGL allocates from PSRAM (`src/ui/lvgl_psram_alloc.cpp`, falling back to intern
 
 - **Pieces:** `system/image_header` (header check), `system/update_sink_image` (ImageSink: `esp_ota_*` with sequential writes, SHA-256), `system/update_guard` (copy of the BLE OTA safety rules: busy check, lock_out, re-check, watchdog, task suspend, touch; release resumes tasks first), `network/update_http_logic` (pure: bearer parse, lockout, begin-JSON parser, session id) and `network/update_server` (esp_http_server on port 80). The BLE `OTAHandler` is untouched except for two checks: it refuses while `UpdateGuard::is_held()`, and the guard asks `is_updating_synchronized()` (takes the OTA op mutex) after claiming its slot, which closes the start race.
 - **Serialisation:** one mutex in `UpdateServer` around every sink/guard call; handlers lock per chunk, never across a socket read; the tick only try-locks (inactivity abort after `UPDATE_INACTIVITY_TIMEOUT_MS`).
-- **Gate:** the server runs only while WiFi is connected and `push_enabled` is set (checked every 2 s from the Bluetooth task); mDNS `_http._tcp` follows it. The Accept prompt hook is `UpdateAcceptPolicy` (see the R2a/R2b sections: a tap on the grinder is required unless Confirm is switched off).
+- **Gate:** the server runs only while WiFi is connected and `push_enabled` is set (since chg014: or the Web interface is on; checked every 2 s from the Bluetooth task); mDNS `_http._tcp` follows it. The Accept prompt hook is `UpdateAcceptPolicy` (see the R2a/R2b sections: a tap on the grinder is required unless Confirm is switched off).
 - **Endpoints:** `GET /api/info`; `POST /api/update/begin` (Bearer; `{"size","sha256"[,"build","version"]}` -> `{"session"}`); `PUT /api/update/data` (Bearer + `X-Session`, Content-Length == size) -> `{"status":"installed"}`, restart 800 ms later. Three bad tokens lock authentication for 60 s (doubling to 15 min, reset on success). Errors are `{"error","reason"}`; 409 busy, 413 size, 422 invalid image/SHA, 429 locked.
 - **Tool:** `tools/wifi/grinder-wifi.py` (stdlib only), also `grinder.py wifi-info` / `wifi-upload`. Host and token from arguments, `GRINDER_WIFI_HOST`/`GRINDER_WIFI_TOKEN` or `~/.grinder-wifi.json`.
 - **Former gap, fixed in R2a:** a push now stores `new_build_nr` / `new_fw_ver` like the BLE path (see the Accept prompt section).
@@ -584,3 +584,200 @@ Values from `src/config/theme.h`: PRIMARY 0xFF3D00 (red, primary theme colour), 
 ### Touch polling
 
 - Touch polling uses the IDF I2C master driver with ACK checking disabled, so idle NACKs do not spam the log. Toggle `DEBUG_SUPPRESS_TOUCH_I2C_ERRORS` to 0 to see the raw driver output when troubleshooting.
+
+## Tuning batch (chg004)
+
+Steps 1-5 of chg004 (step 6 deferred). Goal: load cell reads that are safe across the Core 0 sampler and the Core 1 control and UI tasks, no per-frame cost from the screen timeout, tare and calibrate that fail visibly, and pulse completion that does not rest on the GPIO level alone.
+
+### CircularBufferMath (steps 1-3)
+
+- **Clock and membership:** the constructor takes a `ClockFn` (`millis()` on firmware, injected by host tests). Window membership is wrap-safe (`in_window()` uses the sample-age rule). Before, it was wrong while `now < window_ms` (first minutes after boot, and after a `millis()` rollover).
+- **Bounded windows:** readers copy at most `CBM_MAX_WINDOW_SAMPLES` (64, `src/config/hardware.h`) of the newest samples into fixed stack arrays; `alloca` is gone. A window holding more uses the newest 64 and logs one `[CBM]` truncation line.
+- **Window length:** the ring holds 1024 samples, about 100 s at 10 SPS. The 300 s screen-dim window therefore covers about 100 s. This is kept on purpose (chg004 plan).
+- **Single pass:** `get_min_max_raw()` takes min and max in one walk of the ring.
+- **Locking:** one `portMUX` spinlock guards the ring, its indices and the display filter. Core 0 is the only sample writer (`add_sample()`); `clear_all_samples()` and `reset_display_filter()` also change state from the UI task. Readers copy at most 64 samples under the lock (or do a bounded walk in place, such as min/max) and sort or compute outside it. Critical sections never log, allocate or call other locked methods.
+- **O(1) clear:** `clear_all_samples()` resets the indices and count and bumps `reset_epoch`. An `add_sample()` that raced with a reset does not re-seed the display filter from a value computed before it.
+- **Display filter:** writer-owned. `add_sample()` advances it once per new sample (fast rise, slow fall, deadband), so a falling display value moves one step per sample: up to about 100 ms per step at 10 SPS. Readers only load it.
+- **Empty buffer:** `WeightSensor::get_display_weight()` returns 0 while the buffer is empty (after a tare or calibrate, until the next sample), so the reset value is never shown as a weight.
+- **Screen timeout:** `ScreenTimeoutController` re-evaluates weight activity at most once per `WEIGHT_ACTIVITY_CHECK_INTERVAL_MS` (1 s) and caches the result. Before, every frame ran two collect-and-scan passes (min and max, each copying into a stack array of up to 1024 entries, about 4 KB each, one after the other, about 4000 iterations). The cost was largest once the ring held 1024 samples (about 100 s after boot).
+- **Stack cost** (estimated at step 2, not measured): about +270 B on the GrindControl task and about +450 B on the 4 KB WeightSampling task during tare. Step 3 added a 64-sample stack window to `add_sample()` on the WeightSampling task (about 512 B together with the sort array of `apply_outlier_rejection()`, on every sample). The stack high-water mark has not been measured.
+
+### Tare and calibration (step 4)
+
+- **Factor validation:** `calibration_compute_factor()` (`src/hardware/calibration_math.*`, host-tested) rejects a known weight that is not (finite and > 0), a raw delta from the tare offset below `HW_LOADCELL_CAL_MIN_ADC_VALUE` (1000, `SIGNAL_TOO_SMALL`), and a factor that is not finite or zero (`INVALID_FACTOR`). Either sign is accepted, so a reversed cell gives a negative factor. On any failure the old factor and the saved calibration stay unchanged.
+- **Result and thread:** `WeightSensor::calibrate()` returns a `CalibrationResult`. It no longer calls `update_async()` from the UI task, which had made the UI task a second HX711 reader beside Core 0; it reads only the filter. A settle timeout is a failure (`SETTLE_TIMEOUT`), not a factor from an unsettled reading.
+- **Notice:** a failed calibration leaves the calibration screen and hands its notice to `show_notice_after_dialog()`, a 50 ms one-shot LVGL timer. It shows the notice only if the UI state is MENU at that moment; otherwise the notice is silently dropped. Dialogs are never opened inside a confirm callback.
+- **Tare timeout:** `tare()` cancels a request that times out with `doTare.exchange(false)`, so it cannot complete silently later. `doTare`, `tareTimes` and `tareStatus` are atomics; the counter is reset before the flag is set.
+- **Known gap (open, optional follow-up):** `UIOperations::execute_tare()` ignores the return value of `tare()`. After a timed-out tare, calibration still advances to the weight step and uses the old tare offset. The fix is to branch on the result in the UI; not done.
+- **Open question (chg004 plan):** the tare offset is `get_smoothed_raw(250)`, taken once 18 samples (`DATA_SET`) are counted. At 10 SPS a 250 ms window holds only about 2-3 samples, so most of the 18 are not used. Deliberately not changed; revisit after the user's hardware pass.
+
+### Pulse completion (step 5)
+
+- `Grinder::is_pulse_complete()` uses the RMT `on_trans_done` flag as the primary signal. The pin readback is only a fallback for a callback that never arrives: `rmt_pulse_complete(flag, pin_high)` is `flag || !pin_high`.
+- The fallback has no seen-HIGH guard, so a LOW pin before the first HIGH would count as complete. This exposure is the same as the old pin-only check, which had no seen-HIGH guard either. The flag is set only when the transmission ends, so an early completion can only come from the pin fallback. The 13/13 bench run below saw no early completion. The only other residual window is a late callback from an earlier pulse, judged negligible in review.
+- **Bench result** (V2, `...-rmt-selftest-v2`, build #491): 13/13 pulses, one callback each. Callback and pin readback agree within about 0.9-1 ms (1 ms poll), and the callback span is within 0.4 % of the requested time.
+
+### Not hardware-verified
+
+Steps 3 and 4 (lock contention and timing, tare and calibrate behaviour) need a load cell. Host tests cover `calibration_math` and the single-threaded paths of `CircularBufferMath`; the spinlock is a no-op on host. Also not hardware-verified:
+
+- step 2 behaviour with real samples and its stack use (only a boot check on the bench board was done);
+- the screen-dim throttle with a live cell;
+- `is_pulse_complete()` inside a real grind. Pulse completion is bench-verified only through the `...-rmt-selftest-v2` env on a V2 board, not in a grind.
+
+## Web panel (chg014)
+
+A small panel on the local network (settings, profile targets, status, stop, tare, start, motor test) served by the grinder itself. No PC, no app, no cloud. The contract (routes, fields, error codes) is `docs/PORTAL-API.md`; the binding rules are in `CLAUDE.md` ("Web panel (chg014)"). This section is the reasoning, the architecture and what was and was not run.
+
+> With the Web interface on, remote actions are possible from the local network, including starting the grinder. There is no login. The switch on the grinder's screen is the only gate.
+
+### Decisions (user, 2026-11-01)
+
+- **No token for the panel.** The update token is generated at WiFi setup, shown only there and never read back from the grinder, so a phone user cannot get it. The panel is gated by the Web interface switch alone. The token keeps protecting firmware push (`/api/update/*`). The browser guards (Host, Origin, `Content-Type`, `X-Grinder: 1`) stay: a legitimate client never notices them, and they stop cross-site requests and DNS rebinding.
+- **Web interface switch**: the "Web" row under "Web interface" on Menu -> WiFi. Default off, greyed out until WiFi is set up, changed only on the touchscreen (`menu_controller_wifi.cpp`). NVS key `web_enabled` (`src/config/wifi.h`), kept in a RAM copy (`WiFiManager::web_enabled()`) so the HTTP task never reads NVS. Forget WiFi clears it, like Receive.
+- **Own gate, independent of Receive.** `portal_route_enabled()` maps each route to its own switch. The server runs when WiFi is up and (web or push) (`portal_server_should_run()`), re-checked every 2 s (`UPDATE_GATE_CHECK_INTERVAL_MS`). The update routes keep checking `push_enabled()`. Server existence no longer implies Receive, so a missing check would open unattended firmware pushes. This was the highest regression risk and has native tests.
+- **Remote start with a 3 s touch-to-cancel lead-in** (`PORTAL_LEAD_IN_MS`). The 202 is sent at once and the overlay names the profile. It makes a remote start visible on the grinder for three seconds before it moves; it is not a confirmation step, and nobody has to tap to start. Motor test has no lead-in: it is a 1 s pulse and the request is the confirmation.
+- **Accepted risks, no further guards:** nobody at the grinder, time mode without sensor checks, a hand at the burrs. No cooldowns, no source-address check, no markers beyond the normal `[PORTAL]` log lines. The switch is the only cover.
+- **64 KB page budget** (`PORTAL_PAGE_BUDGET_BYTES`). `tools/build-scripts/embed_portal.py` fails the build above it.
+- **Device name** (`device_name`, default `grindbyweight`) so several grinders can share a LAN. Duplicate names remain the user's job.
+
+### Architecture
+
+Pure logic is host-tested (`test_native/test_portal_*.cpp`) and has no Arduino dependency:
+
+- `network/portal_api.*`: flat JSON parser and encoder, the field table, clamping, error table.
+- `network/portal_guard.*`: route gate, Host / Origin / `Content-Type` / custom-header checks, the command decision order, the motor test block mapping, the lead-in state.
+- `network/portal_mailbox.*`: the hand-over state machine (one request in flight).
+- `network/portal_command_gate.*`: thread wrapper (spinlock, clock, wait loop) around the mailbox. Holds the published snapshot and the stop counter.
+- `network/portal_snapshot.*`, `network/portal_apply.*` (patch apply order), `network/portal_page_logic.*` (ETag).
+- `network/portal_routes.*`: `esp_http_server` handlers, HTTP task only.
+- `network/portal_stop.*`: the stop path.
+- `ui/controllers/portal_ui_controller.*`: UI task side. Takes a patch or command, makes the decision, runs the same handlers as the touchscreen, runs the lead-in, publishes the snapshot.
+
+**Flow.** The HTTP task files one request with `PortalCommandGate::submit_*`, waits up to `PORTAL_PICKUP_TIMEOUT_MS` (500 ms) for pickup and `PORTAL_RUN_TIMEOUT_MS` (2000 ms) for the answer, then replies. The UI task takes it in its tick, decides, acts and completes it. A second request while one is in flight gets `command_in_flight`. Reads copy a snapshot the UI task publishes every `PORTAL_STATUS_PUBLISH_MS` (250 ms). A snapshot older than `PORTAL_SNAPSHOT_STALE_MS` (5 s) answers 503 `ui_busy`. Stored settings are re-read every `PORTAL_VALUES_REFRESH_MS` (10 s) and after writes, because the touchscreen changes them without telling the page.
+
+**Why a mailbox.** LVGL, the controllers, `UiSettings` and NVS are owned by the UI task and are not safe to call from another task. The HTTP task has a 6 KB stack, so the reply buffers live on the heap (`PORTAL_*_JSON_MAX`).
+
+**Apply order and partial failure** (`portal_apply.cpp`). The body is validated completely first (all or nothing). Fields are then written in ascending table index, and the device name last. Writing stops at the first store failure: earlier fields stay applied, the failing field and later ones are not touched, and the reply is `store_failed`. A profile target or grind mode that failed to store is rolled back in RAM too, so the screen and the next start agree with what is saved. The device name goes last because it is the disruptive change (the page must reopen at the new address), so it only happens once everything else is stored.
+
+**Device rename.** `WiFiManager::set_device_name()` runs on the UI task: it writes NVS `wifi/name` and sets `mdns_restart_requested`. `tick()` then calls `stop_mdns()` and `start_mdns()` only, so WiFi stays up and the IP does not change. Both reset `http_service_registered`, so `_http._tcp` is advertised again under the new name. The API limits the name to 24 characters, although the WiFi code accepts 63.
+
+**Stop path, not through the mailbox.** The UI task can be blocked for seconds (a tare, a blocking screen), so `stop` must not wait for it. `portal_stop_now()` runs on the HTTP task and does three things, in this order:
+
+1. `GrindController::request_stop()` sets an atomic flag. The grind control task (Core 0) consumes it at the top of its 20 ms cycle and runs the same `stop_grind()` as the STOP button, so the control loop cannot restart the motor. A request made while no grind runs is discarded in that cycle.
+2. `Grinder::stop()` cuts the motor output at once. It is mutex-serialised and carries on without the lock if it is busy, like the deadman. This also ends a Motor Test pulse and an autotune pulse.
+3. `portal_command_gate.request_stop()` bumps a counter. The UI task sees it on its next tick and cancels an autotune it drives, like the CANCEL button.
+
+The flag goes first so that a control cycle running between the lines cannot find the motor stopped and restart it. A stop is never refused: not by `command_in_flight`, `busy`, a lock-out or a fault.
+
+**Tare, start and motor test** go through the mailbox and the same decision function as the touchscreen (`portal_command_decide()`, decided on the UI task):
+
+- *Tare* calls the Scale page's `UIOperations::execute_tare()`. The 200 means the tare was started; the UI task is then blocked for it, so the next request gets `ui_busy` after about 500 ms.
+- *Start* is decided, then the lead-in begins (`PortalUIController::begin_remote_start()`): an overlay "Remote start: <NAME> in N s, touch to cancel", and `hold_awake_remote_start()` keeps the screen awake. `run_lead_in()` runs on every UI tick. A touch since the start, a STOP or a web stop cancels it. If something else took the grinder over (auto start, an update, a load cell fault, another screen), the start is dropped and logged. When the time runs out it decides again on the current state and starts through `GrindingController::start_profile_grind()`, the START button's path, with the requested profile's stored target and the current grind mode. The lead-in is a UI-task state, not an HTTP-task timer, so it uses the same clock and screen as a touch. It counts as in flight.
+- *Motor test* calls `MenuUIController::begin_motor_test()`, the same function as the RUN tap. It re-checks `motor_pulse_block()` right before the pulse, runs the 1 s pulse with the overlay and STOP, and polls every 100 ms. `finish_motor_test()` records the statistics and shows the result only if the menu is the current screen. Every run deletes its poll timer, so repeated runs do not leak.
+
+### Reference page and dev server (`tools/portal/`, `web/portal/`)
+
+- `web/portal/page.src.html` and `web/portal/portal-client.js` are the sources. `tools/portal/build_page.py` inlines the client into `web/portal/index.html`, which is generated and committed; a pytest fails when it is stale (`build_page.py --check` reports it). `.gitattributes` sets `web/portal/* text eol=lf` so the generated file is byte-identical on every OS.
+- The page is schema-driven. It has a request queue (STOP cancels queued commands), refusals in plain words, "Copy as curl", and no token and no storage. Values are written with `textContent` only.
+- `tools/portal/portal_model.py` is the contract as pure Python, tested against the same vectors as the firmware (`tools/tests/portal_api_vectors.json`).
+- `tools/portal/dev_server.py` is a standard-library server that simulates the grinder behind the same guards and decision order. It listens on 127.0.0.1 by default. The `localhost` name is refused, as the grinder refuses DNS names. Timing is approximate (3 g/s, 3 s complete screen, 1.5 s motor test against the firmware's 1.0 s). `/dev/state` changes simulated state; it is not part of the contract.
+- Not simulated: gzip (the page is sent plain), real timing, faults, the mDNS rename (only the reply), the touch cancel of the lead-in.
+
+### Verified and not verified
+
+Status from the chg014 log. Bench runs were on COM15 with the `...-wifi-dev` env, a scratch serial hook and a mock load cell. Neither the hook nor the mock is in the repository.
+
+**Verified**
+
+- Host: native tests (contract, guard, mailbox, apply, snapshot, page logic), pytest (contract, dev server, embed), node client tests, ruff.
+- Bench, page and HTTP: the page with gzip, ETag and 304; CSP and security headers; Host and Origin refusals; `web_interface_off` 403 with the Web switch off; `/api/info` open. Heap 76 KB at server start with BLE on.
+- Bench, settings: about 55 PATCH checks (clamping, refusals, `device_name` rules, all-or-nothing bodies). The rename was applied and the `.local` A record resolved from a PC. HTTP stack free at least 2616 B after PATCH.
+- Bench, stop: accepted when idle, under PATCH load and while the UI was blocked (replies in 74-277 ms). A stop during a real time-mode grind reached IDLE in about 140 ms. A stop during the lead-in cancelled it with no motor output. A stop at about 0.3 s ended a motor test at 576 ms, reported as ended early in the log (the statistics file was not inspected).
+- Bench, tare: 200, 409 `busy` and 409 `not_ready`. HTTP stack free 3124 B after stop.
+- Bench, start: 202 with `lead_in_ms` 3000; the requested profile's target was used; 409 `command_in_flight` during the lead-in; a start block during the lead-in dropped the start. HTTP stack free 3008 B.
+- Bench, motor test: a real RMT pulse on GPIO16 lasting exactly 1000 ms. Twelve back-to-back runs with flat heap and LVGL timer count. Refusals `busy`, `not_ready`, `update_in_progress` and `motor_fault` produced no pulse.
+- Bench, bad bodies: the refusal cases were checked with their documented codes (25+ on the stop/tare step, 17+ on the start step).
+
+**NOT verified**
+
+- The real touch cancel of the lead-in, the overlay STOP button, the overlay look and text, and the screen wake during the lead-in.
+- `MOTOR_FAULT` from a real deadman trip, a real `UpdateGuard` lock-out, and `motor_disabled` on hardware.
+- A real HX711 and motor under a remote start (only the mock load cell was used). Autotune cancel through a web stop.
+- The page in a real browser against the device (only the dev server and the served bytes were checked).
+- An mDNS fetch by name from a PC (`http://grindbyweight.local` in a browser), and the `_http._tcp` record after a rename.
+- `receive_off` 403 before auth on the update routes; both switches off.
+- The on-screen effect of web writes: `not_ready`, `busy`, `update_in_progress` and `ui_busy` as shown on screen, `store_failed` on screen, the Web toggle's text and greying on the WiFi page.
+- Motor test statistics file contents. Update-in-progress at the end of the lead-in, and the refusal notice at the end of the lead-in.
+- Parallel requests above two connections are dropped (`UPDATE_HTTP_MAX_OPEN_SOCKETS` 2). This is expected, not a bug.
+
+### Known gaps (not fixed in chg014)
+
+1. **Missing touch driver (note, fixed):** `run_lead_in()` cancels the remote start when there is no touch driver pointer (a disabled driver already reports a fresh touch and cancels), logging `remote start cancelled: no touch driver`. Defensive only: the pointer is null only if the display itself is null, so this case cannot occur on current hardware; host-reviewed only.
+2. **Start on Cup under the MOTOR RUNNING overlay (fixed):** `UIManager::update_auto_actions()` now skips auto-start while `MenuUIController::is_motor_test_active()` (the motor test poll timer is non-null) via the pure `auto_start_allowed()`. Host-tested as the pure rule and pinned in `tools/tests/test_auto_start_motor_gate.py` as source text; the behaviour on a grinder is not hardware-verified. A cup placed during the 1 s test may start a grind right after it ends.
+3. **`finish_motor_test()` on a poll-timer creation failure books statistics** and shows the result notice.
+4. **`START_FAILED` maps to 409 `busy`.** A motor pulse that could not start is answered as busy.
+5. **`nvs_open` NOT_FOUND log noise.** With the Web switch on and a board that never saved a setting, the settings read logs NOT_FOUND about every 10 s. A quiet read would remove it.
+
+## Reference moved from CLAUDE.md (chg014 housekeeping)
+
+CLAUDE.md is loaded into every agent spawn, so reference material that agents do not need on every task moved here (chg014 housekeeping; CLAUDE.md was 17.7 KB). Each block below is copied verbatim from CLAUDE.md. Binding rules (never/always/only) stayed in CLAUDE.md; where a moved block also contains one, it is repeated here as part of the verbatim text.
+
+### Board detection prose
+
+- Board is detected at runtime (`src/hardware/board_detect.cpp`, `board_decide.cpp`; GPIO45 pull-up read, V2 confirmed by TE edges, GPIO18 hint; a conflicting level can veto to UNKNOWN/cached board). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
+
+### Update intervals
+
+**Update Intervals** (`src/config/system.h`, `SYS_TASK_*_INTERVAL_MS`): 20ms weight sampling / grind control / Bluetooth, 16ms UI, 100ms file I/O. HX711 runs at 10 SPS.
+
+### Grind phases
+
+**Grind Phases:**
+- Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
+- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
+- `PURGE_CONFIRM` - Purge mode pause so the user can discard grinds before the main grind
+- **Timeout**: `GRIND_TIMEOUT_SEC` (60 s) maximum from grind start (includes taring), auto-stops and requires user acknowledgment
+
+### Grinder Purge/Prime
+
+**Grinder Purge/Prime:**
+- **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
+- **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
+- **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
+- **Configurable amount**: 0.1g-`GRIND_PURGE_AMOUNT_MAX_G` (2.5g, default 1.0g)
+- **Purge popup**: "Always keep" checkbox switches mode from Purge → Prime in preferences. Settings radio labels: Keep = Prime, Remove = Purge
+- **No logging** during PURGE_CONFIRM
+- **Preferences**: `grinder_mode` (int: 0=Prime, 1=Purge, default=1), `grinder_amt_g` (float: 0.1-2.5, default=1.0)
+
+### Time mode pulses
+
+**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+
+### Grind settings
+
+**Grind Settings:** Configurable through Menu → Grind Settings page
+- **Mode Selection**: Weight/Time radio buttons
+- **Swipe Gestures Toggle**: vertical swipe mode switching (default: disabled)
+- **Automation**: Start on Cup and Return on Removal toggles
+- **Purging**: Keep/Remove radio buttons and Amount slider (0.1g-2.5g)
+- **Preferences**: `swipe.enabled` (boolean), `grind_mode` (0=Weight, 1=Time); purge prefs above. Swipe works only when enabled
+
+### Color scheme
+
+**Color Scheme (24-bit RGB hex, `src/config/theme.h`):**
+- `THEME_COLOR_PRIMARY`: 0xFF3D00 (Red) - Primary theme color
+- `THEME_COLOR_ACCENT`: 0x00AAFF (Blue) - Highlights and accents
+- `THEME_COLOR_SUCCESS`: 0x00AA00 (Green) - Success states
+- `THEME_COLOR_WARNING`: 0xCC8800 (Orange) - Warning states
+- `THEME_COLOR_ERROR`: 0xFF0000 (Red) - Error states
+- `THEME_COLOR_BACKGROUND`: 0x000000 (Black) - Background
+- `THEME_COLOR_TEXT_PRIMARY`: 0xFFFFFF (White) - Primary text
+
+### Font usage hierarchy
+
+**Font Usage Hierarchy:**
+- `lv_font_montserrat_24`: Standard text and button labels
+- `lv_font_montserrat_32`: Button symbols (OK, CLOSE, PLUS, MINUS)
+- `lv_font_montserrat_36`: Screen titles
+- `lv_font_montserrat_56`: Large weight displays

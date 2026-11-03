@@ -103,7 +103,23 @@ void test_pulse_zero_and_bad_args() {
     TEST_ASSERT_EQUAL_UINT32(0, (uint32_t)rmt_build_pulse_symbols(1000, out, 0));
 }
 
+void test_pulse_complete_callback_flag_wins() {
+    TEST_ASSERT_TRUE(rmt_pulse_complete(true, true));   // callback seen, pin still reads HIGH
+    TEST_ASSERT_TRUE(rmt_pulse_complete(true, false));
+}
+
+void test_pulse_complete_pin_fallback() {
+    TEST_ASSERT_TRUE(rmt_pulse_complete(false, false)); // no callback, pin LOW
+}
+
+void test_pulse_not_complete_while_running() {
+    TEST_ASSERT_FALSE(rmt_pulse_complete(false, true));
+}
+
 void run_rmt_pulse_math_tests() {
+    RUN_TEST(test_pulse_complete_callback_flag_wins);
+    RUN_TEST(test_pulse_complete_pin_fallback);
+    RUN_TEST(test_pulse_not_complete_while_running);
     RUN_TEST(test_pulse_sweep_1_to_4000_ms_exact);
     RUN_TEST(test_pulse_sweep_odd_microseconds);
     RUN_TEST(test_pulse_exact_multiples_of_max_half);

@@ -100,7 +100,11 @@ void MenuUIController::handle_grind_mode_radio_button() {
     if (selected_index < 0) return;
 
     GrindMode new_mode = (selected_index == 0) ? GrindMode::WEIGHT : GrindMode::TIME;
-    ui_manager_->profile_controller->set_grind_mode(new_mode);
+    if (!ui_manager_->profile_controller->set_grind_mode(new_mode)) {
+        // Not stored: the profile controller kept the old mode, so the UI does too; show the real selection again
+        ui_manager_->menu_screen.refresh_setting_radios();
+        return;
+    }
     ui_manager_->current_mode = new_mode;
     if (ui_manager_->ready_controller_) {
         ui_manager_->ready_controller_->refresh_profiles();

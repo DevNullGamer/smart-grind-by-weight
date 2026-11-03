@@ -24,6 +24,10 @@ MotorTestBlock motor_test_block(bool motor_available, bool locked_out, bool busy
     return MotorTestBlock::NONE;
 }
 
+bool auto_start_allowed(bool motor_test_active) {
+    return !motor_test_active;
+}
+
 const char* motor_test_block_reason(MotorTestBlock block) {
     switch (block) {
         case MotorTestBlock::MOTOR_DISABLED: return "motor disabled (board not confirmed)";

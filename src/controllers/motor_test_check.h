@@ -19,6 +19,11 @@ enum class MotorTestBlock : uint8_t {
 // First applicable block, in this order: fault latched, motor disabled, lock-out, busy.
 MotorTestBlock motor_test_block(bool motor_available, bool locked_out, bool busy, bool fault_latched);
 
+// Whether Start on Cup may start a grind: not while a Motor Test drives the output (two motor paths).
+// The caller passes MenuUIController::is_motor_test_active(), which is derived from the poll timer and
+// so is false again after every way out of a test.
+bool auto_start_allowed(bool motor_test_active);
+
 // Short lower-case reason for log lines. "" for NONE.
 const char* motor_test_block_reason(MotorTestBlock block);
 

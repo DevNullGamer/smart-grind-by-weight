@@ -32,6 +32,8 @@
 #define UPDATE_HTTP_PORT 80
 #define UPDATE_HTTP_MAX_OPEN_SOCKETS 2
 #define UPDATE_HTTP_STACK_SIZE 6144
+#define UPDATE_HTTP_MAX_URI_HANDLERS 16                                        // Update routes plus the web panel routes (esp_http_server default is 8)
+#define UPDATE_HTTP_MAX_RESP_HEADERS 10                                        // The page reply carries 7 extra headers (default 8)
 #define UPDATE_HTTP_RECV_TIMEOUT_S 10                                          // Socket receive timeout (a stalled upload aborts after this)
 #define UPDATE_HTTP_CHUNK_BYTES 4096                                           // Receive buffer for the image body
 #define UPDATE_BEGIN_BODY_MAX 512                                              // Largest accepted /api/update/begin body

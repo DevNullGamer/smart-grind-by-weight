@@ -51,6 +51,24 @@ void MenuUIController::handle_wifi_push_toggle() {
     LOG_BLE("[UI] WiFi receive %s\n", enabled ? "on" : "off");
 }
 
+// "Web interface": switches the web panel (page, status, settings, commands) on or off. This toggle is the only
+// way to change it; the page cannot. The server follows within its 2 s gate check.
+void MenuUIController::handle_wifi_web_toggle() {
+    if (!ui_manager_) return;
+    auto* toggle = ui_manager_->menu_screen.get_wifi_web_toggle();
+    if (!toggle) return;
+
+    const bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    if (!wifi_manager.set_web_enabled(enabled)) {
+        // Not stored: show the real state again
+        if (enabled) lv_obj_remove_state(toggle, LV_STATE_CHECKED); else lv_obj_add_state(toggle, LV_STATE_CHECKED);
+        LOG_BLE("[UI] WiFi web interface: could not store the setting\n");
+        return;
+    }
+    ui_manager_->menu_screen.update_wifi_page();
+    LOG_BLE("[UI] WiFi web interface %s\n", enabled ? "on" : "off");
+}
+
 // "Confirm": ON applies at once; OFF removes the physical control, so it needs a warning dialog first
 void MenuUIController::handle_wifi_confirm_toggle() {
     if (!ui_manager_) return;

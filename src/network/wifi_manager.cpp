@@ -63,7 +63,7 @@ void WiFiManager::set_state(WiFiState next) {
     if (next == WiFiState::CONNECTED) {
         char ip[16];
         get_ip(ip, sizeof(ip));
-        LOG_BLE("[WIFI] state=CONNECTED ip=%s rssi=%d host=%s.local\n", ip, rssi(), host_name);
+        LOG_BLE("[WIFI] state=CONNECTED ip=%s rssi=%d host=%s.local\n", ip, rssi(), hostname());
     } else if (next == WiFiState::WAITING_RETRY) {
         LOG_BLE("[WIFI] state=WAITING_RETRY reason=%d retry_in_ms=%u\n", last_disconnect_reason,
                 static_cast<unsigned>(retry_at_ms - millis()));
@@ -79,9 +79,33 @@ void WiFiManager::load_host_name() {
     read_string(prefs, WIFI_NVS_KEY_NAME, name, sizeof(name));
     prefs.end();
     if (wifi_validate_hostname(name)) {
-        strncpy(host_name, name, sizeof(host_name) - 1);
-        host_name[sizeof(host_name) - 1] = '\0';
+        for (auto& buffer : host_names) {
+            strncpy(buffer, name, sizeof(buffer) - 1);
+            buffer[sizeof(buffer) - 1] = '\0';
+        }
     }
+}
+
+bool WiFiManager::set_device_name(const char* name, bool* changed) {
+    if (changed) *changed = false;
+    if (!name || !wifi_validate_hostname(name)) return false;
+    if (strcmp(name, hostname()) == 0) return true;
+
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const size_t length = strlen(name);
+    const bool stored = prefs.putString(WIFI_NVS_KEY_NAME, name) == length;
+    prefs.end();
+    if (!stored) return false;
+
+    // Fill the buffer nobody reads, then flip: a reader on the HTTP task never sees half a name
+    const uint8_t next = host_name_index ? 0 : 1;
+    memcpy(host_names[next], name, length + 1);
+    host_name_index = next;
+    mdns_restart_requested = true;
+    if (changed) *changed = true;
+    LOG_BLE("[WIFI] device name set to %s\n", name);
+    return true;
 }
 
 void WiFiManager::begin() {
@@ -92,6 +116,8 @@ void WiFiManager::begin() {
         char ssid[WIFI_SSID_MAX_LEN + 1];
         credentials_present = read_string(prefs, WIFI_NVS_KEY_SSID, ssid, sizeof(ssid)) && ssid[0] != '\0';
         accept_cached = prefs.getBool(WIFI_NVS_KEY_ACCEPT, true);
+        push_cached = prefs.getBool(WIFI_NVS_KEY_PUSH_ENABLED, false);
+        web_cached = prefs.getBool(WIFI_NVS_KEY_WEB_ENABLED, false);
         prefs.end();
     }
 #if DEBUG_WIFI_DEV_CREDS
@@ -169,9 +195,12 @@ bool WiFiManager::clear_credentials() {
     prefs.remove(WIFI_NVS_KEY_PASSWORD);
     prefs.remove(WIFI_NVS_KEY_TOKEN);
     prefs.remove(WIFI_NVS_KEY_PUSH_ENABLED);
+    prefs.remove(WIFI_NVS_KEY_WEB_ENABLED);  // Forget WiFi switches the web interface off again
     if (prefs.isKey(WIFI_NVS_KEY_ACCEPT)) prefs.remove(WIFI_NVS_KEY_ACCEPT);  // back to the safe default
     prefs.end();
     accept_cached = true;
+    push_cached = false;
+    web_cached = false;
     credentials_present = false;
     apply_requested = false;
     teardown_requested = true;
@@ -218,19 +247,21 @@ bool WiFiManager::token_matches(const char* candidate) {
     return match;
 }
 
-bool WiFiManager::push_enabled() {
-    Preferences prefs;
-    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
-    const bool enabled = prefs.getBool(WIFI_NVS_KEY_PUSH_ENABLED, false);
-    prefs.end();
-    return enabled;
-}
-
 bool WiFiManager::set_push_enabled(bool enabled) {
     Preferences prefs;
     if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
     const bool stored = prefs.putBool(WIFI_NVS_KEY_PUSH_ENABLED, enabled) == sizeof(uint8_t);
     prefs.end();
+    if (stored) push_cached = enabled;
+    return stored;
+}
+
+bool WiFiManager::set_web_enabled(bool enabled) {
+    Preferences prefs;
+    if (!prefs.begin(WIFI_NVS_NAMESPACE, false)) return false;
+    const bool stored = prefs.putBool(WIFI_NVS_KEY_WEB_ENABLED, enabled) == sizeof(uint8_t);
+    prefs.end();
+    if (stored) web_cached = enabled;
     return stored;
 }
 
@@ -280,7 +311,7 @@ void WiFiManager::start_radio() {
         events_registered = true;
     }
     WiFi.setAutoReconnect(false);  // tick() owns the backoff
-    WiFi.setHostname(host_name);
+    WiFi.setHostname(hostname());
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(WIFI_PS_MIN_MODEM);
     radio_started = true;
@@ -333,11 +364,12 @@ void WiFiManager::stop_radio() {
 // mDNS is started once per radio lifetime (the IDF responder follows the interface across reconnects)
 void WiFiManager::start_mdns() {
     if (mdns_started) return;
-    if (MDNS.begin(host_name)) {
+    if (MDNS.begin(hostname())) {
         mdns_started = true;
         http_service_registered = false;
         log_stack_mark("after MDNS.begin");
     } else {
+        MDNS.end();  // release a half-started responder so the retry in tick() can start cleanly
         LOG_BLE("[WIFI] mDNS start failed\n");
     }
 }
@@ -372,6 +404,17 @@ void WiFiManager::tick() {
         return;
     }
 
+    // A new device name: restart only mDNS (stop_mdns/start_mdns also reset the "http" service bookkeeping, so the
+    // block below advertises it again under the new name). Without a running responder the name is simply used by
+    // the next start_mdns().
+    if (mdns_restart_requested) {
+        mdns_restart_requested = false;
+        if (mdns_started) {
+            stop_mdns();
+            start_mdns();
+        }
+    }
+
     if (apply_requested) {
         apply_requested = false;
         backoff_ms = 0;
@@ -388,6 +431,13 @@ void WiFiManager::tick() {
     }
 
     if (!credentials_present) return;
+
+    // mDNS did not come up (or a rename restart failed): try again now and then while connected
+    if (wifi_state == WiFiState::CONNECTED && !mdns_started &&
+        static_cast<uint32_t>(now - mdns_last_try_ms) >= WIFI_MDNS_RETRY_MS) {
+        mdns_last_try_ms = now;
+        start_mdns();
+    }
 
     // Registered once an HTTP server exists (see register_http_service())
     if (mdns_started && http_service_wanted && !http_service_registered) {

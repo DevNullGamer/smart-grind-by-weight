@@ -45,14 +45,17 @@ void ProfileController::load_profiles() {
     }
 }
 
-void ProfileController::save_profiles() {
-    preferences->putFloat("weight0", profiles[0].weight);
-    preferences->putFloat("weight1", profiles[1].weight);
-    preferences->putFloat("weight2", profiles[2].weight);
+bool ProfileController::save_profiles() {
+    // Every float is written even after a failure (as before); the result tells the caller whether all stuck
+    bool stored = true;
+    stored &= preferences->putFloat("weight0", profiles[0].weight) == sizeof(float);
+    stored &= preferences->putFloat("weight1", profiles[1].weight) == sizeof(float);
+    stored &= preferences->putFloat("weight2", profiles[2].weight) == sizeof(float);
 
-    preferences->putFloat("time0", profiles[0].time_seconds);
-    preferences->putFloat("time1", profiles[1].time_seconds);
-    preferences->putFloat("time2", profiles[2].time_seconds);
+    stored &= preferences->putFloat("time0", profiles[0].time_seconds) == sizeof(float);
+    stored &= preferences->putFloat("time1", profiles[1].time_seconds) == sizeof(float);
+    stored &= preferences->putFloat("time2", profiles[2].time_seconds) == sizeof(float);
+    return stored;
 }
 
 void ProfileController::save_current_profile() {
@@ -67,11 +70,14 @@ void ProfileController::set_current_profile(int index) {
     }
 }
 
-void ProfileController::set_profile_weight(int index, float weight) {
+bool ProfileController::set_profile_weight(int index, float weight) {
     if (index >= 0 && index < USER_PROFILE_COUNT && is_weight_valid(weight)) {
+        const float previous = profiles[index].weight;
         profiles[index].weight = weight;
-        save_profiles();
+        if (save_profiles()) return true;
+        profiles[index].weight = previous;  // not stored: RAM keeps matching what the grinder has saved
     }
+    return false;
 }
 
 float ProfileController::get_profile_weight(int index) const {
@@ -88,11 +94,14 @@ const char* ProfileController::get_profile_name(int index) const {
     return "UNKNOWN";
 }
 
-void ProfileController::set_profile_time(int index, float seconds) {
+bool ProfileController::set_profile_time(int index, float seconds) {
     if (index >= 0 && index < USER_PROFILE_COUNT && is_time_valid(seconds)) {
+        const float previous = profiles[index].time_seconds;
         profiles[index].time_seconds = seconds;
-        save_profiles();
+        if (save_profiles()) return true;
+        profiles[index].time_seconds = previous;  // not stored: RAM keeps matching what the grinder has saved
     }
+    return false;
 }
 
 float ProfileController::get_profile_time(int index) const {
@@ -134,11 +143,14 @@ float ProfileController::clamp_time(float seconds) const {
     return seconds;
 }
 
-void ProfileController::set_grind_mode(GrindMode mode) {
+bool ProfileController::set_grind_mode(GrindMode mode) {
+    const GrindMode previous = current_grind_mode;
     current_grind_mode = mode;
-    save_grind_mode();
+    if (save_grind_mode()) return true;
+    current_grind_mode = previous;  // not stored: RAM keeps matching what the grinder has saved
+    return false;
 }
 
-void ProfileController::save_grind_mode() {
-    preferences->putInt("grind_mode", static_cast<int>(current_grind_mode));
+bool ProfileController::save_grind_mode() {
+    return preferences->putInt("grind_mode", static_cast<int>(current_grind_mode)) == sizeof(int32_t);
 }

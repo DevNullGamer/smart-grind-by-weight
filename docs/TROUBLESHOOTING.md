@@ -298,7 +298,7 @@ Open **Menu → WiFi** and read **Status**.
 ### `wifi-upload` / `wifi-info` cannot reach the grinder
 
 - `cannot resolve host` / `cannot reach`: use the IP shown in **Menu → WiFi** (`--host 192.168.x.y`). `.local` names need mDNS support on your computer.
-- Turn **Receive** on in **Menu → WiFi**; the grinder only listens while it is connected and Receive is on.
+- Turn **Receive** on in **Menu → WiFi**; the grinder only listens while it is connected and Receive is on (the web page is a separate switch, **Web interface → Web**).
 - The computer must be on the same network (no guest network or client isolation).
 - **Connection reset / closed**: the grinder usually refused the request and closed the connection before the tool could read the reason. Run `python3 tools/grinder.py wifi-info` and look at the grinder screen; the causes in the table below are the usual ones.
 - **Windows firewall (developers using the pull test server `tools/wifi/pull_test_server.py`):** in our testing, with the network profile set to **Public**, the Windows firewall blocked incoming connections to Python and the grinder got no answer from the test server. Switching the network to the Private profile or adding an inbound rule for the server port is the likely remedy. This does not affect `wifi-upload` (the grinder is the server there).

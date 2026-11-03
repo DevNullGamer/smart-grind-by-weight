@@ -233,7 +233,7 @@ void WeightSensor::update_temperature_if_available() {
     }
 }
 
-void WeightSensor::tare() {
+bool WeightSensor::tare() {
     LOG_LOADCELL_DEBUG("[DEBUG %lums] BLOCKING_TARE_START: Beginning blocking tare operation using HX711_ADC exact implementation\n", millis());
 
     // Use exact HX711_ADC non-blocking implementation
@@ -249,12 +249,16 @@ void WeightSensor::tare() {
         delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
 
-    if (doTare) {
-        LOG_BLE("ERROR: Blocking tare operation failed or timed out\n");
+    // exchange() decides atomically against Core 0: true = still pending, so cancel it here and it can
+    // no longer complete silently later; false = Core 0 finished it just now
+    if (doTare.exchange(false)) {
+        tareTimes = 0;
+        LOG_BLE("ERROR: Blocking tare operation failed or timed out, cancelled\n");
+        return false;
     } else {
-        // Clear buffer after tare completes for clean measurements
+        // Clear buffer after tare completes for clean measurements. Locked against the Core 0
+        // writer, O(1), and it resets the display filter too (the next sample re-seeds it).
         raw_filter.clear_all_samples();
-        raw_filter.reset_display_filter();
 
         // Ensure at least one sample is in the buffer after taring
         unsigned long sample_start = millis();
@@ -265,53 +269,68 @@ void WeightSensor::tare() {
     }
 
     LOG_LOADCELL_DEBUG("[DEBUG %lums] BLOCKING_TARE_COMPLETE: Tare operation completed\n", millis());
+    return true;
 }
 
-void WeightSensor::calibrate(float known_weight) {
+CalibrationResult WeightSensor::calibrate(float known_weight) {
 #if DEBUG_ENABLE_LOADCELL_MOCK
     LOG_BLE("Mock load cell: calibration skipped (fixed factor %.2f)\n", cal_factor);
-    return;
+    return CalibrationResult::OK;
 #endif
-    if (known_weight <= 0) {
+    if (!(known_weight > 0.0f) || !isfinite(known_weight)) {
         LOG_BLE("ERROR: Invalid calibration weight\n");
-        return;
+        return CalibrationResult::INVALID_WEIGHT;
     }
     if (has_hardware_fault()) {
         LOG_BLE("ERROR: Cannot calibrate - HX711 hardware fault active\n");
-        return;
+        return CalibrationResult::HARDWARE_FAULT;
     }
-    
+
     LOG_BLE("Starting calibration with %.3fg weight...\n", known_weight);
-    
-    // First, wait for weight to settle (user just placed calibration weight)
+
+    // Wait for the weight to settle (user just placed calibration weight). Core 0 keeps feeding the
+    // filter; this task only reads it. A timeout is a failure: an unsettled reading must not become a factor.
     LOG_CALIBRATION_DEBUG("Waiting for calibration weight to settle...\n");
-    get_precision_settled_weight(); // Use precision settling for calibration
-    
-    LOG_CALIBRATION_DEBUG("Weight settled, performing calibration...");
-    
-    // Now perform calibration with high accuracy - CircularBufferMath handles all filtering
-    
-    unsigned long cal_start = millis();
-    while(!update_async() && millis() - cal_start < GRIND_CALIBRATION_TIMEOUT_MS) {
-        delay(10);
+    bool settled = false;
+    const unsigned long settle_start = millis();
+    while (millis() - settle_start < GRIND_SCALE_SETTLING_TIMEOUT_MS) {
+        update();
+        if (is_settled(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
+            settled = true;
+            break;
+        }
+        delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
-    
+    if (!settled) {
+        LOG_BLE("ERROR: Calibration weight did not settle, calibration kept unchanged\n");
+        return CalibrationResult::SETTLE_TIMEOUT;
+    }
+
+    LOG_CALIBRATION_DEBUG("Weight settled, performing calibration...");
+
     // Calibration using raw ADC data - more precise than calibrated data
     int32_t raw_reading = raw_filter.get_raw_high_latency(); // Use high-latency for precision
-    
-    // Calculate new calibration factor: raw_change / weight_change
-    // We know the weight change is known_weight (from 0 after taring)
-    float new_cal_factor = (float)(raw_reading - tare_offset) / known_weight;
+
+    // Factor = raw_change / weight_change; the weight change is known_weight (from 0 after taring).
+    // Validated: on failure the old factor stays and nothing is saved.
+    float new_cal_factor = cal_factor;
+    CalibrationResult result = calibration_compute_factor(raw_reading, tare_offset, known_weight,
+                                                          HW_LOADCELL_CAL_MIN_ADC_VALUE, &new_cal_factor);
+    if (result != CalibrationResult::OK) {
+        LOG_BLE("ERROR: Calibration rejected (raw=%ld, tare=%ld), calibration kept unchanged\n",
+                (long)raw_reading, (long)tare_offset);
+        return result;
+    }
     cal_factor = new_cal_factor;
-    
+
     save_calibration();
     save_calibration_weight(known_weight);
     
-    // Clear buffer after calibration operation for clean measurements
+    // Clear buffer after calibration operation for clean measurements (also resets the display filter)
     raw_filter.clear_all_samples();
-    raw_filter.reset_display_filter();
     
     LOG_BLE("Calibration completed. New factor: %.2f\n", cal_factor);
+    return CalibrationResult::OK;
 }
 
 void WeightSensor::set_calibration_factor(float factor) {
@@ -416,6 +435,11 @@ float WeightSensor::get_weight_low_latency() const {
 }
 
 float WeightSensor::get_display_weight() {
+    // Empty buffer (just after tare/calibrate, before the next sample re-seeds the filter): the stored
+    // display raw is 0, which would show (0 - tare_offset) / cal as a huge weight for ~100 ms
+    if (raw_filter.get_sample_count() == 0) {
+        return 0.0f;
+    }
     float weight = raw_to_weight(raw_filter.get_display_raw());
     // Clamp tiny values around zero to prevent -0.0g display
     if (weight > -0.05f && weight < 0.05f) {
@@ -471,10 +495,9 @@ float WeightSensor::get_weight_range(uint32_t window_ms) const {
         return 0.0f;
     }
 
-    int32_t min_raw = raw_filter.get_min_raw(window_ms);
-    int32_t max_raw = raw_filter.get_max_raw(window_ms);
-
-    if (max_raw == min_raw) {
+    int32_t min_raw = 0;
+    int32_t max_raw = 0;
+    if (!raw_filter.get_min_max_raw(window_ms, &min_raw, &max_raw) || max_raw == min_raw) {
         return 0.0f;
     }
 
@@ -729,7 +752,8 @@ bool WeightSensor::sample_and_feed_filter() {
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
-            // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
+            // Single writer (this Core 0 task); CircularBufferMath locks internally against the
+            // Core 0 / Core 1 readers and the UI-thread clear, and advances the display filter here
             raw_filter.add_sample(raw_adc, timestamp);
             
             // Tare logic (hardware-independent)
@@ -739,10 +763,13 @@ bool WeightSensor::sample_and_feed_filter() {
                 } else {
                     // Use CircularBufferMath smoothed data instead of original smoothedData()
                     int32_t smoothed_raw = raw_filter.get_smoothed_raw(250); // 250ms window for stability
-                    tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
-                    tareTimes = 0;
-                    doTare = 0;
-                    tareStatus = 1;
+                    // A tare cancelled by timeout (UI task) between the check above and here stays
+                    // cancelled: only the winner of the exchange applies the offset
+                    if (doTare.exchange(false)) {
+                        tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
+                        tareTimes = 0;
+                        tareStatus = true;
+                    }
                 }
             }
             
@@ -841,13 +868,12 @@ int32_t WeightSensor::get_standard_deviation_adc(uint32_t window_ms) const {
 
 // HX711_ADC exact tare methods
 void WeightSensor::tareNoDelay() {
-    doTare = 1;
+    // Counters first, flag last: Core 0 starts counting only once it sees doTare
     tareTimes = 0;
-    tareStatus = 0;
+    tareStatus = false;
+    doTare = true;
 }
 
 bool WeightSensor::getTareStatus() {
-    bool t = tareStatus;
-    tareStatus = 0;
-    return t;
+    return tareStatus.exchange(false);
 }

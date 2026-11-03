@@ -17,6 +17,8 @@ void run_release_index_tests();
 void run_pull_logic_tests();
 void run_pull_ui_text_tests();
 void run_sensor_health_tests();
+void run_circular_buffer_math_tests();
+void run_calibration_math_tests();
 void run_grind_safety_tests();
 void run_grind_start_check_tests();
 void run_motor_test_check_tests();
@@ -26,6 +28,12 @@ void run_menu_setting_models_tests();
 void run_menu_setting_table_tests();
 void run_menu_setting_sliders_tests();
 void run_menu_setting_radios_tests();
+void run_portal_api_tests();
+void run_portal_guard_tests();
+void run_portal_page_logic_tests();
+void run_portal_mailbox_tests();
+void run_portal_apply_tests();
+void run_portal_snapshot_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -47,6 +55,8 @@ int main() {
     run_pull_logic_tests();
     run_pull_ui_text_tests();
     run_sensor_health_tests();
+    run_circular_buffer_math_tests();
+    run_calibration_math_tests();
     run_grind_safety_tests();
     run_grind_start_check_tests();
     run_motor_test_check_tests();
@@ -56,5 +66,11 @@ int main() {
     run_menu_setting_table_tests();
     run_menu_setting_sliders_tests();
     run_menu_setting_radios_tests();
+    run_portal_api_tests();
+    run_portal_guard_tests();
+    run_portal_page_logic_tests();
+    run_portal_mailbox_tests();
+    run_portal_apply_tests();
+    run_portal_snapshot_tests();
     return UNITY_END();
 }

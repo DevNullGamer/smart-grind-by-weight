@@ -257,6 +257,8 @@ pio test -c platformio-native.ini -e native-test       # host tests in test_nati
 
 `tools/tests/test_nvs_single_source.py` (part of pytest) fails if a menu NVS key literal appears outside `src/system/ui_settings.*` (plus the A4 exceptions `grind_controller.h` and `profile_controller.cpp`, and the walk harness) or UI code uses `Preferences` (except `grinding_screen.*` and the walk harness). The menu bench walk (`DEBUG_MENU_WALK`, env `waveshare-esp32s3-touch-amoled-164-menu-walk`, bench board only) and its golden diff are described in `docs/DESIGN-NOTES.md` "Menu refactor (chg006 item 23)".
 
+The native suite (`test_native/`) builds only the pure modules listed in `build_src_filter` of `platformio-native.ini`. Among them are `src/hardware/circular_buffer_math/` (the locked load cell ring), `src/hardware/calibration_math.*` and `src/hardware/rmt_pulse_math.*` (rmt_pulse_math is described under Motor and Grind Safety). The `pio test` summary line gives the current number of test cases.
+
 On Windows use `python` and set the variable with `$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'` (PowerShell). Node tests under `tools/tests/*.test.js` (if present) run with `node --test tools/tests/*.test.js`.
 
 `.github/workflows/ci.yml` runs these on pushes to `main`, pull requests and manual dispatch, and builds the production env `waveshare-esp32s3-touch-amoled-164` after the tests pass. `release.yml` runs the same tests (without the firmware build) before building a tag, so a failing test blocks the release.
