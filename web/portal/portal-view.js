@@ -205,6 +205,7 @@
     // forceStatus: the last settings or info request failed, so status goes next and is never starved.
     function nextPollTask(flags) {
         if (!flags.haveStatus || !flags.online || flags.forceStatus) return 'status';
+        if (flags.needSchema) return 'schema';
         if (flags.needSettings) return 'settings';
         if (flags.needInfo) return 'info';
         return 'status';
@@ -416,6 +417,396 @@
         });
     }
 
+    // ------------------------------------------------------------------ settings form (chg016 step 3)
+    // The form is driven by GET /api/schema. Groups come from the key table below; a key the table does not know
+    // lands in "Other", so a firmware that adds a field never hides it. The form object is
+    // {stored: values as the grinder holds them, draft: what the user has entered (raw: numbers may be text)}.
+
+    var SETTINGS_GROUPS = [
+        {
+            id: 'profiles', title: 'Profiles',
+            hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
+            keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
+        },
+        { id: 'display', title: 'Display', hint: '', keys: ['brightness_normal', 'brightness_screensaver'] },
+        {
+            id: 'grinding', title: 'Grinding', hint: '',
+            keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
+        },
+        { id: 'device', title: 'Device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
+    ];
+    var OTHER_GROUP = { id: 'other', title: 'Other', hint: '' };
+
+    // How a key is shown; anything not listed follows its type (bool: switch, enum: segmented, string: text,
+    // number: stepper).
+    var WIDGET_BY_KEY = {
+        brightness_normal: 'slider',
+        brightness_screensaver: 'slider',
+        purge_amount_g: 'slider',
+        freshness_hours: 'select'
+    };
+
+    // The nine steps of the freshness setting (hours), as in the grinder menu.
+    var FRESHNESS_STEPS = [0.5, 1, 2, 3, 4, 8, 12, 24, 48];
+
+    var CHOICE_TEXT = {
+        purge_mode: { keep: 'Prime (keep)', remove: 'Purge (remove)' },
+        grind_mode: { weight: 'Weight', time: 'Time' }
+    };
+
+    // Shorter labels where the control itself explains the choices.
+    var LABEL_OVERRIDE = { purge_mode: 'Purge mode', device_name: 'Device name' };
+
+    var FIELD_HINT = {
+        device_name: 'The grinder answers at this name followed by .local. 1 to 24 characters: lowercase a-z, 0-9 and hyphen, ' +
+            'no hyphen at the start or end. Changing it means opening this page again at the new address.'
+    };
+
+    function capitalise(text) {
+        var s = String(text);
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    // A limit or step for display: whole numbers without a decimal ("5", "1000"), others as the API writes them.
+    function formatLimit(n) {
+        if (typeof n !== 'number' || !isFinite(n)) return '';
+        return Math.floor(n) === n ? String(n) : PC.formatNumber(n);
+    }
+
+    function unitSuffix(field) {
+        return field && field.unit ? ' ' + field.unit : '';
+    }
+
+    // "5 to 1000 g" for a field with limits, '' otherwise.
+    function rangeText(field) {
+        if (!field || typeof field.min !== 'number' || typeof field.max !== 'number') return '';
+        if (field.type === 'string' || field.type === 'bool' || field.type === 'enum') return '';
+        return formatLimit(field.min) + ' to ' + formatLimit(field.max) + unitSuffix(field);
+    }
+
+    function freshnessLabel(hours) {
+        if (hours < 1) return Math.round(hours * 60) + ' minutes';
+        return hours === 1 ? '1 hour' : formatLimit(hours) + ' hours';
+    }
+
+    // The options of the freshness select; a stored value off the nine steps is added so it stays visible.
+    function freshnessOptions(current) {
+        var steps = FRESHNESS_STEPS.slice();
+        if (typeof current === 'number' && isFinite(current) && steps.indexOf(current) < 0) {
+            steps.push(current);
+            steps.sort(function (a, b) { return a - b; });
+        }
+        return steps.map(function (h) { return { value: h, label: freshnessLabel(h) }; });
+    }
+
+    function widgetKind(field) {
+        if (has(WIDGET_BY_KEY, field.key)) return WIDGET_BY_KEY[field.key];
+        if (field.type === 'bool') return 'switch';
+        if (field.type === 'enum') return 'segmented';
+        if (field.type === 'string') return 'text';
+        return 'stepper';
+    }
+
+    // Everything the DOM glue needs to build one control.
+    function fieldView(field) {
+        var kind = widgetKind(field);
+        var choices = [];
+        if (field.type === 'enum' && field.choices) {
+            choices = field.choices.map(function (c) {
+                var text = has(CHOICE_TEXT, field.key) && has(CHOICE_TEXT[field.key], c) ? CHOICE_TEXT[field.key][c] : capitalise(c);
+                return { value: c, label: text };
+            });
+        }
+        return {
+            key: field.key,
+            label: has(LABEL_OVERRIDE, field.key) ? LABEL_OVERRIDE[field.key] : capitalise(PC.fieldLabel(field.key)),
+            type: field.type,
+            kind: kind,
+            unit: field.unit || '',
+            min: typeof field.min === 'number' ? field.min : null,
+            max: typeof field.max === 'number' ? field.max : null,
+            step: stepFor(field),
+            choices: choices,
+            hint: has(FIELD_HINT, field.key) ? FIELD_HINT[field.key] : '',
+            range: rangeText(field)
+        };
+    }
+
+    // The sections of the form for the fields of the schema, in display order. Empty sections are left out and
+    // every field appears exactly once (unknown keys in "Other").
+    function settingsGroups(fields) {
+        var byKey = {};
+        var used = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var out = [];
+        SETTINGS_GROUPS.forEach(function (g) {
+            var list = [];
+            g.keys.forEach(function (key) {
+                if (has(byKey, key) && !has(used, key)) {
+                    used[key] = true;
+                    list.push(fieldView(byKey[key]));
+                }
+            });
+            if (list.length) out.push({ id: g.id, title: g.title, hint: g.hint, fields: list });
+        });
+        var rest = [];
+        (fields || []).forEach(function (f) {
+            if (!has(used, f.key)) {
+                used[f.key] = true;
+                rest.push(fieldView(f));
+            }
+        });
+        if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, hint: OTHER_GROUP.hint, fields: rest });
+        return out;
+    }
+
+    // The keys of the key table (for the static check that the table and the schema stay in step).
+    function groupedKeys() {
+        var keys = [];
+        SETTINGS_GROUPS.forEach(function (g) { keys = keys.concat(g.keys); });
+        return keys;
+    }
+
+    function currentProfileText(settings) {
+        if (!settings || typeof settings.current_profile !== 'number') return '';
+        var name = PROFILE_NAMES[settings.current_profile];
+        return name ? 'Selected on the grinder: ' + name + '. This is shown for information; it cannot be changed here.' : '';
+    }
+
+    // --- entries
+
+    // Text to a number: "9.5" and "9,5" (one comma, no dot) are numbers, anything else is not. Never NaN.
+    function parseNumberText(text) {
+        var s = String(text).replace(/^\s+|\s+$/g, '');
+        if (/^[^.,]*,[^.,]*$/.test(s)) s = s.replace(',', '.');
+        if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return undefined;
+        var n = parseFloat(s);
+        return isFinite(n) ? n : undefined;
+    }
+
+    // The value to send for a draft entry, in the type the API wants, or undefined for "not a usable entry"
+    // (an empty or unreadable number): such a key is left out of the PATCH.
+    function entryValue(field, raw) {
+        if (field.type === 'bool') return typeof raw === 'boolean' ? raw : undefined;
+        if (field.type === 'enum' || field.type === 'string') return typeof raw === 'string' ? raw : undefined;
+        if (typeof raw === 'number') return isFinite(raw) ? raw : undefined;
+        if (typeof raw === 'string') return parseNumberText(raw);
+        return undefined;
+    }
+
+    // The text for a number input from a stored or stepped value.
+    function draftText(field, raw) {
+        if (typeof raw === 'number') return field.type === 'int' ? String(raw) : PC.formatNumber(raw);
+        return typeof raw === 'string' ? raw : '';
+    }
+
+    function isNumeric(field) {
+        return field.type === 'int' || field.type === 'number';
+    }
+
+    function copyScalars(values) {
+        var out = {};
+        Object.keys(values || {}).forEach(function (key) {
+            var v = values[key];
+            if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') out[key] = v;
+        });
+        return out;
+    }
+
+    function formNew(values) {
+        return { stored: copyScalars(values), draft: copyScalars(values) };
+    }
+
+    function formSet(form, key, raw) {
+        var draft = copyScalars(form.draft);
+        draft[key] = raw;
+        return { stored: form.stored, draft: draft };
+    }
+
+    function formDiscard(form) {
+        return { stored: form.stored, draft: copyScalars(form.stored) };
+    }
+
+    // The body of a PATCH: only the keys whose entry differs from the stored value, in schema order. A key with
+    // no usable entry is not in it. `current_profile` is not a field and can never be in it.
+    function formPatch(form, fields) {
+        var entered = {};
+        (fields || []).forEach(function (f) {
+            if (has(form.draft, f.key)) entered[f.key] = entryValue(f, form.draft[f.key]);
+        });
+        return PC.diffValues(form.stored, entered);
+    }
+
+    function formChangeCount(form, fields) {
+        return Object.keys(formPatch(form, fields)).length;
+    }
+
+    function changeCountText(count) {
+        return count === 1 ? '1 change' : count + ' changes';
+    }
+
+    // Hints for numeric entries the page cannot read (they stay out of the PATCH).
+    function entryNotes(form, fields) {
+        var notes = {};
+        (fields || []).forEach(function (f) {
+            if (isNumeric(f) && has(form.draft, f.key) && entryValue(f, form.draft[f.key]) === undefined) {
+                notes[f.key] = 'Not a number. This setting stays as it is.';
+            }
+        });
+        return notes;
+    }
+
+    // After a successful PATCH: the grinder's applied values become the stored ones. A saved key shows what the
+    // grinder applied (it may have clamped it); an entry that was not part of the PATCH stays as typed.
+    function formSaved(form, appliedValues, patch) {
+        var stored = copyScalars(appliedValues);
+        var draft = copyScalars(form.draft);
+        Object.keys(stored).forEach(function (key) {
+            if (has(patch || {}, key) || !has(draft, key)) draft[key] = stored[key];
+        });
+        return { stored: stored, draft: draft };
+    }
+
+    // Fresh settings from the grinder. Fields the user has edited keep their entry; the others take the new value.
+    // `notice` is non-empty when edits were kept while the grinder reports other values than before.
+    function formRefresh(form, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var fresh = copyScalars(values);
+        var draft = {};
+        var kept = false;
+        Object.keys(fresh).forEach(function (key) {
+            var raw = form.draft[key];
+            var keep = false;
+            if (has(byKey, key) && has(form.draft, key)) {
+                var entry = entryValue(byKey[key], raw);
+                keep = entry === undefined || entry !== form.stored[key];
+            }
+            if (keep) kept = true;
+            draft[key] = keep ? raw : fresh[key];
+        });
+        var changed = Object.keys(fresh).filter(function (key) { return form.stored[key] !== fresh[key]; });
+        var notice = '';
+        if (kept && changed.length) {
+            notice = 'The grinder reports new values for ' + changed.map(function (k) { return PC.fieldLabel(k); }).join(', ') +
+                '. Your unsaved edits are kept; Discard loads the grinder\'s values.';
+        }
+        return { form: { stored: fresh, draft: draft }, notice: notice, changed: changed };
+    }
+
+    // --- steppers (no float drift: arithmetic on thousandths)
+
+    function stepFor(field) {
+        if (typeof field.step === 'number' && field.step > 0) return field.step;
+        if (field.unit === 's') return 0.5;
+        if (field.unit === 'g') return 0.1;
+        return 1;
+    }
+
+    // The value after one press of minus (-1) or plus (+1). A blank or unreadable entry starts from `fallback`.
+    // The result stays inside the limits; typing is not limited, so the grinder can still say no.
+    function stepValue(raw, direction, field, fallback) {
+        var current = entryValue(field, raw);
+        if (current === undefined) current = typeof fallback === 'number' ? fallback : (typeof field.min === 'number' ? field.min : 0);
+        var step = Math.round(stepFor(field) * 1000);
+        var next = (Math.round(current * 1000) + (direction < 0 ? -step : step)) / 1000;
+        if (typeof field.min === 'number' && next < field.min) next = field.min;
+        if (typeof field.max === 'number' && next > field.max) next = field.max;
+        return next;
+    }
+
+    // --- saving
+
+    // Why Save cannot be used right now ('' when it can): the same connection and busy reasons as the actions, and
+    // writes also need the main screen or a menu page (never an edit screen, dialog or calibration).
+    function saveReason(status, conn, extra) {
+        var common = commonReason(status, conn, extra);
+        if (common) return common;
+        if (status && status.ui_state !== 'ready' && status.ui_state !== 'menu') return REASON.notReady;
+        return '';
+    }
+
+    function saveBarView(form, fields, status, conn, extra) {
+        var count = form ? formChangeCount(form, fields) : 0;
+        var reason = count > 0 ? saveReason(status, conn, extra) : '';
+        return {
+            visible: count > 0,
+            count: count,
+            countText: changeCountText(count),
+            canSave: count > 0 && reason === '',
+            reason: reason
+        };
+    }
+
+    // Words for the keys the grinder clamped or snapped, per key, shown beside the field.
+    function adjustedNotes(adjusted, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var notes = {};
+        (adjusted || []).forEach(function (key) {
+            var v = values ? values[key] : undefined;
+            var f = has(byKey, key) ? byKey[key] : {};
+            var shown = typeof v === 'number' ? (f.type === 'int' ? String(v) : PC.formatNumber(v)) : String(v);
+            notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
+        });
+        return notes;
+    }
+
+    // What to show for a refused PATCH: text beside fields where the page can tell which one, and a sentence for the
+    // whole form. `patch` is what was sent. `reload` asks for a fresh read of the settings.
+    function saveErrorView(code, patch, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var keys = Object.keys(patch || {});
+        var out = { fields: {}, form: PC.describeError(code) + ' Your edits are kept.', reload: false };
+        if (code === 'invalid_device_name' && has(patch || {}, 'device_name')) {
+            out.fields.device_name = PC.describeError(code);
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'out_of_range') {
+            keys.forEach(function (key) {
+                var f = byKey[key];
+                if (f && isNumeric(f) && typeof f.min === 'number' && typeof f.max === 'number' &&
+                        (patch[key] < f.min || patch[key] > f.max)) {
+                    out.fields[key] = 'Outside the allowed range (' + rangeText(f) + ').';
+                }
+            });
+            if (Object.keys(out.fields).length) out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if ((code === 'wrong_type' || code === 'invalid_value') && keys.length === 1) {
+            out.fields[keys[0]] = PC.describeError(code);
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'ui_busy' || code === 'store_failed') {
+            out.form = PC.describeError(code);
+            out.reload = true;
+        } else if (code === 'network' || code === 'timeout') {
+            // the grinder may have stored the values before the reply was lost: read them back
+            out.form = PC.describeError(code) + ' The change may or may not have been saved; the page checks. Your edits are kept.';
+            out.reload = true;
+        }
+        return out;
+    }
+
+    // Rename: the sentence for the reply's `address`, '' when it is not a plain .local name.
+    function renameNotice(address) {
+        if (!/^[a-z0-9-]{1,63}\.local$/.test(String(address))) return '';
+        return 'The grinder is now called ' + address + '. Open this page again at that address; the old name stops ' +
+            'answering. The IP address keeps working.';
+    }
+
+    // Link target for the new address, built from how this page was opened ('' when that is not plain http).
+    function renameLink(address, protocol, port) {
+        if (renameNotice(address) === '' || protocol !== 'http:') return '';
+        return protocol + '//' + address + (port ? ':' + port : '') + '/';
+    }
+
+    // What the settings area says while the form cannot be shown yet.
+    function settingsPlaceholder(haveSchema, haveSettings, conn, schemaMissing) {
+        if (haveSchema && haveSettings) return '';
+        if (schemaMissing) return 'This grinder firmware does not offer the settings form yet. Update the firmware.';
+        if (conn && conn.state === 'web_off') return REASON.webOff;
+        if (conn && (conn.state === 'offline' || conn.state === 'reconnecting')) return REASON.offline;
+        return 'Loading the settings.';
+    }
+
     return {
         TABS: TABS,
         PROFILE_NAMES: PROFILE_NAMES,
@@ -450,6 +841,33 @@
         grindVisible: grindVisible,
         deriveControls: deriveControls,
         readoutView: readoutView,
-        profileCards: profileCards
+        profileCards: profileCards,
+        FRESHNESS_STEPS: FRESHNESS_STEPS,
+        settingsGroups: settingsGroups,
+        groupedKeys: groupedKeys,
+        fieldView: fieldView,
+        freshnessOptions: freshnessOptions,
+        rangeText: rangeText,
+        currentProfileText: currentProfileText,
+        parseNumberText: parseNumberText,
+        entryValue: entryValue,
+        draftText: draftText,
+        formNew: formNew,
+        formSet: formSet,
+        formDiscard: formDiscard,
+        formPatch: formPatch,
+        formChangeCount: formChangeCount,
+        changeCountText: changeCountText,
+        entryNotes: entryNotes,
+        formSaved: formSaved,
+        formRefresh: formRefresh,
+        stepValue: stepValue,
+        saveReason: saveReason,
+        saveBarView: saveBarView,
+        adjustedNotes: adjustedNotes,
+        saveErrorView: saveErrorView,
+        renameNotice: renameNotice,
+        renameLink: renameLink,
+        settingsPlaceholder: settingsPlaceholder
     };
 }));

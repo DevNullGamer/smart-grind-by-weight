@@ -110,9 +110,24 @@
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>
-      <div class="card full">
-        <h2>Settings</h2>
-        <p class="muted">Settings are not available on this page yet.</p>
+      <div id="settings-status" class="card full"><p id="settings-status-text" class="muted">Loading the settings.</p></div>
+      <div id="rename" class="card full note rename" hidden>
+        <h2>Device name changed</h2>
+        <p id="rename-text"></p>
+        <p><a id="rename-link" class="addr" href="#main" hidden></a></p>
+      </div>
+      <div id="settings-notice" class="card full note" hidden>
+        <p id="settings-notice-text"></p>
+      </div>
+      <div id="settings-form" class="settings-form" hidden></div>
+      <div id="savebar" class="savebar" hidden>
+        <div class="save-info">
+          <strong id="save-count" aria-live="polite">0 changes</strong>
+          <p id="save-reason" class="reason"></p>
+          <p id="save-error" class="field-msg error"></p>
+        </div>
+        <button id="discard" class="btn" type="button">Discard</button>
+        <button id="save" class="btn primary" type="button" aria-describedby="save-reason">Save</button>
       </div>
     </section>
     <section id="panel-insights" class="panel" aria-label="Insights" hidden>

@@ -178,6 +178,79 @@ h2 { font-size: 1rem; }
 .action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
 .reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
 
+/* ---- settings tab: schema-driven form */
+.settings-form { display: contents; }
+#panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
+.fields { display: grid; gap: 20px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > legend, .field .lbl { font-weight: 600; }
+fieldset.field { border: 0; margin: 0; padding: 0; }
+fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+.field .hint { color: var(--muted); font-size: .875rem; }
+.field-msg { font-size: .875rem; min-height: 0; }
+.field-msg:empty { display: none; }
+.field-msg.error { color: var(--error); font-weight: 600; }
+.field-msg.adjusted { color: var(--warning); }
+.is-invalid { border-color: var(--error) !important; }
+
+input[type="text"], input[type="number"], select {
+  width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+}
+select { appearance: auto; }
+
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper input { text-align: center; min-width: 0; flex: 1 1 auto; }
+.stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
+.name-row { display: flex; align-items: center; gap: 8px; }
+.name-row .unit { color: var(--muted); flex: none; }
+
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head output { font-weight: 700; }
+input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
+
+/* segmented control: radio inputs, the label is the button */
+.seg-opts { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
+.seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.seg-opts span {
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
+  background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+}
+.seg-opts label:first-child span { border-left: 0; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
+
+/* switch: a real checkbox with role=switch */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; }
+.switch-row .lbl { font-weight: 600; min-width: 0; }
+input.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0; cursor: pointer;
+  width: 52px; height: 32px; border: 2px solid var(--border); border-radius: 16px; background: var(--raised);
+}
+input.switch::before {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted);
+}
+input.switch:checked { background: var(--primary); border-color: var(--primary); }
+input.switch:checked::before { left: 24px; background: var(--on-primary); }
+.switch-row .state-text { color: var(--muted); font-size: .875rem; min-width: 2.5em; text-align: right; }
+
+/* unsaved-changes bar: fixed above the STOP dock on phones */
+.savebar {
+  position: fixed; left: 0; right: 0; z-index: 15;
+  bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
+  background: var(--surface); border-top: 2px solid var(--primary);
+}
+.save-info { flex: 1 1 160px; min-width: 0; }
+.save-info .reason { min-height: 0; }
+.save-info .reason:empty, .save-info .field-msg:empty { display: none; }
+.savebar .btn { flex: none; }
+.rename .addr { font-weight: 700; overflow-wrap: anywhere; }
+
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
@@ -204,6 +277,11 @@ h2 { font-size: 1rem; }
   .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
   .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #panel-settings { padding-bottom: 24px; }
+  .savebar {
+    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: 14px;
+    padding: 8px 12px; box-shadow: var(--shadow);
+  }
 }
 
 /* ---- desktop: two panes, live controls on the left */

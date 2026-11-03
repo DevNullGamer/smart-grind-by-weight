@@ -415,3 +415,315 @@ test('the view module has no DOM, timer, storage or network use', () => {
         assert.equal(src.includes(word), false, word);
     }
 });
+
+// ---------------------------------------------------------------------------------------------- step 3: settings form
+const fs3 = require('node:fs');
+const path3 = require('node:path');
+
+// The field table of the schema, read from the dev-server model so the test follows the contract.
+function schemaFields() {
+    const src = fs3.readFileSync(path3.join(__dirname, '..', 'portal', 'portal_model.py'), 'utf8');
+    const fields = [];
+    const re = /_f\("(\w+)", "(\w+)", "(\w+)"([^)]*)\)/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+        const f = { key: m[1], type: m[2], group: m[3] };
+        const unit = /unit="([^"]+)"/.exec(m[4]);
+        const min = /min=([\d.]+)/.exec(m[4]);
+        const max = /max=([\d.]+)/.exec(m[4]);
+        const step = /step=([\d.]+)/.exec(m[4]);
+        const choices = /choices=\[([^\]]*)\]/.exec(m[4]);
+        if (unit) f.unit = unit[1];
+        if (min) f.min = parseFloat(min[1]);
+        if (max) f.max = parseFloat(max[1]);
+        if (step) f.step = parseFloat(step[1]);
+        if (choices) f.choices = choices[1].split(',').map((c) => c.trim().replace(/"/g, ''));
+        fields.push(f);
+    }
+    return fields;
+}
+const FIELDS = schemaFields();
+const VALUES = {
+    ble_startup: true, logging: false, swipe: false, auto_start: false, auto_return: false,
+    brightness_normal: 100, brightness_screensaver: 35, purge_mode: 'remove', purge_amount_g: 1.0,
+    freshness_hours: 8.0, grind_mode: 'weight', single_weight_g: 9.0, single_time_s: 5.0, double_weight_g: 18.0,
+    double_time_s: 10.0, custom_weight_g: 21.5, custom_time_s: 12.0, device_name: 'grindbyweight'
+};
+
+test('the schema model has the 18 keys and the key table references each exactly once', () => {
+    assert.equal(FIELDS.length, 18);
+    assert.deepEqual(FIELDS.map((f) => f.key).sort(), Object.keys(VALUES).sort());
+    const grouped = PV.groupedKeys();
+    assert.deepEqual(grouped.slice().sort(), FIELDS.map((f) => f.key).sort());
+    assert.equal(new Set(grouped).size, grouped.length);
+});
+
+test('settingsGroups: all 18 keys exactly once, no Other for a known schema, order Profiles to Device', () => {
+    const groups = PV.settingsGroups(FIELDS);
+    assert.deepEqual(groups.map((g) => g.title), ['Profiles', 'Display', 'Grinding', 'Device']);
+    const keys = [].concat(...groups.map((g) => g.fields.map((f) => f.key)));
+    assert.equal(keys.length, 18);
+    assert.equal(new Set(keys).size, 18);
+});
+
+test('settingsGroups: an unknown key lands in Other, an empty group is left out', () => {
+    const extra = { key: 'new_thing', type: 'number', group: 'settings', min: 0, max: 5 };
+    const groups = PV.settingsGroups(FIELDS.concat([extra]));
+    const other = groups[groups.length - 1];
+    assert.equal(other.title, 'Other');
+    assert.deepEqual(other.fields.map((f) => f.key), ['new_thing']);
+    assert.equal(other.fields[0].kind, 'stepper');
+    const onlyDevice = PV.settingsGroups(FIELDS.filter((f) => f.key === 'device_name'));
+    assert.deepEqual(onlyDevice.map((g) => g.title), ['Device']);
+    assert.deepEqual(PV.settingsGroups([]), []);
+});
+
+test('fieldView: widget per key and type', () => {
+    const kinds = {};
+    for (const g of PV.settingsGroups(FIELDS)) for (const f of g.fields) kinds[f.key] = f.kind;
+    assert.equal(kinds.logging, 'switch');
+    assert.equal(kinds.grind_mode, 'segmented');
+    assert.equal(kinds.purge_mode, 'segmented');
+    assert.equal(kinds.brightness_normal, 'slider');
+    assert.equal(kinds.purge_amount_g, 'slider');
+    assert.equal(kinds.freshness_hours, 'select');
+    assert.equal(kinds.single_weight_g, 'stepper');
+    assert.equal(kinds.device_name, 'text');
+    const mode = PV.settingsGroups(FIELDS)[2].fields[1];
+    assert.deepEqual(mode.choices.map((c) => c.label), ['Prime (keep)', 'Purge (remove)']);
+    assert.equal(PV.rangeText(FIELDS.find((f) => f.key === 'single_weight_g')), '5 to 1000 g');
+    assert.equal(PV.rangeText(FIELDS.find((f) => f.key === 'single_time_s')), '0.5 to 25 s');
+});
+
+test('freshnessOptions: the nine steps, plus a stored off-step value', () => {
+    assert.deepEqual(PV.freshnessOptions(8).map((o) => o.value), [0.5, 1, 2, 3, 4, 8, 12, 24, 48]);
+    assert.equal(PV.freshnessOptions(8)[0].label, '30 minutes');
+    assert.equal(PV.freshnessOptions(8)[1].label, '1 hour');
+    assert.equal(PV.freshnessOptions(8)[5].label, '8 hours');
+    assert.deepEqual(PV.freshnessOptions(6).map((o) => o.value), [0.5, 1, 2, 3, 4, 6, 8, 12, 24, 48]);
+});
+
+test('formPatch: nothing changed gives an empty patch, only changed keys are sent, in their own types', () => {
+    let form = PV.formNew(VALUES);
+    assert.deepEqual(PV.formPatch(form, FIELDS), {});
+    assert.equal(PV.formChangeCount(form, FIELDS), 0);
+    form = PV.formSet(form, 'brightness_normal', '80');       // slider: text
+    form = PV.formSet(form, 'grind_mode', 'time');             // enum: string
+    form = PV.formSet(form, 'auto_start', true);               // bool
+    form = PV.formSet(form, 'double_time_s', '9.5');           // number as text
+    form = PV.formSet(form, 'single_weight_g', 9);             // same value as stored 9.0: not a change
+    form = PV.formSet(form, 'device_name', 'grindbyweight');   // same: not a change
+    const patch = PV.formPatch(form, FIELDS);
+    assert.deepEqual(patch, { auto_start: true, brightness_normal: 80, grind_mode: 'time', double_time_s: 9.5 });
+    assert.equal(typeof patch.brightness_normal, 'number');
+    assert.equal(PV.formChangeCount(form, FIELDS), 4);
+    assert.equal(PV.changeCountText(1), '1 change');
+    assert.equal(PV.changeCountText(3), '3 changes');
+});
+
+test('formPatch: an empty or unreadable number is left out, never NaN; an empty text is sent as typed', () => {
+    let form = PV.formNew(VALUES);
+    form = PV.formSet(form, 'single_weight_g', '');
+    form = PV.formSet(form, 'double_weight_g', 'abc');
+    form = PV.formSet(form, 'custom_weight_g', '1e3');
+    form = PV.formSet(form, 'device_name', '');
+    const patch = PV.formPatch(form, FIELDS);
+    assert.deepEqual(patch, { device_name: '' });
+    assert.deepEqual(Object.keys(PV.entryNotes(form, FIELDS)), ['single_weight_g', 'double_weight_g', 'custom_weight_g']);
+    assert.equal(PV.parseNumberText('9,5'), 9.5);
+    assert.equal(PV.parseNumberText(' 9.5 '), 9.5);
+    assert.equal(PV.parseNumberText('9.5.1'), undefined);
+    assert.equal(PV.parseNumberText('1,000.5'), undefined);
+    assert.equal(PV.parseNumberText('.5'), 0.5);
+    assert.equal(PV.parseNumberText('-3'), -3);
+});
+
+test('formPatch: the page sends an uppercase device name as typed and never current_profile', () => {
+    let form = PV.formNew(Object.assign({ current_profile: 1 }, VALUES));
+    form = PV.formSet(form, 'device_name', 'MyGrinder');
+    assert.deepEqual(PV.formPatch(form, FIELDS), { device_name: 'MyGrinder' });
+    form = PV.formSet(form, 'current_profile', 2);
+    assert.equal('current_profile' in PV.formPatch(form, FIELDS), false);
+});
+
+test('formDiscard restores the stored values', () => {
+    let form = PV.formNew(VALUES);
+    form = PV.formSet(form, 'single_weight_g', '12');
+    form = PV.formSet(form, 'logging', true);
+    form = PV.formDiscard(form);
+    assert.equal(PV.formChangeCount(form, FIELDS), 0);
+    assert.deepEqual(form.draft, VALUES);
+});
+
+test('formSaved: saved keys show what the grinder applied, other entries stay', () => {
+    let form = PV.formNew(VALUES);
+    form = PV.formSet(form, 'brightness_normal', '5');
+    form = PV.formSet(form, 'single_weight_g', '');
+    const patch = PV.formPatch(form, FIELDS);
+    const applied = Object.assign({}, VALUES, { brightness_normal: 15 });
+    const saved = PV.formSaved(form, applied, patch);
+    assert.equal(saved.draft.brightness_normal, 15);
+    assert.equal(saved.stored.brightness_normal, 15);
+    assert.equal(saved.draft.single_weight_g, '');
+    assert.equal(PV.formChangeCount(saved, FIELDS), 0);
+});
+
+test('formRefresh: fresh values never overwrite edits, other fields follow the grinder', () => {
+    let form = PV.formNew(VALUES);
+    form = PV.formSet(form, 'single_weight_g', '12');
+    const fresh = Object.assign({}, VALUES, { single_weight_g: 10, logging: true, brightness_normal: 70 });
+    const r = PV.formRefresh(form, fresh, FIELDS);
+    assert.equal(r.form.draft.single_weight_g, '12');
+    assert.equal(r.form.stored.single_weight_g, 10);
+    assert.equal(r.form.draft.logging, true);
+    assert.equal(r.form.draft.brightness_normal, 70);
+    assert.deepEqual(PV.formPatch(r.form, FIELDS), { single_weight_g: 12 });
+    assert.match(r.notice, /unsaved edits are kept/);
+    assert.match(r.notice, /Single, weight/);
+});
+
+test('formRefresh: no edits means no notice; an edit equal to the new value becomes clean; a blank entry is kept', () => {
+    let form = PV.formNew(VALUES);
+    let r = PV.formRefresh(form, Object.assign({}, VALUES, { logging: true }), FIELDS);
+    assert.equal(r.notice, '');
+    assert.equal(r.form.draft.logging, true);
+    form = PV.formSet(form, 'single_weight_g', '10');
+    r = PV.formRefresh(form, Object.assign({}, VALUES, { single_weight_g: 10, logging: true }), FIELDS);
+    assert.equal(PV.formChangeCount(r.form, FIELDS), 0);
+    form = PV.formSet(PV.formNew(VALUES), 'single_weight_g', '');
+    r = PV.formRefresh(form, Object.assign({}, VALUES, { single_weight_g: 11 }), FIELDS);
+    assert.equal(r.form.draft.single_weight_g, '');
+});
+
+test('stepValue: no float drift, 0.1 g and 0.5 s steps, clamped to the limits', () => {
+    const g = FIELDS.find((f) => f.key === 'single_weight_g');
+    const s = FIELDS.find((f) => f.key === 'single_time_s');
+    assert.equal(PV.stepValue(9.0, 1, g, 9), 9.1);
+    assert.equal(PV.stepValue('9.1', 1, g, 9), 9.2);
+    assert.equal(PV.stepValue(0.7, 1, { type: 'number', unit: 'g' }, 0), 0.8);
+    assert.equal(PV.stepValue(0.3, -1, { type: 'number', unit: 'g' }, 0), 0.2);
+    let v = 0;
+    for (let i = 0; i < 10; i++) v = PV.stepValue(v, 1, { type: 'number', unit: 'g' }, 0);
+    assert.equal(v, 1);
+    assert.equal(PV.stepValue(5.0, 1, s, 5), 5.5);
+    assert.equal(PV.stepValue(5.5, -1, s, 5), 5);
+    assert.equal(PV.stepValue(5, -1, g, 5), 5);        // at the lower limit
+    assert.equal(PV.stepValue(1000, 1, g, 9), 1000);   // at the upper limit
+    assert.equal(PV.stepValue(2000, 1, g, 9), 1000);
+    assert.equal(PV.stepValue('', 1, g, 9), 9.1);      // blank starts from the stored value
+    assert.equal(PV.stepValue('', 1, g), 5.1);         // ... or the lower limit
+    assert.equal(PV.stepValue(0.5, -1, s, 5), 0.5);
+});
+
+test('saveBarView: hidden and disabled without changes, count with changes, reasons while it cannot write', () => {
+    let form = PV.formNew(VALUES);
+    let bar = PV.saveBarView(form, FIELDS, status(), online(), {});
+    assert.deepEqual([bar.visible, bar.canSave], [false, false]);
+    form = PV.formSet(form, 'single_weight_g', '10');
+    form = PV.formSet(form, 'logging', true);
+    form = PV.formSet(form, 'swipe', true);
+    bar = PV.saveBarView(form, FIELDS, status(), online(), {});
+    assert.deepEqual([bar.visible, bar.canSave, bar.countText, bar.reason], [true, true, '3 changes', '']);
+    const cases = [
+        [status({ busy: true, ui_state: 'grinding' }), online(), {}, PV.REASON.busy],
+        [status({ ui_state: 'edit' }), online(), {}, PV.REASON.notReady],
+        [status({ ui_state: 'confirm' }), online(), {}, PV.REASON.notReady],
+        [status({ ui_state: 'ota_update' }), online(), {}, PV.REASON.update],
+        [status(), online(), { leadIn: true }, PV.REASON.leadIn],
+        [status(), online(), { commandPending: true }, PV.REASON.pending],
+        [status(), offlineConn, {}, PV.REASON.offline],
+        [status(), PV.connectionFailed(online(), 'web_interface_off', 1), {}, PV.REASON.webOff],
+        [null, PV.newConnection(), {}, PV.REASON.connecting]
+    ];
+    for (const [st, c, extra, reason] of cases) {
+        bar = PV.saveBarView(form, FIELDS, st, c, extra);
+        assert.equal(bar.canSave, false, reason);
+        assert.equal(bar.reason, reason);
+        assert.equal(bar.visible, true);
+    }
+    assert.equal(PV.saveBarView(form, FIELDS, status({ ui_state: 'menu' }), online(), {}).canSave, true);
+});
+
+test('adjustedNotes: whole percent, grams, hours snapped', () => {
+    const values = Object.assign({}, VALUES, { brightness_normal: 15, purge_amount_g: 2.5, freshness_hours: 0.5 });
+    const notes = PV.adjustedNotes(['brightness_normal', 'purge_amount_g', 'freshness_hours'], values, FIELDS);
+    assert.equal(notes.brightness_normal, 'The grinder adjusted this to 15 %.');
+    assert.equal(notes.purge_amount_g, 'The grinder adjusted this to 2.5 g.');
+    assert.equal(notes.freshness_hours, 'The grinder adjusted this to 0.5 h.');
+    assert.deepEqual(PV.adjustedNotes([], values, FIELDS), {});
+    assert.deepEqual(PV.adjustedNotes(undefined, values, FIELDS), {});
+});
+
+test('saveErrorView: field text for out_of_range and invalid_device_name, form text for every other 400', () => {
+    const patch = { single_weight_g: 2000, single_time_s: 5.5, double_weight_g: 4 };
+    let v = PV.saveErrorView('out_of_range', patch, FIELDS);
+    assert.deepEqual(Object.keys(v.fields), ['single_weight_g', 'double_weight_g']);
+    assert.match(v.fields.single_weight_g, /5 to 1000 g/);
+    assert.match(v.form, /Nothing was saved/);
+    v = PV.saveErrorView('invalid_device_name', { device_name: 'Bad Name' }, FIELDS);
+    assert.deepEqual(Object.keys(v.fields), ['device_name']);
+    assert.match(v.fields.device_name, /lowercase a-z/);
+    for (const code of ['empty_body', 'body_too_large', 'malformed_json', 'nested_value', 'duplicate_key', 'unknown_key',
+        'unexpected_field', 'missing_field', 'empty_patch', 'unknown_command']) {
+        v = PV.saveErrorView(code, patch, FIELDS);
+        assert.deepEqual(v.fields, {}, code);
+        assert.equal(v.form, PC.describeError(code) + ' Your edits are kept.', code);
+        assert.equal(v.reload, false, code);
+    }
+    // a wrong type with one changed key can be pinned to it, with several it cannot
+    assert.deepEqual(Object.keys(PV.saveErrorView('wrong_type', { logging: true }, FIELDS).fields), ['logging']);
+    assert.deepEqual(PV.saveErrorView('wrong_type', patch, FIELDS).fields, {});
+    // out_of_range that names no key of the patch stays a form text
+    v = PV.saveErrorView('out_of_range', { single_weight_g: 9 }, FIELDS);
+    assert.deepEqual(v.fields, {});
+    assert.match(v.form, /outside the range/);
+});
+
+test('saveErrorView: refusals that keep edits, and those that ask for a settings reload', () => {
+    for (const code of ['busy', 'not_ready', 'command_in_flight', 'update_in_progress', 'web_interface_off']) {
+        const v = PV.saveErrorView(code, { logging: true }, FIELDS);
+        assert.equal(v.reload, false, code);
+        assert.match(v.form, /Your edits are kept\.$/, code);
+    }
+    for (const code of ['ui_busy', 'store_failed', 'network', 'timeout']) {
+        assert.equal(PV.saveErrorView(code, { logging: true }, FIELDS).reload, true, code);
+    }
+});
+
+test('renameNotice and renameLink: only for a plain .local name, link only over http', () => {
+    assert.match(PV.renameNotice('espresso-2.local'), /espresso-2\.local/);
+    assert.match(PV.renameNotice('espresso-2.local'), /old name stops answering/);
+    assert.equal(PV.renameNotice('evil.com'), '');
+    assert.equal(PV.renameNotice('a b.local'), '');
+    assert.equal(PV.renameNotice(undefined), '');
+    assert.equal(PV.renameLink('espresso.local', 'http:', ''), 'http://espresso.local/');
+    assert.equal(PV.renameLink('espresso.local', 'http:', '8080'), 'http://espresso.local:8080/');
+    assert.equal(PV.renameLink('espresso.local', 'file:', ''), '');
+    assert.equal(PV.renameLink('evil.com', 'http:', ''), '');
+});
+
+test('currentProfileText and settingsPlaceholder', () => {
+    assert.match(PV.currentProfileText({ current_profile: 1 }), /Double/);
+    assert.equal(PV.currentProfileText({ current_profile: 7 }), '');
+    assert.equal(PV.currentProfileText(null), '');
+    assert.equal(PV.settingsPlaceholder(true, true, online(), false), '');
+    assert.equal(PV.settingsPlaceholder(false, false, online(), false), 'Loading the settings.');
+    assert.match(PV.settingsPlaceholder(false, false, online(), true), /Update the firmware/);
+    assert.equal(PV.settingsPlaceholder(false, true, offlineConn, false), PV.REASON.offline);
+});
+
+test('nextPollTask: the schema is fetched before the settings', () => {
+    const f = { haveStatus: true, needSchema: true, needSettings: true, needInfo: true, online: true };
+    assert.equal(PV.nextPollTask(f), 'schema');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { needSchema: false })), 'settings');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { forceStatus: true })), 'status');
+});
+
+test('the page source keeps the settings form rules (no markup writes, switches and radio groups)', () => {
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.equal(app.includes('innerHTML'), false);
+    assert.match(app, /setAttribute\('role', 'switch'\)/);
+    assert.match(app, /setAttribute\('role', 'radiogroup'\)/);
+    assert.match(app, /type = 'checkbox'/);
+    assert.match(app, /type = 'radio'/);
+});

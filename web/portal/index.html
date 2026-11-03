@@ -188,6 +188,79 @@ h2 { font-size: 1rem; }
 .action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
 .reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
 
+/* ---- settings tab: schema-driven form */
+.settings-form { display: contents; }
+#panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
+.fields { display: grid; gap: 20px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > legend, .field .lbl { font-weight: 600; }
+fieldset.field { border: 0; margin: 0; padding: 0; }
+fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+.field .hint { color: var(--muted); font-size: .875rem; }
+.field-msg { font-size: .875rem; min-height: 0; }
+.field-msg:empty { display: none; }
+.field-msg.error { color: var(--error); font-weight: 600; }
+.field-msg.adjusted { color: var(--warning); }
+.is-invalid { border-color: var(--error) !important; }
+
+input[type="text"], input[type="number"], select {
+  width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+}
+select { appearance: auto; }
+
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper input { text-align: center; min-width: 0; flex: 1 1 auto; }
+.stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
+.name-row { display: flex; align-items: center; gap: 8px; }
+.name-row .unit { color: var(--muted); flex: none; }
+
+.slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head output { font-weight: 700; }
+input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
+
+/* segmented control: radio inputs, the label is the button */
+.seg-opts { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
+.seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.seg-opts span {
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
+  background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+}
+.seg-opts label:first-child span { border-left: 0; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
+
+/* switch: a real checkbox with role=switch */
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; }
+.switch-row .lbl { font-weight: 600; min-width: 0; }
+input.switch {
+  appearance: none; -webkit-appearance: none; flex: none; position: relative; margin: 0; cursor: pointer;
+  width: 52px; height: 32px; border: 2px solid var(--border); border-radius: 16px; background: var(--raised);
+}
+input.switch::before {
+  content: ""; position: absolute; top: 4px; left: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted);
+}
+input.switch:checked { background: var(--primary); border-color: var(--primary); }
+input.switch:checked::before { left: 24px; background: var(--on-primary); }
+.switch-row .state-text { color: var(--muted); font-size: .875rem; min-width: 2.5em; text-align: right; }
+
+/* unsaved-changes bar: fixed above the STOP dock on phones */
+.savebar {
+  position: fixed; left: 0; right: 0; z-index: 15;
+  bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
+  background: var(--surface); border-top: 2px solid var(--primary);
+}
+.save-info { flex: 1 1 160px; min-width: 0; }
+.save-info .reason { min-height: 0; }
+.save-info .reason:empty, .save-info .field-msg:empty { display: none; }
+.savebar .btn { flex: none; }
+.rename .addr { font-weight: 700; overflow-wrap: anywhere; }
+
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
@@ -214,6 +287,11 @@ h2 { font-size: 1rem; }
   .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
   .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #panel-settings { padding-bottom: 24px; }
+  .savebar {
+    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: 14px;
+    padding: 8px 12px; box-shadow: var(--shadow);
+  }
 }
 
 /* ---- desktop: two panes, live controls on the left */
@@ -339,9 +417,24 @@ h2 { font-size: 1rem; }
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>
-      <div class="card full">
-        <h2>Settings</h2>
-        <p class="muted">Settings are not available on this page yet.</p>
+      <div id="settings-status" class="card full"><p id="settings-status-text" class="muted">Loading the settings.</p></div>
+      <div id="rename" class="card full note rename" hidden>
+        <h2>Device name changed</h2>
+        <p id="rename-text"></p>
+        <p><a id="rename-link" class="addr" href="#main" hidden></a></p>
+      </div>
+      <div id="settings-notice" class="card full note" hidden>
+        <p id="settings-notice-text"></p>
+      </div>
+      <div id="settings-form" class="settings-form" hidden></div>
+      <div id="savebar" class="savebar" hidden>
+        <div class="save-info">
+          <strong id="save-count" aria-live="polite">0 changes</strong>
+          <p id="save-reason" class="reason"></p>
+          <p id="save-error" class="field-msg error"></p>
+        </div>
+        <button id="discard" class="btn" type="button">Discard</button>
+        <button id="save" class="btn primary" type="button" aria-describedby="save-reason">Save</button>
       </div>
     </section>
     <section id="panel-insights" class="panel" aria-label="Insights" hidden>
@@ -880,6 +973,7 @@ h2 { font-size: 1rem; }
     // forceStatus: the last settings or info request failed, so status goes next and is never starved.
     function nextPollTask(flags) {
         if (!flags.haveStatus || !flags.online || flags.forceStatus) return 'status';
+        if (flags.needSchema) return 'schema';
         if (flags.needSettings) return 'settings';
         if (flags.needInfo) return 'info';
         return 'status';
@@ -1091,6 +1185,396 @@ h2 { font-size: 1rem; }
         });
     }
 
+    // ------------------------------------------------------------------ settings form (chg016 step 3)
+    // The form is driven by GET /api/schema. Groups come from the key table below; a key the table does not know
+    // lands in "Other", so a firmware that adds a field never hides it. The form object is
+    // {stored: values as the grinder holds them, draft: what the user has entered (raw: numbers may be text)}.
+
+    var SETTINGS_GROUPS = [
+        {
+            id: 'profiles', title: 'Profiles',
+            hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
+            keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
+        },
+        { id: 'display', title: 'Display', hint: '', keys: ['brightness_normal', 'brightness_screensaver'] },
+        {
+            id: 'grinding', title: 'Grinding', hint: '',
+            keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
+        },
+        { id: 'device', title: 'Device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
+    ];
+    var OTHER_GROUP = { id: 'other', title: 'Other', hint: '' };
+
+    // How a key is shown; anything not listed follows its type (bool: switch, enum: segmented, string: text,
+    // number: stepper).
+    var WIDGET_BY_KEY = {
+        brightness_normal: 'slider',
+        brightness_screensaver: 'slider',
+        purge_amount_g: 'slider',
+        freshness_hours: 'select'
+    };
+
+    // The nine steps of the freshness setting (hours), as in the grinder menu.
+    var FRESHNESS_STEPS = [0.5, 1, 2, 3, 4, 8, 12, 24, 48];
+
+    var CHOICE_TEXT = {
+        purge_mode: { keep: 'Prime (keep)', remove: 'Purge (remove)' },
+        grind_mode: { weight: 'Weight', time: 'Time' }
+    };
+
+    // Shorter labels where the control itself explains the choices.
+    var LABEL_OVERRIDE = { purge_mode: 'Purge mode', device_name: 'Device name' };
+
+    var FIELD_HINT = {
+        device_name: 'The grinder answers at this name followed by .local. 1 to 24 characters: lowercase a-z, 0-9 and hyphen, ' +
+            'no hyphen at the start or end. Changing it means opening this page again at the new address.'
+    };
+
+    function capitalise(text) {
+        var s = String(text);
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    // A limit or step for display: whole numbers without a decimal ("5", "1000"), others as the API writes them.
+    function formatLimit(n) {
+        if (typeof n !== 'number' || !isFinite(n)) return '';
+        return Math.floor(n) === n ? String(n) : PC.formatNumber(n);
+    }
+
+    function unitSuffix(field) {
+        return field && field.unit ? ' ' + field.unit : '';
+    }
+
+    // "5 to 1000 g" for a field with limits, '' otherwise.
+    function rangeText(field) {
+        if (!field || typeof field.min !== 'number' || typeof field.max !== 'number') return '';
+        if (field.type === 'string' || field.type === 'bool' || field.type === 'enum') return '';
+        return formatLimit(field.min) + ' to ' + formatLimit(field.max) + unitSuffix(field);
+    }
+
+    function freshnessLabel(hours) {
+        if (hours < 1) return Math.round(hours * 60) + ' minutes';
+        return hours === 1 ? '1 hour' : formatLimit(hours) + ' hours';
+    }
+
+    // The options of the freshness select; a stored value off the nine steps is added so it stays visible.
+    function freshnessOptions(current) {
+        var steps = FRESHNESS_STEPS.slice();
+        if (typeof current === 'number' && isFinite(current) && steps.indexOf(current) < 0) {
+            steps.push(current);
+            steps.sort(function (a, b) { return a - b; });
+        }
+        return steps.map(function (h) { return { value: h, label: freshnessLabel(h) }; });
+    }
+
+    function widgetKind(field) {
+        if (has(WIDGET_BY_KEY, field.key)) return WIDGET_BY_KEY[field.key];
+        if (field.type === 'bool') return 'switch';
+        if (field.type === 'enum') return 'segmented';
+        if (field.type === 'string') return 'text';
+        return 'stepper';
+    }
+
+    // Everything the DOM glue needs to build one control.
+    function fieldView(field) {
+        var kind = widgetKind(field);
+        var choices = [];
+        if (field.type === 'enum' && field.choices) {
+            choices = field.choices.map(function (c) {
+                var text = has(CHOICE_TEXT, field.key) && has(CHOICE_TEXT[field.key], c) ? CHOICE_TEXT[field.key][c] : capitalise(c);
+                return { value: c, label: text };
+            });
+        }
+        return {
+            key: field.key,
+            label: has(LABEL_OVERRIDE, field.key) ? LABEL_OVERRIDE[field.key] : capitalise(PC.fieldLabel(field.key)),
+            type: field.type,
+            kind: kind,
+            unit: field.unit || '',
+            min: typeof field.min === 'number' ? field.min : null,
+            max: typeof field.max === 'number' ? field.max : null,
+            step: stepFor(field),
+            choices: choices,
+            hint: has(FIELD_HINT, field.key) ? FIELD_HINT[field.key] : '',
+            range: rangeText(field)
+        };
+    }
+
+    // The sections of the form for the fields of the schema, in display order. Empty sections are left out and
+    // every field appears exactly once (unknown keys in "Other").
+    function settingsGroups(fields) {
+        var byKey = {};
+        var used = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var out = [];
+        SETTINGS_GROUPS.forEach(function (g) {
+            var list = [];
+            g.keys.forEach(function (key) {
+                if (has(byKey, key) && !has(used, key)) {
+                    used[key] = true;
+                    list.push(fieldView(byKey[key]));
+                }
+            });
+            if (list.length) out.push({ id: g.id, title: g.title, hint: g.hint, fields: list });
+        });
+        var rest = [];
+        (fields || []).forEach(function (f) {
+            if (!has(used, f.key)) {
+                used[f.key] = true;
+                rest.push(fieldView(f));
+            }
+        });
+        if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, hint: OTHER_GROUP.hint, fields: rest });
+        return out;
+    }
+
+    // The keys of the key table (for the static check that the table and the schema stay in step).
+    function groupedKeys() {
+        var keys = [];
+        SETTINGS_GROUPS.forEach(function (g) { keys = keys.concat(g.keys); });
+        return keys;
+    }
+
+    function currentProfileText(settings) {
+        if (!settings || typeof settings.current_profile !== 'number') return '';
+        var name = PROFILE_NAMES[settings.current_profile];
+        return name ? 'Selected on the grinder: ' + name + '. This is shown for information; it cannot be changed here.' : '';
+    }
+
+    // --- entries
+
+    // Text to a number: "9.5" and "9,5" (one comma, no dot) are numbers, anything else is not. Never NaN.
+    function parseNumberText(text) {
+        var s = String(text).replace(/^\s+|\s+$/g, '');
+        if (/^[^.,]*,[^.,]*$/.test(s)) s = s.replace(',', '.');
+        if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return undefined;
+        var n = parseFloat(s);
+        return isFinite(n) ? n : undefined;
+    }
+
+    // The value to send for a draft entry, in the type the API wants, or undefined for "not a usable entry"
+    // (an empty or unreadable number): such a key is left out of the PATCH.
+    function entryValue(field, raw) {
+        if (field.type === 'bool') return typeof raw === 'boolean' ? raw : undefined;
+        if (field.type === 'enum' || field.type === 'string') return typeof raw === 'string' ? raw : undefined;
+        if (typeof raw === 'number') return isFinite(raw) ? raw : undefined;
+        if (typeof raw === 'string') return parseNumberText(raw);
+        return undefined;
+    }
+
+    // The text for a number input from a stored or stepped value.
+    function draftText(field, raw) {
+        if (typeof raw === 'number') return field.type === 'int' ? String(raw) : PC.formatNumber(raw);
+        return typeof raw === 'string' ? raw : '';
+    }
+
+    function isNumeric(field) {
+        return field.type === 'int' || field.type === 'number';
+    }
+
+    function copyScalars(values) {
+        var out = {};
+        Object.keys(values || {}).forEach(function (key) {
+            var v = values[key];
+            if (typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') out[key] = v;
+        });
+        return out;
+    }
+
+    function formNew(values) {
+        return { stored: copyScalars(values), draft: copyScalars(values) };
+    }
+
+    function formSet(form, key, raw) {
+        var draft = copyScalars(form.draft);
+        draft[key] = raw;
+        return { stored: form.stored, draft: draft };
+    }
+
+    function formDiscard(form) {
+        return { stored: form.stored, draft: copyScalars(form.stored) };
+    }
+
+    // The body of a PATCH: only the keys whose entry differs from the stored value, in schema order. A key with
+    // no usable entry is not in it. `current_profile` is not a field and can never be in it.
+    function formPatch(form, fields) {
+        var entered = {};
+        (fields || []).forEach(function (f) {
+            if (has(form.draft, f.key)) entered[f.key] = entryValue(f, form.draft[f.key]);
+        });
+        return PC.diffValues(form.stored, entered);
+    }
+
+    function formChangeCount(form, fields) {
+        return Object.keys(formPatch(form, fields)).length;
+    }
+
+    function changeCountText(count) {
+        return count === 1 ? '1 change' : count + ' changes';
+    }
+
+    // Hints for numeric entries the page cannot read (they stay out of the PATCH).
+    function entryNotes(form, fields) {
+        var notes = {};
+        (fields || []).forEach(function (f) {
+            if (isNumeric(f) && has(form.draft, f.key) && entryValue(f, form.draft[f.key]) === undefined) {
+                notes[f.key] = 'Not a number. This setting stays as it is.';
+            }
+        });
+        return notes;
+    }
+
+    // After a successful PATCH: the grinder's applied values become the stored ones. A saved key shows what the
+    // grinder applied (it may have clamped it); an entry that was not part of the PATCH stays as typed.
+    function formSaved(form, appliedValues, patch) {
+        var stored = copyScalars(appliedValues);
+        var draft = copyScalars(form.draft);
+        Object.keys(stored).forEach(function (key) {
+            if (has(patch || {}, key) || !has(draft, key)) draft[key] = stored[key];
+        });
+        return { stored: stored, draft: draft };
+    }
+
+    // Fresh settings from the grinder. Fields the user has edited keep their entry; the others take the new value.
+    // `notice` is non-empty when edits were kept while the grinder reports other values than before.
+    function formRefresh(form, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var fresh = copyScalars(values);
+        var draft = {};
+        var kept = false;
+        Object.keys(fresh).forEach(function (key) {
+            var raw = form.draft[key];
+            var keep = false;
+            if (has(byKey, key) && has(form.draft, key)) {
+                var entry = entryValue(byKey[key], raw);
+                keep = entry === undefined || entry !== form.stored[key];
+            }
+            if (keep) kept = true;
+            draft[key] = keep ? raw : fresh[key];
+        });
+        var changed = Object.keys(fresh).filter(function (key) { return form.stored[key] !== fresh[key]; });
+        var notice = '';
+        if (kept && changed.length) {
+            notice = 'The grinder reports new values for ' + changed.map(function (k) { return PC.fieldLabel(k); }).join(', ') +
+                '. Your unsaved edits are kept; Discard loads the grinder\'s values.';
+        }
+        return { form: { stored: fresh, draft: draft }, notice: notice, changed: changed };
+    }
+
+    // --- steppers (no float drift: arithmetic on thousandths)
+
+    function stepFor(field) {
+        if (typeof field.step === 'number' && field.step > 0) return field.step;
+        if (field.unit === 's') return 0.5;
+        if (field.unit === 'g') return 0.1;
+        return 1;
+    }
+
+    // The value after one press of minus (-1) or plus (+1). A blank or unreadable entry starts from `fallback`.
+    // The result stays inside the limits; typing is not limited, so the grinder can still say no.
+    function stepValue(raw, direction, field, fallback) {
+        var current = entryValue(field, raw);
+        if (current === undefined) current = typeof fallback === 'number' ? fallback : (typeof field.min === 'number' ? field.min : 0);
+        var step = Math.round(stepFor(field) * 1000);
+        var next = (Math.round(current * 1000) + (direction < 0 ? -step : step)) / 1000;
+        if (typeof field.min === 'number' && next < field.min) next = field.min;
+        if (typeof field.max === 'number' && next > field.max) next = field.max;
+        return next;
+    }
+
+    // --- saving
+
+    // Why Save cannot be used right now ('' when it can): the same connection and busy reasons as the actions, and
+    // writes also need the main screen or a menu page (never an edit screen, dialog or calibration).
+    function saveReason(status, conn, extra) {
+        var common = commonReason(status, conn, extra);
+        if (common) return common;
+        if (status && status.ui_state !== 'ready' && status.ui_state !== 'menu') return REASON.notReady;
+        return '';
+    }
+
+    function saveBarView(form, fields, status, conn, extra) {
+        var count = form ? formChangeCount(form, fields) : 0;
+        var reason = count > 0 ? saveReason(status, conn, extra) : '';
+        return {
+            visible: count > 0,
+            count: count,
+            countText: changeCountText(count),
+            canSave: count > 0 && reason === '',
+            reason: reason
+        };
+    }
+
+    // Words for the keys the grinder clamped or snapped, per key, shown beside the field.
+    function adjustedNotes(adjusted, values, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var notes = {};
+        (adjusted || []).forEach(function (key) {
+            var v = values ? values[key] : undefined;
+            var f = has(byKey, key) ? byKey[key] : {};
+            var shown = typeof v === 'number' ? (f.type === 'int' ? String(v) : PC.formatNumber(v)) : String(v);
+            notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
+        });
+        return notes;
+    }
+
+    // What to show for a refused PATCH: text beside fields where the page can tell which one, and a sentence for the
+    // whole form. `patch` is what was sent. `reload` asks for a fresh read of the settings.
+    function saveErrorView(code, patch, fields) {
+        var byKey = {};
+        (fields || []).forEach(function (f) { byKey[f.key] = f; });
+        var keys = Object.keys(patch || {});
+        var out = { fields: {}, form: PC.describeError(code) + ' Your edits are kept.', reload: false };
+        if (code === 'invalid_device_name' && has(patch || {}, 'device_name')) {
+            out.fields.device_name = PC.describeError(code);
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'out_of_range') {
+            keys.forEach(function (key) {
+                var f = byKey[key];
+                if (f && isNumeric(f) && typeof f.min === 'number' && typeof f.max === 'number' &&
+                        (patch[key] < f.min || patch[key] > f.max)) {
+                    out.fields[key] = 'Outside the allowed range (' + rangeText(f) + ').';
+                }
+            });
+            if (Object.keys(out.fields).length) out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if ((code === 'wrong_type' || code === 'invalid_value') && keys.length === 1) {
+            out.fields[keys[0]] = PC.describeError(code);
+            out.form = 'Nothing was saved. Fix the marked field and try again.';
+        } else if (code === 'ui_busy' || code === 'store_failed') {
+            out.form = PC.describeError(code);
+            out.reload = true;
+        } else if (code === 'network' || code === 'timeout') {
+            // the grinder may have stored the values before the reply was lost: read them back
+            out.form = PC.describeError(code) + ' The change may or may not have been saved; the page checks. Your edits are kept.';
+            out.reload = true;
+        }
+        return out;
+    }
+
+    // Rename: the sentence for the reply's `address`, '' when it is not a plain .local name.
+    function renameNotice(address) {
+        if (!/^[a-z0-9-]{1,63}\.local$/.test(String(address))) return '';
+        return 'The grinder is now called ' + address + '. Open this page again at that address; the old name stops ' +
+            'answering. The IP address keeps working.';
+    }
+
+    // Link target for the new address, built from how this page was opened ('' when that is not plain http).
+    function renameLink(address, protocol, port) {
+        if (renameNotice(address) === '' || protocol !== 'http:') return '';
+        return protocol + '//' + address + (port ? ':' + port : '') + '/';
+    }
+
+    // What the settings area says while the form cannot be shown yet.
+    function settingsPlaceholder(haveSchema, haveSettings, conn, schemaMissing) {
+        if (haveSchema && haveSettings) return '';
+        if (schemaMissing) return 'This grinder firmware does not offer the settings form yet. Update the firmware.';
+        if (conn && conn.state === 'web_off') return REASON.webOff;
+        if (conn && (conn.state === 'offline' || conn.state === 'reconnecting')) return REASON.offline;
+        return 'Loading the settings.';
+    }
+
     return {
         TABS: TABS,
         PROFILE_NAMES: PROFILE_NAMES,
@@ -1125,14 +1609,41 @@ h2 { font-size: 1rem; }
         grindVisible: grindVisible,
         deriveControls: deriveControls,
         readoutView: readoutView,
-        profileCards: profileCards
+        profileCards: profileCards,
+        FRESHNESS_STEPS: FRESHNESS_STEPS,
+        settingsGroups: settingsGroups,
+        groupedKeys: groupedKeys,
+        fieldView: fieldView,
+        freshnessOptions: freshnessOptions,
+        rangeText: rangeText,
+        currentProfileText: currentProfileText,
+        parseNumberText: parseNumberText,
+        entryValue: entryValue,
+        draftText: draftText,
+        formNew: formNew,
+        formSet: formSet,
+        formDiscard: formDiscard,
+        formPatch: formPatch,
+        formChangeCount: formChangeCount,
+        changeCountText: changeCountText,
+        entryNotes: entryNotes,
+        formSaved: formSaved,
+        formRefresh: formRefresh,
+        stepValue: stepValue,
+        saveReason: saveReason,
+        saveBarView: saveBarView,
+        adjustedNotes: adjustedNotes,
+        saveErrorView: saveErrorView,
+        renameNotice: renameNotice,
+        renameLink: renameLink,
+        settingsPlaceholder: settingsPlaceholder
     };
 }));
 </script>
 <script>
 // DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
-// The Grind tab is live (chg016 step 2); the Settings and Insights tabs follow in later steps.
+// The Grind and Settings tabs are live (chg016 steps 2 and 3); Insights follows in a later step.
 (function () {
   'use strict';
   var P = PortalClient;
@@ -1150,6 +1661,17 @@ h2 { font-size: 1rem; }
   var commandPending = false;
   var needSettings = true;
   var needInfo = true;
+  var needSchema = true;
+  var schema = null; // the field list of GET /api/schema
+  var schemaMissing = false; // the firmware has no /api/schema
+  var form = null; // the settings form state (stored values and the user's entries), see portal-view.js
+  var currentProfileEl = null; // the "selected on the grinder" line of the Profiles group
+  var fieldControls = {}; // key -> {write, msg, inputs, focusEl} of the built settings controls
+  var fieldErrors = {}; // key -> text of a refusal beside the field
+  var fieldNotes = {}; // key -> text of an "adjusted by the grinder" note
+  var formError = ''; // refusal text for the whole form
+  var settingsNotice = ''; // "the grinder changed values while you were editing"
+  var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
   var polling = false;
   var pollTimer = null;
   var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
@@ -1258,6 +1780,340 @@ h2 { font-size: 1rem; }
     });
     setControl($('tare'), $('reason-tare'), controls.tare);
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
+    renderSettings();
+  }
+
+  // --- settings form
+  function el(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function setValue(input, value) {
+    if (input.value !== value) input.value = value;
+  }
+
+  function onEdit(key, raw) {
+    form = V.formSet(form, key, raw);
+    delete fieldErrors[key];
+    delete fieldNotes[key];
+    formError = '';
+    renderSettings();
+  }
+
+  function numberText(view, raw) { return V.draftText(view, raw); }
+
+  // Builds one control; returns its wrapper. The registry entry knows how to show a draft value.
+  function buildField(view) {
+    var key = view.key;
+    var id = 'f-' + key;
+    var msg = el('p', 'field-msg');
+    msg.id = 'msg-' + key;
+    var describedBy = msg.id;
+    var hintText = view.hint || (view.kind === 'stepper' && view.range ? 'Allowed: ' + view.range : '');
+    var hint = null;
+    if (hintText) {
+      hint = el('p', 'hint', hintText);
+      hint.id = 'hint-' + key;
+      describedBy = hint.id + ' ' + msg.id;
+    }
+    var reg = { msg: msg, inputs: [], focusEl: null, write: null };
+    var wrap;
+    var input;
+
+    if (view.kind === 'switch') {
+      wrap = el('div', 'field');
+      var row = el('label', 'switch-row');
+      row.setAttribute('for', id);
+      row.appendChild(el('span', 'lbl', view.label));
+      input = el('input', 'switch');
+      input.type = 'checkbox';
+      input.id = id;
+      input.setAttribute('role', 'switch');
+      row.appendChild(input);
+      wrap.appendChild(row);
+      input.addEventListener('change', function () { onEdit(key, input.checked); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { input.checked = raw === true; };
+    } else if (view.kind === 'segmented') {
+      wrap = el('fieldset', 'field');
+      wrap.setAttribute('role', 'radiogroup');
+      wrap.appendChild(el('legend', '', view.label));
+      var opts = el('div', 'seg-opts');
+      view.choices.forEach(function (choice, i) {
+        var label = el('label');
+        var radio = el('input');
+        radio.type = 'radio';
+        radio.name = id;
+        radio.value = choice.value;
+        radio.id = id + '-' + i;
+        radio.addEventListener('change', function () { if (radio.checked) onEdit(key, choice.value); });
+        label.appendChild(radio);
+        label.appendChild(el('span', '', choice.label));
+        opts.appendChild(label);
+        reg.inputs.push(radio);
+      });
+      wrap.appendChild(opts);
+      reg.focusEl = reg.inputs[0] || null;
+      reg.write = function (raw) {
+        reg.inputs.forEach(function (radio) { radio.checked = radio.value === raw; });
+      };
+    } else if (view.kind === 'slider') {
+      wrap = el('div', 'field');
+      var head = el('div', 'slider-head');
+      var label = el('label', '', view.label);
+      label.setAttribute('for', id);
+      var out = el('output');
+      out.setAttribute('for', id);
+      head.appendChild(label);
+      head.appendChild(out);
+      wrap.appendChild(head);
+      input = el('input');
+      input.type = 'range';
+      input.id = id;
+      if (view.min !== null) input.min = String(view.min);
+      if (view.max !== null) input.max = String(view.max);
+      input.step = String(view.step);
+      wrap.appendChild(input);
+      var showOut = function () { setText(out, numberText(view, V.entryValue(view, input.value)) + (view.unit ? ' ' + view.unit : '')); };
+      input.addEventListener('input', function () { showOut(); onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, numberText(view, raw)); showOut(); };
+    } else if (view.kind === 'select') {
+      wrap = el('div', 'field');
+      var selLabel = el('label', '', view.label);
+      selLabel.setAttribute('for', id);
+      wrap.appendChild(selLabel);
+      input = el('select');
+      input.id = id;
+      wrap.appendChild(input);
+      input.addEventListener('change', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) {
+        var entry = V.entryValue(view, raw);
+        var wanted = entry === undefined ? '' : String(entry);
+        var have = false;
+        for (var i = 0; i < input.options.length; i++) if (input.options[i].value === wanted) have = true;
+        if (!have) {
+          while (input.firstChild) input.removeChild(input.firstChild);
+          V.freshnessOptions(entry).forEach(function (o) {
+            var option = el('option', '', o.label);
+            option.value = String(o.value);
+            input.appendChild(option);
+          });
+        }
+        setValue(input, wanted);
+      };
+    } else if (view.kind === 'text') {
+      wrap = el('div', 'field');
+      var textLabel = el('label', '', view.label);
+      textLabel.setAttribute('for', id);
+      wrap.appendChild(textLabel);
+      var nameRow = el('div', 'name-row');
+      input = el('input');
+      input.type = 'text';
+      input.id = id;
+      input.setAttribute('autocapitalize', 'none');
+      input.setAttribute('autocomplete', 'off');
+      input.setAttribute('autocorrect', 'off');
+      input.spellcheck = false;
+      nameRow.appendChild(input);
+      if (key === 'device_name') nameRow.appendChild(el('span', 'unit', '.local'));
+      wrap.appendChild(nameRow);
+      input.addEventListener('input', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, typeof raw === 'string' ? raw : ''); };
+    } else {
+      // stepper: minus, number, plus. The step is a convenience; typing any value is allowed.
+      wrap = el('div', 'field');
+      var numLabel = el('label', '', view.label);
+      numLabel.setAttribute('for', id);
+      wrap.appendChild(numLabel);
+      var stepper = el('div', 'stepper');
+      var minus = el('button', 'btn', '−');
+      minus.type = 'button';
+      minus.setAttribute('aria-label', 'Decrease ' + view.label);
+      var plus = el('button', 'btn', '+');
+      plus.type = 'button';
+      plus.setAttribute('aria-label', 'Increase ' + view.label);
+      input = el('input');
+      input.type = 'number';
+      input.id = id;
+      input.step = 'any';
+      input.setAttribute('inputmode', 'decimal');
+      stepper.appendChild(minus);
+      stepper.appendChild(input);
+      if (view.unit) stepper.appendChild(el('span', 'unit', view.unit));
+      stepper.appendChild(plus);
+      wrap.appendChild(stepper);
+      var press = function (direction) {
+        var next = V.stepValue(form.draft[key], direction, view, form.stored[key]);
+        onEdit(key, next);
+        setValue(input, numberText(view, next));
+      };
+      minus.addEventListener('click', function () { press(-1); });
+      plus.addEventListener('click', function () { press(1); });
+      input.addEventListener('input', function () { onEdit(key, input.value); });
+      reg.inputs = [input];
+      reg.focusEl = input;
+      reg.write = function (raw) { setValue(input, numberText(view, raw)); };
+    }
+
+    reg.inputs.forEach(function (i) { i.setAttribute('aria-describedby', describedBy); });
+    if (hint) wrap.appendChild(hint);
+    wrap.appendChild(msg);
+    fieldControls[key] = reg;
+    return wrap;
+  }
+
+  function buildForm() {
+    var host = $('settings-form');
+    while (host.firstChild) host.removeChild(host.firstChild);
+    fieldControls = {};
+    currentProfileEl = null;
+    V.settingsGroups(schema).forEach(function (group) {
+      var card = el('section', 'card group');
+      var headingId = 'group-' + group.id;
+      var h = el('h2', '', group.title);
+      h.id = headingId;
+      card.setAttribute('aria-labelledby', headingId);
+      card.appendChild(h);
+      if (group.hint) card.appendChild(el('p', 'hint', group.hint));
+      if (group.id === 'profiles') {
+        currentProfileEl = el('p', 'hint');
+        card.appendChild(currentProfileEl);
+      }
+      var fields = el('div', 'fields');
+      group.fields.forEach(function (view) { fields.appendChild(buildField(view)); });
+      card.appendChild(fields);
+      host.appendChild(card);
+    });
+  }
+
+  function writeFields() {
+    Object.keys(fieldControls).forEach(function (key) {
+      if (form && Object.prototype.hasOwnProperty.call(form.draft, key)) fieldControls[key].write(form.draft[key]);
+    });
+  }
+
+  // The form exists once the schema and the settings are both known.
+  function ensureForm() {
+    if (form || !schema || !settings) return;
+    form = V.formNew(settings.values);
+    buildForm();
+    writeFields();
+  }
+
+  // A settings reply: the first one builds the form, later ones never overwrite the user's entries.
+  function onSettings() {
+    if (!form) { ensureForm(); return; }
+    var result = V.formRefresh(form, settings.values, schema);
+    form = result.form;
+    if (result.notice && !quietRefresh) settingsNotice = result.notice;
+    quietRefresh = false;
+    writeFields();
+  }
+
+  function renderSettings() {
+    var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
+    $('settings-status').hidden = placeholder === '';
+    setText($('settings-status-text'), placeholder);
+    $('settings-form').hidden = !form;
+    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; return; }
+
+    var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
+    if (!bar.visible) { settingsNotice = ''; formError = ''; }
+    $('savebar').hidden = !bar.visible;
+    setText($('save-count'), bar.countText);
+    setText($('save-reason'), bar.reason);
+    setText($('save-error'), formError);
+    $('save').disabled = !bar.canSave;
+    $('settings-notice').hidden = settingsNotice === '';
+    setText($('settings-notice-text'), settingsNotice);
+    if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
+
+    var notes = V.entryNotes(form, schema);
+    Object.keys(fieldControls).forEach(function (key) {
+      var reg = fieldControls[key];
+      var error = fieldErrors[key] || notes[key] || '';
+      var text = error || fieldNotes[key] || '';
+      setText(reg.msg, text);
+      setClass(reg.msg, 'error', error !== '');
+      setClass(reg.msg, 'adjusted', error === '' && text !== '');
+      reg.inputs.forEach(function (i) {
+        if (error) i.setAttribute('aria-invalid', 'true');
+        else i.removeAttribute('aria-invalid');
+        setClass(i, 'is-invalid', error !== '' && i.type !== 'radio');
+      });
+    });
+  }
+
+  function showRename(address) {
+    var text = V.renameNotice(address);
+    $('rename').hidden = text === '';
+    setText($('rename-text'), text);
+    var href = V.renameLink(address, window.location.protocol, window.location.port);
+    var link = $('rename-link');
+    link.hidden = href === '';
+    if (href) {
+      setText(link, address);
+      link.setAttribute('href', href);
+    }
+  }
+
+  function saveSettings() {
+    if (!form) return;
+    var patch = V.formPatch(form, schema);
+    var count = Object.keys(patch).length;
+    var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
+    if (!bar.canSave) return;
+    commandPending = true;
+    formError = '';
+    render();
+    client.patchSettings(patch).then(function (doc) {
+      commandPending = false;
+      form = V.formSaved(form, doc.values, patch);
+      settings = { values: doc.values, current_profile: doc.current_profile };
+      fieldErrors = {};
+      fieldNotes = V.adjustedNotes(doc.adjusted, doc.values, schema);
+      settingsNotice = '';
+      writeFields();
+      if (doc.address) showRename(doc.address);
+      var adjusted = doc.adjusted && doc.adjusted.length ? ' The grinder adjusted some values.' : '';
+      say('Saved ' + V.changeCountText(count) + '.' + adjusted, false);
+      render();
+    }, function (err) {
+      commandPending = false;
+      var code = err && err.code;
+      var shown = V.saveErrorView(code, patch, schema);
+      fieldErrors = shown.fields;
+      formError = shown.form;
+      say(err && err.message ? err.message : shown.form, true);
+      if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
+      if (shown.reload) { needSettings = true; quietRefresh = true; }
+      render();
+      var first = Object.keys(fieldErrors)[0];
+      if (first && fieldControls[first] && fieldControls[first].focusEl) fieldControls[first].focusEl.focus();
+      pollNow();
+    });
+  }
+
+  function discardSettings() {
+    if (!form) return;
+    form = V.formDiscard(form);
+    fieldErrors = {};
+    fieldNotes = {};
+    formError = '';
+    settingsNotice = '';
+    writeFields();
+    render();
+    say('Changes discarded.', false);
   }
 
   function setLeadIn(next) {
@@ -1289,12 +2145,13 @@ h2 { font-size: 1rem; }
     if (polling) return;
     polling = true;
     var task = V.nextPollTask({
-      haveStatus: status !== null, needSettings: needSettings, needInfo: needInfo,
+      haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
       online: conn.state === 'online', forceStatus: forceStatus
     });
     forceStatus = false;
     quickNext = false;
-    var request = task === 'settings' ? client.getSettings() : task === 'info' ? client.getInfo() : client.getStatus();
+    var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
+      task === 'info' ? client.getInfo() : client.getStatus();
     // Runs after success and after failure, even if the handler or render() throws: polling must go on.
     function finalize() {
       polling = false;
@@ -1313,16 +2170,28 @@ h2 { font-size: 1rem; }
         if (before && before !== 'ready' && doc.ui_state === 'ready') needSettings = true;
         statusAt = now();
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
+      } else if (task === 'schema') {
+        schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
+        needSchema = false;
+        ensureForm();
       } else if (task === 'settings') {
         settings = doc;
         needSettings = false;
+        onSettings();
       } else {
         setText($('name'), doc.name);
         setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
         needInfo = false;
       }
-      quickNext = needSettings || needInfo;
+      quickNext = needSchema || needSettings || needInfo;
     }, function (err) {
+      if (task === 'schema' && err && err.code === 'not_supported') {
+        // an older firmware without /api/schema: reachable, but there is no settings form
+        schemaMissing = true;
+        needSchema = false;
+        conn = V.connectionOk(conn, now());
+        return;
+      }
       conn = V.connectionFailed(conn, err && err.code, now());
       if (task !== 'status') forceStatus = true; // do not let a failing settings or info request starve status
     }).then(finalize, finalize);
@@ -1386,6 +2255,8 @@ h2 { font-size: 1rem; }
     runCommand('motor_test', null, function () { say('Motor test running.', false); });
   });
   $('retry').addEventListener('click', pollNow);
+  $('save').addEventListener('click', saveSettings);
+  $('discard').addEventListener('click', discardSettings);
 
   showTab('grind');
   // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
