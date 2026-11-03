@@ -183,6 +183,30 @@ def status_document(ui_state, grind_phase, busy, weight_g, motor_available, star
     }
 
 
+STATS_KEYS = ("total_grinds", "single", "double", "custom", "weight_mode", "time_mode", "total_weight_kg",
+              "motor_runtime_s", "avg_abs_error_g", "total_pulses", "avg_pulses", "time_pulses", "powered_minutes")
+STATS_FLOAT_KEYS = ("total_weight_kg", "avg_abs_error_g", "avg_pulses")
+STATS_FLOAT_MAX = 1e9
+
+
+def bounded_stat(value):
+    """A fractional statistic as the firmware encodes it: not finite or negative is 0, above 1e9 it is 1e9."""
+    value = float(value)
+    if not math.isfinite(value) or value < 0:
+        return 0.0
+    return min(value, STATS_FLOAT_MAX)
+
+
+def stats_document(stats):
+    """The GET /api/stats document (portal_encode_stats): the 13 members in the firmware's order. `stats` maps the
+    member names to numbers; missing members are 0, fractional ones are bounded."""
+    doc = {}
+    for key in STATS_KEYS:
+        value = stats.get(key, 0)
+        doc[key] = bounded_stat(value) if key in STATS_FLOAT_KEYS else int(value)
+    return doc
+
+
 def error_body(code):
     status, reason = ERRORS[code]
     return status, encode_json({"error": code, "reason": reason})

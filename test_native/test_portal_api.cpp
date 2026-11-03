@@ -733,6 +733,100 @@ static void test_status_truncates_safely_with_warnings() {
     TEST_ASSERT_FALSE(portal_encode_status(s, buf, 0));
 }
 
+static float stat_float(const PJson& v) {
+    if (v.kind == PJson::STR) return v.s == "nan" ? NAN : (v.s == "inf" ? INFINITY : -INFINITY);
+    return static_cast<float>(v.n);
+}
+
+static PortalStats stats_from_vector(const PJson& in) {
+    PortalStats s;
+    s.total_grinds = static_cast<uint32_t>(in.at("total_grinds").n);
+    s.single = static_cast<uint32_t>(in.at("single").n);
+    s.double_shots = static_cast<uint32_t>(in.at("double").n);
+    s.custom = static_cast<uint32_t>(in.at("custom").n);
+    s.weight_mode = static_cast<uint32_t>(in.at("weight_mode").n);
+    s.time_mode = static_cast<uint32_t>(in.at("time_mode").n);
+    s.total_weight_kg = stat_float(in.at("total_weight_kg"));
+    s.motor_runtime_s = static_cast<uint32_t>(in.at("motor_runtime_s").n);
+    s.avg_abs_error_g = stat_float(in.at("avg_abs_error_g"));
+    s.total_pulses = static_cast<uint32_t>(in.at("total_pulses").n);
+    s.avg_pulses = stat_float(in.at("avg_pulses"));
+    s.time_pulses = static_cast<uint32_t>(in.at("time_pulses").n);
+    s.powered_minutes = static_cast<uint64_t>(in.at("powered_minutes").n);
+    return s;
+}
+
+static PortalStats stats_at_every_maximum() {
+    PortalStats s;
+    s.total_grinds = s.single = s.double_shots = s.custom = s.weight_mode = s.time_mode = 4294967295u;
+    s.motor_runtime_s = s.total_pulses = s.time_pulses = 4294967295u;
+    s.total_weight_kg = s.avg_abs_error_g = s.avg_pulses = 3.0e38f;
+    s.powered_minutes = 4294967295ull * 60ull + 59ull;
+    return s;
+}
+
+static void test_stats_vectors() {
+    const PJson& cases = portal_vectors().at("stats_cases");
+    TEST_ASSERT_TRUE(cases.a.size() >= 10);
+    for (const PJson& c : cases.a) {
+        const std::string& name = c.at("name").s;
+        char buf[PORTAL_STATS_JSON_MAX];
+        TEST_ASSERT_TRUE_MESSAGE(portal_encode_stats(stats_from_vector(c.at("input")), buf, sizeof(buf)), name.c_str());
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(c.at("json").s.c_str(), buf, name.c_str());
+        PJson j;
+        TEST_ASSERT_TRUE_MESSAGE(encoded_is_json(buf, &j), name.c_str());
+    }
+}
+
+static void test_stats_zero_state_is_all_zero_and_valid_json() {
+    char buf[PORTAL_STATS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_stats(PortalStats(), buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_UINT32(13, j.o.size());
+    for (const auto& member : j.o) TEST_ASSERT_TRUE_MESSAGE(member.second.n == 0.0, member.first.c_str());
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"avg_abs_error_g\":0.0,"));  // no samples: 0.0, never NaN or null
+}
+
+static void test_stats_worst_case_fits_its_buffer_with_margin() {
+    char buf[PORTAL_STATS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_stats(stats_at_every_maximum(), buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_TRUE(strlen(buf) + 100 < PORTAL_STATS_JSON_MAX);  // PORTAL-API.md documents the longest reply
+    TEST_ASSERT_TRUE(j.at("total_weight_kg").n == PORTAL_STATS_FLOAT_MAX);
+    TEST_ASSERT_TRUE(j.at("powered_minutes").n == 257698037759.0);
+}
+
+static void test_stats_truncation_never_yields_a_complete_reply() {
+    const PortalStats s = stats_at_every_maximum();
+    char full[PORTAL_STATS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_stats(s, full, sizeof(full)));
+    const size_t full_len = strlen(full);
+    char buf[PORTAL_STATS_JSON_MAX];
+    for (size_t cap = 1; cap <= full_len; cap++) {  // every cut, including inside a number
+        memset(buf, 'x', sizeof(buf));
+        TEST_ASSERT_FALSE(portal_encode_stats(s, buf, cap));
+        TEST_ASSERT_EQUAL_UINT32(cap - 1, strlen(buf));
+    }
+    TEST_ASSERT_TRUE(portal_encode_stats(s, buf, full_len + 1));
+    TEST_ASSERT_FALSE(portal_encode_stats(s, buf, 0));
+}
+
+static void test_stats_fractions_are_bounded_one_by_one() {
+    char buf[PORTAL_STATS_JSON_MAX];
+    PortalStats s;
+    s.total_weight_kg = NAN;
+    s.avg_abs_error_g = -0.0f;
+    s.avg_pulses = INFINITY;
+    TEST_ASSERT_TRUE(portal_encode_stats(s, buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_TRUE(j.at("total_weight_kg").n == 0.0);
+    TEST_ASSERT_TRUE(j.at("avg_abs_error_g").n == 0.0);
+    TEST_ASSERT_TRUE(j.at("avg_pulses").n == 0.0);  // infinity is not a usable number either
+}
+
 static void test_encode_escapes_control_characters() {
     char buf[256];
     PortalStatus s;
@@ -804,6 +898,11 @@ void run_portal_api_tests() {
     RUN_TEST(test_status_warnings_empty_ordered_and_bounded);
     RUN_TEST(test_status_worst_case_leaves_margin_in_its_buffer);
     RUN_TEST(test_status_truncates_safely_with_warnings);
+    RUN_TEST(test_stats_vectors);
+    RUN_TEST(test_stats_zero_state_is_all_zero_and_valid_json);
+    RUN_TEST(test_stats_worst_case_fits_its_buffer_with_margin);
+    RUN_TEST(test_stats_truncation_never_yields_a_complete_reply);
+    RUN_TEST(test_stats_fractions_are_bounded_one_by_one);
     RUN_TEST(test_encode_escapes_control_characters);
     RUN_TEST(test_encoders_truncate_safely);
     RUN_TEST(test_encoded_sizes_fit_a_reasonable_buffer);

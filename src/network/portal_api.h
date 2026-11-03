@@ -210,3 +210,25 @@ const char* portal_warning_name(size_t index);
 // Index of a code, or -1 (exact match)
 int portal_warning_index(const char* name);
 bool portal_encode_status(const PortalStatus& status, char* out, size_t cap);
+
+// GET /api/stats: the lifetime statistics of the grinder (StatisticsManager) as the UI task copied them. Counters are
+// whole numbers; the three fractional values are bounded when encoded (not finite or negative = 0, above
+// PORTAL_STATS_FLOAT_MAX = that maximum), so the reply is always valid JSON with numbers a page can show.
+// single/double/custom are weight buckets of the final weight (<= 10 g, <= 22 g, larger), not profiles.
+constexpr double PORTAL_STATS_FLOAT_MAX = 1000000000.0;
+struct PortalStats {
+    uint32_t total_grinds = 0;
+    uint32_t single = 0;
+    uint32_t double_shots = 0;
+    uint32_t custom = 0;
+    uint32_t weight_mode = 0;
+    uint32_t time_mode = 0;
+    float total_weight_kg = 0.0f;
+    uint32_t motor_runtime_s = 0;     // whole seconds of motor run time, rounded down
+    float avg_abs_error_g = 0.0f;     // mean |final - target| of the weight-mode grinds, 0 with no samples
+    uint32_t total_pulses = 0;
+    float avg_pulses = 0.0f;          // 0 with no samples
+    uint32_t time_pulses = 0;
+    uint64_t powered_minutes = 0;     // device_uptime_hrs * 60 + the minutes remainder
+};
+bool portal_encode_stats(const PortalStats& stats, char* out, size_t cap);

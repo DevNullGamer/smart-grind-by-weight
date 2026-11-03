@@ -27,7 +27,7 @@ firmware sources (menu tables, `UiSettings`, `user.h`, `ProfileController`).
 |---|---|---|
 | `GET /api/info` | nothing (open, unchanged) | answers |
 | `GET /` (the page) | Web interface | 403 `web_interface_off` |
-| `GET /api/status`, `GET /api/settings`, `GET /api/schema` | Web interface | 403 `web_interface_off` |
+| `GET /api/status`, `GET /api/settings`, `GET /api/schema`, `GET /api/stats` | Web interface | 403 `web_interface_off` |
 | `PATCH /api/settings` | Web interface | 403 `web_interface_off` |
 | `POST /api/command` (including `stop`) | Web interface | 403 `web_interface_off` |
 | `/api/update/begin`, `/api/update/data` | Receive (+ the existing token and Accept dialog) | 403 `receive_off` (the update routes check Receive themselves because the server also runs for the web interface alone) |
@@ -63,6 +63,7 @@ which the grinder never answers.
 | `GET /` (also `/index.html`) | | the embedded page: gzip, `Content-Encoding: gzip`, `ETag` (build number + content CRC, `If-None-Match` answers 304), `Cache-Control: no-cache`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a Content-Security-Policy (`default-src 'self'` ... `frame-ancestors 'none'`), `Connection: close`. At most 64 KB gzipped (the build fails above that). |
 | `GET /api/info` | | unchanged (name, version, build, board, busy, confirm) |
 | `GET /api/status` | | status object (section 7) |
+| `GET /api/stats` | | lifetime statistics object (section 7, "Statistics") |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
 | `GET /api/settings` | | `{"values":{<18 keys>},"current_profile":N}` |
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
@@ -70,13 +71,13 @@ which the grinder never answers.
 
 All four commands are served by `POST /api/command`: `stop`, `tare`, `start` and `motor_test`.
 
-The reads (`/api/status`, `/api/settings`) copy a snapshot the UI task publishes (see section 7); with no fresh
+The reads (`/api/status`, `/api/settings`, `/api/stats`) copy a snapshot the UI task publishes (see section 7); with no fresh
 snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
 needs no snapshot.
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
-needs are 1 KB for the values and patch reply, 4 KB for the schema and 640 bytes for the status (the longest possible status is 470 bytes).
+needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes) and 512 bytes for the statistics (the longest possible reply is about 320 bytes).
 
 ## 4. Settings and profile fields
 
@@ -349,6 +350,40 @@ firmware). The codes, in priority order:
 | `mechanical_instability` | the grinder reported repeated mechanical anomalies during grinding |
 | `load_cell_noisy` | sustained excessive noise on the load cell (60 s or more) |
 | `load_cell_not_calibrated` | the load cell has not been calibrated |
+
+### Statistics (`GET /api/stats`)
+
+The grinder's lifetime statistics, the same totals as the Lifetime Stats page on its touchscreen. Read-only, gated by
+the Web interface switch like every other read (403 `web_interface_off`, `bad_host`, `bad_origin` as usual). The
+reply is a copy the UI task takes from the statistics every 5 seconds and whenever the screen state changes (a finished
+grind shows up within about 5 s); it has its own age limit of 15 s, after which the route answers 503 `ui_busy`
+(the UI task is stuck, or the statistics were never published since the switch went on). The firmware has no
+other error for this route; an older firmware without it answers 404 from the HTTP server, which a page treats as
+"statistics not available".
+
+```
+{"total_grinds":412,"single":180,"double":200,"custom":32,"weight_mode":390,"time_mode":22,"total_weight_kg":8.43,
+ "motor_runtime_s":5120,"avg_abs_error_g":0.12,"total_pulses":1100,"avg_pulses":2.7,"time_pulses":14,"powered_minutes":22890}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `total_grinds` | int | successful grinds since the statistics were last reset (timeouts, overshoots and stopped grinds are not counted) |
+| `single`, `double`, `custom` | int | the same grinds by final weight, **not** by profile: up to 10 g, up to 22 g, more |
+| `weight_mode`, `time_mode` | int | the same grinds by grind mode |
+| `total_weight_kg` | number | total ground weight in kilograms |
+| `motor_runtime_s` | int | motor run time in whole seconds (grinds, time pulses and motor tests), rounded down |
+| `avg_abs_error_g` | number | mean absolute difference between final and target weight over the weight-mode grinds, `0.0` with no samples |
+| `total_pulses` | int | correction pulses of weight-mode grinds |
+| `avg_pulses` | number | mean pulses per grind, `0.0` with no samples |
+| `time_pulses` | int | additional pulses given after time-mode grinds |
+| `powered_minutes` | int | minutes the grinder has been powered on (hours times 60 plus the minutes remainder) |
+
+Integers are plain (up to 4294967295, `powered_minutes` up to 257698037759); the three fractional members follow the
+number rule of section 4 (at most 3 decimals, one kept) and are bounded: a value that is not finite or is negative is
+`0.0`, a value above 1000000000 is `1000000000.0`, so a reply is always valid JSON. Statistics that were reset (factory
+reset) simply read as zeros. The members are additive: a client ignores members
+it does not know and treats a missing one as unknown, not as zero. Nothing here uses the clock or `millis()`.
 
 ## 8. Error codes
 

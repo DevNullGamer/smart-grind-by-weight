@@ -378,6 +378,32 @@ def test_warning_codes_follow_diagnostics_priority_and_the_document():
     assert used == set(expected)
 
 
+def test_stats_route_members_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/stats`" in doc
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_stats\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == list(portal_model.STATS_KEYS), "the encoder's members and their order equal the Python mirror"
+    for name in members:
+        assert f"`{name}`" in doc, f"stats member {name} missing in PORTAL-API.md"
+    for case in VECTORS["stats_cases"]:
+        assert list(case["input"]) == members and list(json.loads(case["json"])) == members, case["name"]
+    # The UI task reads the statistics (the getters take the statistics mutex), the HTTP side only the snapshot slot
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    for getter in ("get_total_grinds", "get_single_shots", "get_double_shots", "get_custom_shots", "get_weight_mode_grinds",
+                   "get_time_mode_grinds", "get_total_weight_kg", "get_motor_runtime_ms", "get_avg_accuracy_g",
+                   "get_total_pulses", "get_avg_pulses", "get_time_pulses", "get_device_uptime_hrs",
+                   "get_device_uptime_min_remainder"):
+        assert f"statistics_manager.{getter}()" in controller, getter
+    assert "publish_stats(gather_stats())" in controller
+    assert "read_stats(" in read("src/network/portal_routes.cpp")
+    assert "`GET /api/stats`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert macro(read("src/config/portal.h"), "PORTAL_STATS_JSON_MAX") >= 400
+
+
 def test_http_task_code_stays_off_the_ui_side():
     # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
     # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
@@ -388,7 +414,8 @@ def test_http_task_code_stays_off_the_ui_side():
             for forbidden in ("lvgl", "ui_manager", "profile_controller", "grind_controller", "ui_settings",
                               "nvs_settings_store", "Preferences", "hardware_manager", "menu_screen"):
                 assert forbidden not in include, f"{module} (HTTP task) includes {include}"
-        for token in ("Preferences", "ui_settings", "lv_", "profile_controller", "set_device_name", "nvs_"):
+        for token in ("Preferences", "ui_settings", "lv_", "profile_controller", "set_device_name", "nvs_",
+                      "statistics_manager", "diagnostics_controller", "grind_logger", "grind_history", "LittleFS"):
             assert token not in text, f"{module} (HTTP task) mentions {token}"
 
 
@@ -406,7 +433,8 @@ def test_ui_task_wiring():
     assert ui.index("portal_controller_->update()") < ui.index("wifi_update_controller_->update()")
     # the routes are registered with the methods the document names
     server = read("src/network/update_server.cpp")
-    for uri, method in (("/api/status", "HTTP_GET"), ("/api/schema", "HTTP_GET"), ("/api/settings", "HTTP_GET"),
+    for uri, method in (("/api/status", "HTTP_GET"), ("/api/stats", "HTTP_GET"), ("/api/schema", "HTTP_GET"),
+                        ("/api/settings", "HTTP_GET"),
                         ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
         assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
     max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")

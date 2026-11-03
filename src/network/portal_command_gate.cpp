@@ -23,6 +23,16 @@ bool PortalCommandGate::read_snapshot(PortalValues* values, PortalStatus* status
     return true;
 }
 
+bool PortalCommandGate::read_stats(PortalStats* stats) {
+    Section section(&stats_mux_);
+    if (!ui_attached_ ||
+        !portal_snapshot_fresh(stats_published_, stats_published_ms_, millis(), PORTAL_STATS_STALE_MS)) {
+        return false;
+    }
+    if (stats) *stats = stats_;
+    return true;
+}
+
 PortalError PortalCommandGate::submit_patch(const PortalPatch& patch, PortalMailboxResult* result) {
     if (!ui_attached_) return PortalError::UI_BUSY;
     {
@@ -79,8 +89,21 @@ void PortalCommandGate::publish(const PortalValues& values, const PortalStatus& 
     published_ms_ = millis();
 }
 
+void PortalCommandGate::publish_stats(const PortalStats& stats) {
+    Section section(&stats_mux_);
+    stats_ = stats;
+    stats_published_ = true;
+    stats_published_ms_ = millis();
+}
+
 void PortalCommandGate::attach_ui(bool attached) {
-    Section section(&mux_);
-    ui_attached_ = attached;
-    if (!attached) published_ = false;  // a snapshot nobody refreshes any more is stale
+    {
+        Section section(&mux_);
+        ui_attached_ = attached;
+        if (!attached) published_ = false;  // a snapshot nobody refreshes any more is stale
+    }
+    if (!attached) {
+        Section section(&stats_mux_);
+        stats_published_ = false;
+    }
 }

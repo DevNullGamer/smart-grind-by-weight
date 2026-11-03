@@ -15,6 +15,8 @@ class UIManager;
 //  - Snapshot: while the Web interface is on, republishes the status every PORTAL_STATUS_PUBLISH_MS and the
 //    stored settings (settings, grind mode, profile targets, device name) every PORTAL_VALUES_REFRESH_MS and
 //    right after a write; GET /api/status, /api/settings read that copy.
+//    The lifetime statistics (GET /api/stats) are copied from statistics_manager every PORTAL_STATS_REFRESH_MS and on a
+//    screen state change into their own slot; only this task calls the statistics getters.
 //  - Mailbox: takes a PATCH /api/settings request, decides it (portal_write_decide: READY or MENU only, never
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
@@ -54,6 +56,7 @@ private:
     void publish_snapshot(uint32_t now_ms, bool reload_values);
     void load_values(PortalValues* out) const;
     PortalStatusInputs gather_status() const;
+    PortalStats gather_stats() const;
     PortalDecisionInput gather_decision() const;
     bool grinder_busy() const;
 
@@ -64,6 +67,7 @@ private:
     UIState last_state_ = UIState::READY;
     bool publish_due_ = false;       // a write just finished: publish at once
     uint32_t last_publish_ms_ = 0;
+    uint32_t last_stats_ms_ = 0;     // statistics snapshot, refreshed on its own (slower) schedule
     uint32_t values_loaded_ms_ = 0;
     PortalValues values_;
     bool values_valid_ = false;

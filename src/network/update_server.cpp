@@ -184,6 +184,7 @@ esp_err_t begin_trampoline(httpd_req_t* req) { return update_server.handle_begin
 esp_err_t data_trampoline(httpd_req_t* req) { return update_server.handle_data(req); }
 esp_err_t page_trampoline(httpd_req_t* req) { return portal_handle_page(req); }
 esp_err_t status_trampoline(httpd_req_t* req) { return portal_handle_status(req); }
+esp_err_t stats_trampoline(httpd_req_t* req) { return portal_handle_stats(req); }
 esp_err_t schema_trampoline(httpd_req_t* req) { return portal_handle_schema(req); }
 esp_err_t settings_get_trampoline(httpd_req_t* req) { return portal_handle_settings_get(req); }
 esp_err_t settings_patch_trampoline(httpd_req_t* req) { return portal_handle_settings_patch(req); }
@@ -253,6 +254,7 @@ void UpdateServer::start_server() {
         {"/index.html", HTTP_GET, page_trampoline},
         {"/api/status", HTTP_GET, status_trampoline},
         {"/api/schema", HTTP_GET, schema_trampoline},
+        {"/api/stats", HTTP_GET, stats_trampoline},
         {"/api/settings", HTTP_GET, settings_get_trampoline},
         {"/api/settings", HTTP_PATCH, settings_patch_trampoline},
         {"/api/command", HTTP_POST, command_trampoline},

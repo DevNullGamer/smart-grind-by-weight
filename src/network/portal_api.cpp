@@ -506,6 +506,11 @@ struct JsonOut {
         snprintf(tmp, sizeof(tmp), "%lu", static_cast<unsigned long>(v));
         raw(tmp);
     }
+    void uinteger64(uint64_t v) {
+        char tmp[24];
+        snprintf(tmp, sizeof(tmp), "%llu", static_cast<unsigned long long>(v));
+        raw(tmp);
+    }
     void boolean(bool v) { raw(v ? "true" : "false"); }
     void key(const char* k) {
         str(k);
@@ -828,6 +833,49 @@ bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
         j.str(kWarningNames[i]);
     }
     j.put(']');
+    j.put('}');
+    return j.done();
+}
+
+namespace {
+
+// A fractional statistic as a bounded, non-negative number (NaN, infinity and negatives become 0)
+double bounded_stat(float v) {
+    if (!isfinite(v) || v < 0.0f) return 0.0;
+    return v > PORTAL_STATS_FLOAT_MAX ? PORTAL_STATS_FLOAT_MAX : static_cast<double>(v);
+}
+
+}  // namespace
+
+bool portal_encode_stats(const PortalStats& s, char* out, size_t cap) {
+    JsonOut j(out, cap);
+    j.put('{');
+    j.raw("\"total_grinds\":");
+    j.uinteger(s.total_grinds);
+    j.raw(",\"single\":");
+    j.uinteger(s.single);
+    j.raw(",\"double\":");
+    j.uinteger(s.double_shots);
+    j.raw(",\"custom\":");
+    j.uinteger(s.custom);
+    j.raw(",\"weight_mode\":");
+    j.uinteger(s.weight_mode);
+    j.raw(",\"time_mode\":");
+    j.uinteger(s.time_mode);
+    j.raw(",\"total_weight_kg\":");
+    j.num(bounded_stat(s.total_weight_kg));
+    j.raw(",\"motor_runtime_s\":");
+    j.uinteger(s.motor_runtime_s);
+    j.raw(",\"avg_abs_error_g\":");
+    j.num(bounded_stat(s.avg_abs_error_g));
+    j.raw(",\"total_pulses\":");
+    j.uinteger(s.total_pulses);
+    j.raw(",\"avg_pulses\":");
+    j.num(bounded_stat(s.avg_pulses));
+    j.raw(",\"time_pulses\":");
+    j.uinteger(s.time_pulses);
+    j.raw(",\"powered_minutes\":");
+    j.uinteger64(s.powered_minutes);
     j.put('}');
     return j.done();
 }

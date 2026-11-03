@@ -27,6 +27,7 @@ int portal_handle_page(httpd_req* req);
 // the write hands the parsed patch to the UI task through portal_command_gate and waits for its answer. The
 // HTTP task never touches LVGL, the controllers, the profiles or NVS.
 int portal_handle_status(httpd_req* req);          // GET /api/status
+int portal_handle_stats(httpd_req* req);           // GET /api/stats (lifetime statistics, own snapshot slot)
 int portal_handle_settings_get(httpd_req* req);    // GET /api/settings
 int portal_handle_schema(httpd_req* req);          // GET /api/schema (constant, no snapshot needed)
 int portal_handle_settings_patch(httpd_req* req);  // PATCH /api/settings

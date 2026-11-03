@@ -25,6 +25,9 @@ public:
     // ---- HTTP task ----
     // False when no fresh snapshot exists (UI task not running or stuck): answer 503 ui_busy.
     bool read_snapshot(PortalValues* values, PortalStatus* status);
+    // The lifetime statistics the UI task last published (own lock, own freshness: refreshed less often than the
+    // status). False when never published or older than PORTAL_STATS_STALE_MS: answer 503 ui_busy.
+    bool read_stats(PortalStats* stats);
     // Files the patch and waits up to the pickup/run timeouts. NONE: *result holds the UI task's answer (its
     // result.error may itself be a refusal or STORE_FAILED). Otherwise the refusal (COMMAND_IN_FLIGHT, UI_BUSY).
     PortalError submit_patch(const PortalPatch& patch, PortalMailboxResult* result);
@@ -40,6 +43,7 @@ public:
     uint32_t stop_seq() const { return stop_seq_.load(); }
     void complete(const PortalMailboxResult& result);
     void publish(const PortalValues& values, const PortalStatus& status);
+    void publish_stats(const PortalStats& stats);
     void attach_ui(bool attached);
     bool ui_attached() const { return ui_attached_; }
 
@@ -54,6 +58,10 @@ private:
     PortalStatus status_;
     bool published_ = false;
     uint32_t published_ms_ = 0;
+    portMUX_TYPE stats_mux_ = portMUX_INITIALIZER_UNLOCKED;
+    PortalStats stats_;
+    bool stats_published_ = false;
+    uint32_t stats_published_ms_ = 0;
     volatile bool ui_attached_ = false;
 };
 
