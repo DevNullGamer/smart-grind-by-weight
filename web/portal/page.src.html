@@ -29,7 +29,7 @@
       <h1 id="name">Grinder</h1>
       <div id="build" class="build"></div>
     </div>
-    <span id="conn" class="chip"><svg class="icon" aria-hidden="true"><use href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
+    <span id="conn" class="chip" role="status"><svg class="icon" aria-hidden="true"><use id="conn-icon" href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
   </div>
   <div class="strip" aria-hidden="true">
     <span id="strip-state" class="state">Connecting</span>
@@ -46,16 +46,67 @@
   <div id="alert" class="message error" role="alert"></div>
   <div class="layout">
     <section id="panel-grind" class="panel" aria-label="Grind">
-      <div class="card readout">
-        <h2>Now</h2>
-        <div id="readout-state" class="state">Connecting</div>
-        <div id="readout-weight" class="weight">-- g</div>
-        <div id="readout-phase" class="phase"></div>
-        <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+      <div id="conn-note" class="card note" hidden>
+        <p id="conn-detail"></p>
+        <button id="retry" class="btn" type="button" hidden>Retry now</button>
       </div>
-      <div class="card">
-        <h2>Profiles</h2>
-        <p class="muted">Profile cards with Start buttons appear here.</p>
+      <div id="weboff" class="card note" hidden>
+        <h2>The web interface is off</h2>
+        <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
+      </div>
+      <div id="live" class="live">
+        <div id="banner" class="card banner" hidden>
+          <svg class="icon" aria-hidden="true"><use href="#i-warning"></use></svg>
+          <p id="banner-text"></p>
+        </div>
+        <div id="readout" class="card readout">
+          <h2>Now</h2>
+          <div id="readout-state" class="state">Connecting</div>
+          <div id="readout-weight" class="weight">-- g</div>
+          <div id="readout-phase" class="phase"></div>
+          <div id="readout-hint" class="muted"></div>
+          <div id="readout-seen" class="muted"></div>
+          <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+        </div>
+        <div id="leadin" class="card leadin" hidden>
+          <p id="leadin-text"></p>
+        </div>
+        <div class="card">
+          <h2>Profiles</h2>
+          <div class="profiles">
+          <div id="profile-0" class="profile">
+            <div class="p-head"><strong>Single</strong><span id="badge-0" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-0" class="p-target">--</div>
+            <button id="start-0" class="btn primary" type="button" aria-label="Start Single" aria-describedby="reason-start-0">Start</button>
+            <p id="reason-start-0" class="reason"></p>
+          </div>
+          <div id="profile-1" class="profile">
+            <div class="p-head"><strong>Double</strong><span id="badge-1" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-1" class="p-target">--</div>
+            <button id="start-1" class="btn primary" type="button" aria-label="Start Double" aria-describedby="reason-start-1">Start</button>
+            <p id="reason-start-1" class="reason"></p>
+          </div>
+          <div id="profile-2" class="profile">
+            <div class="p-head"><strong>Custom</strong><span id="badge-2" class="badge" hidden>Selected on grinder</span></div>
+            <div id="target-2" class="p-target">--</div>
+            <button id="start-2" class="btn primary" type="button" aria-label="Start Custom" aria-describedby="reason-start-2">Start</button>
+            <p id="reason-start-2" class="reason"></p>
+          </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Tools</h2>
+          <div class="actions">
+            <div class="action">
+              <button id="tare" class="btn" type="button" aria-describedby="reason-tare">Tare</button>
+              <p id="reason-tare" class="reason"></p>
+            </div>
+            <div class="action">
+              <button id="motor-test" class="btn" type="button" aria-describedby="reason-motor-test">Motor test</button>
+              <p id="reason-motor-test" class="reason"></p>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>

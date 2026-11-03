@@ -71,6 +71,7 @@ class SimGrinder:
             elapsed = now - run["started"]
             if run["kind"] == "start" and not run["live"] and elapsed >= LEAD_IN_S:
                 run["live"] = True
+                self.ui_state = "grinding"  # during the lead-in the status still reads ready (contract section 7)
                 run["started"] += LEAD_IN_S  # the grind itself starts when the lead-in ends
                 elapsed = now - run["started"]
             if run["live"]:
@@ -184,7 +185,6 @@ class SimGrinder:
                 duration = self.stored[f"{names[profile]}_time_s"]
                 target = duration * GRIND_RATE_G_PER_S
             self.weight = 0.0
-            self.ui_state = "grinding"
             self.run = {"kind": "start", "started": now, "live": False, "mode": mode, "target_g": target,
                         "duration": duration, "rate": target / duration}
             return 202, {"ok": True, "cmd": "start", "profile": profile, "lead_in_ms": model.LEAD_IN_MS}

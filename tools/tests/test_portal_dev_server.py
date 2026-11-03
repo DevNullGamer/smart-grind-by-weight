@@ -471,3 +471,55 @@ def test_purge_amount_half_rounds_up_like_the_firmware():
     for text, expected in (("0.25", 0.3), ("0.45", 0.5), ("1.25", 1.3)):
         applied, adjusted = model.parse_patch(body_bytes('{"purge_amount_g":' + text + '}'))
         assert applied["purge_amount_g"] == pytest.approx(expected, abs=1e-6) and adjusted == ["purge_amount_g"]
+
+
+# ------------------------------------------------------------------------------------------ live view (chg016 step 2)
+def test_app_only_uses_element_ids_the_page_has():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    ids = set(re.findall(r"\$\('([a-z0-9-]+)'\)", app))
+    ids |= {f"{prefix}{i}" for prefix in ("start-", "target-", "badge-", "reason-start-") for i in range(3)} \
+        if "'start-' + i" in app else set()
+    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights")}
+    ids = {i for i in ids if not i.endswith("-")}
+    missing = sorted(i for i in ids if f'id="{i}"' not in page)
+    assert not missing, f"portal-app.js uses ids that page.src.html lacks: {missing}"
+
+
+def test_stop_is_never_disabled_by_the_page_code():
+    for name in ("portal-app.js", "portal-view.js"):
+        text = (ROOT / "web" / "portal" / name).read_text(encoding="utf-8")
+        assert not re.search(r"\$\('stop(-pane)?'\)\.disabled", text), name
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    # STOP is wired straight to the client, with no confirm() and no enabled-check in front of it
+    assert "confirm(" not in app and "prompt(" not in app
+    assert "$('stop').addEventListener('click', stop)" in app
+
+
+def test_every_start_tare_and_motor_test_button_has_visible_reason_text():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for button, reason in [("start-0", "reason-start-0"), ("start-1", "reason-start-1"), ("start-2", "reason-start-2"),
+                           ("tare", "reason-tare"), ("motor-test", "reason-motor-test")]:
+        tag = re.search(rf'<button id="{button}"[^>]*>', page).group(0)
+        assert f'aria-describedby="{reason}"' in tag
+        assert f'id="{reason}"' in page
+
+
+def test_real_page_is_served_and_drives_a_remote_start(server):
+    """Smoke: the page the dev server serves, then the calls the page makes for Start, in order."""
+    page = build_page.render_page()
+    server.RequestHandlerClass = dev.make_handler(server.sim, page)
+    status, _, res = call(server, "GET", "/")
+    assert status == 200
+    assert call(server, "GET", "/api/status")[1]["start_block"] is None
+    status, doc, _ = call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')
+    assert status == 202 and doc["lead_in_ms"] == 3000
+    # during the lead-in the status still reads ready and not busy (contract section 7)
+    st = call(server, "GET", "/api/status")[1]
+    assert st["ui_state"] == "ready" and st["busy"] is False
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    server.clock.now += 3.5
+    st = call(server, "GET", "/api/status")[1]
+    assert st["busy"] is True and st["ui_state"] == "grinding"
+    assert call(server, "POST", "/api/command", '{"cmd":"stop"}')[0] == 200
+    assert call(server, "GET", "/api/status")[1]["busy"] is False

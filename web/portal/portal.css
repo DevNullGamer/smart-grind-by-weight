@@ -157,6 +157,27 @@ h2 { font-size: 1rem; }
 .message { min-height: 1.5em; }
 .message.error { color: var(--error); }
 
+/* ---- grind tab: live cards */
+.live { display: contents; }
+.note p + .btn { margin-top: 12px; }
+.banner { display: flex; gap: 12px; align-items: flex-start; border-width: 2px; }
+.banner.warning { border-color: var(--warning); }
+.banner.error { border-color: var(--error); }
+.banner.warning .icon { color: var(--warning); }
+.banner.error .icon { color: var(--error); }
+.readout.is-stale .weight, .readout.is-stale .state { color: var(--muted); }
+.readout .stop { margin-top: 12px; }
+.leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
+.profiles { display: grid; gap: 12px; }
+.profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); }
+.p-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.p-target { font-size: 1.5rem; font-weight: 700; }
+.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: 12px; padding: 0 8px; font-size: .8125rem; }
+.profile .btn { width: 100%; }
+.actions { display: flex; flex-wrap: wrap; gap: 16px; }
+.action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
+.reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
+
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
@@ -181,7 +202,8 @@ h2 { font-size: 1rem; }
   .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
   .content { max-width: 688px; margin: 0 auto; }
   .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .panel > .full { grid-column: 1 / -1; }
+  .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
+  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 /* ---- desktop: two panes, live controls on the left */
@@ -195,6 +217,7 @@ h2 { font-size: 1rem; }
   #tab-grind { display: none; }
   .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
   .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .profiles { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* wide enough for the centred 1120 px column: the header and the cards share the same edge */
