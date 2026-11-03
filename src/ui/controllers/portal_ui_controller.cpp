@@ -30,7 +30,9 @@ static_assert(static_cast<int>(GrindPhase::IDLE) == 0 && static_cast<int>(GrindP
               "GrindPhase order changed: update kGrindPhaseNames in network/portal_snapshot.cpp");
 
 // The pure snapshot module maps DiagnosticCode values to warning codes without including the enum
-#define PORTAL_ASSERT_WARNING(index, code)                                                                            static_assert(PORTAL_WARNING_DIAG_CODES[index] == static_cast<int>(DiagnosticCode::code),                                      "DiagnosticCode changed: update PORTAL_WARNING_DIAG_CODES in network/portal_snapshot.h")
+#define PORTAL_ASSERT_WARNING(index, code)                                                    \
+    static_assert(PORTAL_WARNING_DIAG_CODES[index] == static_cast<int>(DiagnosticCode::code), \
+                  "DiagnosticCode changed: update PORTAL_WARNING_DIAG_CODES in network/portal_snapshot.h")
 PORTAL_ASSERT_WARNING(0, BOARD_UNRECOGNIZED);
 PORTAL_ASSERT_WARNING(1, MOTOR_FAULT);
 PORTAL_ASSERT_WARNING(2, MOTOR_DISABLED);
@@ -43,8 +45,6 @@ PORTAL_ASSERT_WARNING(8, LOAD_CELL_NOT_CALIBRATED);
 #undef PORTAL_ASSERT_WARNING
 
 namespace {
-
-// Brightness percent, purge
 
 // Brightness percent, purge slider units or freshness step of a normalised API value, as the slider handler
 // of the menu would hold them

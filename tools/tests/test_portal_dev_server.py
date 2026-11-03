@@ -138,7 +138,8 @@ def test_status_vectors():
 
 def test_warning_ordering_ignores_duplicates_and_unknown_codes():
     assert model.ordered_warnings([]) == []
-    assert model.ordered_warnings(["load_cell_not_calibrated", "motor_fault", "motor_fault", "bogus"]) ==         ["motor_fault", "load_cell_not_calibrated"]
+    assert model.ordered_warnings(["load_cell_not_calibrated", "motor_fault", "motor_fault", "bogus"]) == \
+        ["motor_fault", "load_cell_not_calibrated"]
 
 
 def test_number_formatting_rule():
