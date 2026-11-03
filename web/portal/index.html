@@ -63,7 +63,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: 104px;
-  scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 8px);
+  scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + var(--savebar-h, 0px) + 8px);
 }
 
 body {
@@ -245,7 +245,6 @@ input.switch::before {
 }
 input.switch:checked { background: var(--primary); border-color: var(--primary); }
 input.switch:checked::before { left: 24px; background: var(--on-primary); }
-.switch-row .state-text { color: var(--muted); font-size: .875rem; min-width: 2.5em; text-align: right; }
 
 /* unsaved-changes bar: fixed above the STOP dock on phones */
 .savebar {
@@ -272,7 +271,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 /* ---- tablet: tabs on top as a segmented control, STOP in the header */
 @media (min-width: 600px) {
   :root { --gutter: 24px; }
-  html { scroll-padding-top: 72px; scroll-padding-bottom: 0; }
+  html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
   body { padding-bottom: 24px; }
   /* last in the header on the right; DOM and keyboard order keep STOP first */
   .header .stop { order: 3; position: static; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: 10px; }
@@ -979,6 +978,49 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         return 'status';
     }
 
+    // A settings reply (GET or PATCH) the page can use: an object with a values object.
+    function validSettingsDoc(doc) {
+        return !!doc && typeof doc === 'object' && !!doc.values && typeof doc.values === 'object' && !Array.isArray(doc.values);
+    }
+
+    // The needs after a good reply to `task`. `needs`: {needSchema, needSettings, needInfo}. wasOnline / prevUi: the
+    // connection state and ui_state before the reply. A settings reply that is not usable keeps needSettings and asks
+    // for status next (forceStatus) so the retry cannot starve it. `quick`: more is still missing, ask again at once.
+    function pollSucceeded(task, needs, doc, wasOnline, prevUi) {
+        var next = { needSchema: needs.needSchema, needSettings: needs.needSettings, needInfo: needs.needInfo, forceStatus: false };
+        if (!wasOnline) next.needSettings = true; // back after a gap: the grinder may have changed
+        if (task === 'status') {
+            if (prevUi && prevUi !== 'ready' && doc && doc.ui_state === 'ready') next.needSettings = true;
+        } else if (task === 'schema') {
+            next.needSchema = false;
+        } else if (task === 'settings') {
+            if (validSettingsDoc(doc)) next.needSettings = false;
+            else next.forceStatus = true;
+        } else {
+            next.needInfo = false;
+        }
+        next.quick = next.needSchema || next.needSettings || next.needInfo;
+        return next;
+    }
+
+    // What a failed request means: a 404 on the schema is an older firmware (reachable, no form), anything else is a
+    // lost connection; a failing settings, schema or info request must not starve status.
+    function pollFailed(task, code) {
+        if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
+        return { schemaMissing: false, connectionLost: true, forceStatus: task !== 'status' };
+    }
+
+    // The first field with a message, in the order the form shows them (groups top to bottom), or ''.
+    function firstInvalidKey(messages, fields) {
+        var found = '';
+        settingsGroups(fields).forEach(function (g) {
+            g.fields.forEach(function (f) {
+                if (!found && has(messages, f.key)) found = f.key;
+            });
+        });
+        return found;
+    }
+
     // Chip, explanation and whether a Retry button makes sense.
     function connectionView(conn, nowMs) {
         var seen = conn.lastOkAt === null ? '' : ' Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago.';
@@ -1426,13 +1468,13 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 
     // After a successful PATCH: the grinder's applied values become the stored ones. A saved key shows what the
     // grinder applied (it may have clamped it); an entry that was not part of the PATCH stays as typed.
-    function formSaved(form, appliedValues, patch) {
-        var stored = copyScalars(appliedValues);
-        var draft = copyScalars(form.draft);
-        Object.keys(stored).forEach(function (key) {
-            if (has(patch || {}, key) || !has(draft, key)) draft[key] = stored[key];
+    // Keys the user did not edit follow the reply (formRefresh rule), so no change appears that nobody made.
+    function formSaved(form, appliedValues, patch, fields) {
+        var next = formRefresh(form, appliedValues, fields).form;
+        Object.keys(patch || {}).forEach(function (key) {
+            if (has(next.stored, key)) next.draft[key] = next.stored[key];
         });
-        return { stored: stored, draft: draft };
+        return next;
     }
 
     // Fresh settings from the grinder. Fields the user has edited keep their entry; the others take the new value.
@@ -1446,12 +1488,14 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         Object.keys(fresh).forEach(function (key) {
             var raw = form.draft[key];
             var keep = false;
+            var same = false; // the entry already equals the new value: keep the text as typed ('9' stays '9')
             if (has(byKey, key) && has(form.draft, key)) {
                 var entry = entryValue(byKey[key], raw);
+                same = entry !== undefined && entry === fresh[key];
                 keep = entry === undefined || entry !== form.stored[key];
             }
-            if (keep) kept = true;
-            draft[key] = keep ? raw : fresh[key];
+            if (keep && !same) kept = true;
+            draft[key] = keep || same ? raw : fresh[key];
         });
         var changed = Object.keys(fresh).filter(function (key) { return form.stored[key] !== fresh[key]; });
         var notice = '';
@@ -1490,6 +1534,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     function saveReason(status, conn, extra) {
         var common = commonReason(status, conn, extra);
         if (common) return common;
+        if (status && (status.start_block === 'update_in_progress' || status.motor_test_block === 'update_in_progress')) {
+            return REASON.update;
+        }
         if (status && status.ui_state !== 'ready' && status.ui_state !== 'menu') return REASON.notReady;
         return '';
     }
@@ -1527,8 +1574,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         (fields || []).forEach(function (f) { byKey[f.key] = f; });
         var keys = Object.keys(patch || {});
         var out = { fields: {}, form: PC.describeError(code) + ' Your edits are kept.', reload: false };
-        if (code === 'invalid_device_name' && has(patch || {}, 'device_name')) {
-            out.fields.device_name = PC.describeError(code);
+        // the firmware also answers malformed_json for a device name it cannot read (non-ASCII, backslash)
+        if ((code === 'invalid_device_name' || code === 'malformed_json') && has(patch || {}, 'device_name')) {
+            out.fields.device_name = PC.describeError('invalid_device_name');
             out.form = 'Nothing was saved. Fix the marked field and try again.';
         } else if (code === 'out_of_range') {
             keys.forEach(function (key) {
@@ -1600,6 +1648,10 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         backoffDelay: backoffDelay,
         pollDelay: pollDelay,
         nextPollTask: nextPollTask,
+        validSettingsDoc: validSettingsDoc,
+        pollSucceeded: pollSucceeded,
+        pollFailed: pollFailed,
+        firstInvalidKey: firstInvalidKey,
         connectionView: connectionView,
         leadInStart: leadInStart,
         leadInTick: leadInTick,
@@ -1660,6 +1712,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   var leadIn = null;
   var commandPending = false;
   var needSettings = true;
+  var settingsGen = 0; // bumped when a save finishes: settings replies requested earlier are stale and dropped
   var needInfo = true;
   var needSchema = true;
   var schema = null; // the field list of GET /api/schema
@@ -1922,6 +1975,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
       input.setAttribute('autocomplete', 'off');
       input.setAttribute('autocorrect', 'off');
       input.spellcheck = false;
+      if (view.max !== null) input.maxLength = view.max;
       nameRow.appendChild(input);
       if (key === 'device_name') nameRow.appendChild(el('span', 'unit', '.local'));
       wrap.appendChild(nameRow);
@@ -2020,12 +2074,23 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     writeFields();
   }
 
+  // The save bar covers the bottom of the page: tell the CSS how tall it is so a focused field scrolls above it.
+  var savebarHeight = '0px';
+  function setSavebarHeight() {
+    var bar = $('savebar');
+    var h = bar.hidden ? '0px' : bar.offsetHeight + 'px';
+    if (h !== savebarHeight) {
+      savebarHeight = h;
+      document.documentElement.style.setProperty('--savebar-h', h);
+    }
+  }
+
   function renderSettings() {
     var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
     $('settings-status').hidden = placeholder === '';
     setText($('settings-status-text'), placeholder);
     $('settings-form').hidden = !form;
-    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; return; }
+    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
 
     var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     if (!bar.visible) { settingsNotice = ''; formError = ''; }
@@ -2037,6 +2102,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     $('settings-notice').hidden = settingsNotice === '';
     setText($('settings-notice-text'), settingsNotice);
     if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
+    setSavebarHeight();
 
     var notes = V.entryNotes(form, schema);
     Object.keys(fieldControls).forEach(function (key) {
@@ -2078,7 +2144,17 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
     render();
     client.patchSettings(patch).then(function (doc) {
       commandPending = false;
-      form = V.formSaved(form, doc.values, patch);
+      settingsGen++;
+      if (!V.validSettingsDoc(doc)) {
+        // saved, but the reply cannot be read: read the settings back instead of guessing
+        needSettings = true;
+        quietRefresh = true;
+        say('The grinder answered in a way this page cannot read. The page checks the settings.', true);
+        render();
+        pollNow();
+        return;
+      }
+      form = V.formSaved(form, doc.values, patch, schema);
       settings = { values: doc.values, current_profile: doc.current_profile };
       fieldErrors = {};
       fieldNotes = V.adjustedNotes(doc.adjusted, doc.values, schema);
@@ -2090,6 +2166,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
       render();
     }, function (err) {
       commandPending = false;
+      settingsGen++;
       var code = err && err.code;
       var shown = V.saveErrorView(code, patch, schema);
       fieldErrors = shown.fields;
@@ -2098,7 +2175,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
       if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
       if (shown.reload) { needSettings = true; quietRefresh = true; }
       render();
-      var first = Object.keys(fieldErrors)[0];
+      var first = V.firstInvalidKey(fieldErrors, schema);
       if (first && fieldControls[first] && fieldControls[first].focusEl) fieldControls[first].focusEl.focus();
       pollNow();
     });
@@ -2161,39 +2238,48 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
         schedule(document.hidden ? null : quickNext ? 100 : V.pollDelay(conn, status, leadInIsActive(), document.hidden));
       }
     }
+    var gen = settingsGen;
     request.then(function (doc) {
-      if (conn.state !== 'online') needSettings = true; // back after a gap: the grinder may have changed
+      var wasOnline = conn.state === 'online';
+      var before = status ? status.ui_state : '';
       conn = V.connectionOk(conn, now());
+      // A settings reply that started before a save finished is older than the saved values: drop it.
+      if (task === 'settings' && gen !== settingsGen) {
+        quickNext = needSchema || needSettings || needInfo;
+        return;
+      }
+      var next = V.pollSucceeded(task, { needSchema: needSchema, needSettings: needSettings, needInfo: needInfo }, doc, wasOnline, before);
+      needSchema = next.needSchema;
+      needSettings = next.needSettings;
+      needInfo = next.needInfo;
+      forceStatus = next.forceStatus;
       if (task === 'status') {
-        var before = status ? status.ui_state : '';
         status = doc;
-        if (before && before !== 'ready' && doc.ui_state === 'ready') needSettings = true;
         statusAt = now();
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'schema') {
         schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
-        needSchema = false;
         ensureForm();
       } else if (task === 'settings') {
-        settings = doc;
-        needSettings = false;
-        onSettings();
+        if (V.validSettingsDoc(doc)) {
+          settings = doc;
+          onSettings();
+        }
       } else {
         setText($('name'), doc.name);
         setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
-        needInfo = false;
       }
-      quickNext = needSchema || needSettings || needInfo;
+      quickNext = next.quick;
     }, function (err) {
-      if (task === 'schema' && err && err.code === 'not_supported') {
+      var failed = V.pollFailed(task, err && err.code);
+      if (failed.schemaMissing) {
         // an older firmware without /api/schema: reachable, but there is no settings form
         schemaMissing = true;
         needSchema = false;
-        conn = V.connectionOk(conn, now());
-        return;
       }
-      conn = V.connectionFailed(conn, err && err.code, now());
-      if (task !== 'status') forceStatus = true; // do not let a failing settings or info request starve status
+      if (failed.connectionLost) conn = V.connectionFailed(conn, err && err.code, now());
+      else conn = V.connectionOk(conn, now());
+      if (failed.forceStatus) forceStatus = true; // do not let a failing settings or info request starve status
     }).then(finalize, finalize);
   }
 

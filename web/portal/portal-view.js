@@ -211,6 +211,49 @@
         return 'status';
     }
 
+    // A settings reply (GET or PATCH) the page can use: an object with a values object.
+    function validSettingsDoc(doc) {
+        return !!doc && typeof doc === 'object' && !!doc.values && typeof doc.values === 'object' && !Array.isArray(doc.values);
+    }
+
+    // The needs after a good reply to `task`. `needs`: {needSchema, needSettings, needInfo}. wasOnline / prevUi: the
+    // connection state and ui_state before the reply. A settings reply that is not usable keeps needSettings and asks
+    // for status next (forceStatus) so the retry cannot starve it. `quick`: more is still missing, ask again at once.
+    function pollSucceeded(task, needs, doc, wasOnline, prevUi) {
+        var next = { needSchema: needs.needSchema, needSettings: needs.needSettings, needInfo: needs.needInfo, forceStatus: false };
+        if (!wasOnline) next.needSettings = true; // back after a gap: the grinder may have changed
+        if (task === 'status') {
+            if (prevUi && prevUi !== 'ready' && doc && doc.ui_state === 'ready') next.needSettings = true;
+        } else if (task === 'schema') {
+            next.needSchema = false;
+        } else if (task === 'settings') {
+            if (validSettingsDoc(doc)) next.needSettings = false;
+            else next.forceStatus = true;
+        } else {
+            next.needInfo = false;
+        }
+        next.quick = next.needSchema || next.needSettings || next.needInfo;
+        return next;
+    }
+
+    // What a failed request means: a 404 on the schema is an older firmware (reachable, no form), anything else is a
+    // lost connection; a failing settings, schema or info request must not starve status.
+    function pollFailed(task, code) {
+        if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
+        return { schemaMissing: false, connectionLost: true, forceStatus: task !== 'status' };
+    }
+
+    // The first field with a message, in the order the form shows them (groups top to bottom), or ''.
+    function firstInvalidKey(messages, fields) {
+        var found = '';
+        settingsGroups(fields).forEach(function (g) {
+            g.fields.forEach(function (f) {
+                if (!found && has(messages, f.key)) found = f.key;
+            });
+        });
+        return found;
+    }
+
     // Chip, explanation and whether a Retry button makes sense.
     function connectionView(conn, nowMs) {
         var seen = conn.lastOkAt === null ? '' : ' Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago.';
@@ -658,13 +701,13 @@
 
     // After a successful PATCH: the grinder's applied values become the stored ones. A saved key shows what the
     // grinder applied (it may have clamped it); an entry that was not part of the PATCH stays as typed.
-    function formSaved(form, appliedValues, patch) {
-        var stored = copyScalars(appliedValues);
-        var draft = copyScalars(form.draft);
-        Object.keys(stored).forEach(function (key) {
-            if (has(patch || {}, key) || !has(draft, key)) draft[key] = stored[key];
+    // Keys the user did not edit follow the reply (formRefresh rule), so no change appears that nobody made.
+    function formSaved(form, appliedValues, patch, fields) {
+        var next = formRefresh(form, appliedValues, fields).form;
+        Object.keys(patch || {}).forEach(function (key) {
+            if (has(next.stored, key)) next.draft[key] = next.stored[key];
         });
-        return { stored: stored, draft: draft };
+        return next;
     }
 
     // Fresh settings from the grinder. Fields the user has edited keep their entry; the others take the new value.
@@ -678,12 +721,14 @@
         Object.keys(fresh).forEach(function (key) {
             var raw = form.draft[key];
             var keep = false;
+            var same = false; // the entry already equals the new value: keep the text as typed ('9' stays '9')
             if (has(byKey, key) && has(form.draft, key)) {
                 var entry = entryValue(byKey[key], raw);
+                same = entry !== undefined && entry === fresh[key];
                 keep = entry === undefined || entry !== form.stored[key];
             }
-            if (keep) kept = true;
-            draft[key] = keep ? raw : fresh[key];
+            if (keep && !same) kept = true;
+            draft[key] = keep || same ? raw : fresh[key];
         });
         var changed = Object.keys(fresh).filter(function (key) { return form.stored[key] !== fresh[key]; });
         var notice = '';
@@ -722,6 +767,9 @@
     function saveReason(status, conn, extra) {
         var common = commonReason(status, conn, extra);
         if (common) return common;
+        if (status && (status.start_block === 'update_in_progress' || status.motor_test_block === 'update_in_progress')) {
+            return REASON.update;
+        }
         if (status && status.ui_state !== 'ready' && status.ui_state !== 'menu') return REASON.notReady;
         return '';
     }
@@ -759,8 +807,9 @@
         (fields || []).forEach(function (f) { byKey[f.key] = f; });
         var keys = Object.keys(patch || {});
         var out = { fields: {}, form: PC.describeError(code) + ' Your edits are kept.', reload: false };
-        if (code === 'invalid_device_name' && has(patch || {}, 'device_name')) {
-            out.fields.device_name = PC.describeError(code);
+        // the firmware also answers malformed_json for a device name it cannot read (non-ASCII, backslash)
+        if ((code === 'invalid_device_name' || code === 'malformed_json') && has(patch || {}, 'device_name')) {
+            out.fields.device_name = PC.describeError('invalid_device_name');
             out.form = 'Nothing was saved. Fix the marked field and try again.';
         } else if (code === 'out_of_range') {
             keys.forEach(function (key) {
@@ -832,6 +881,10 @@
         backoffDelay: backoffDelay,
         pollDelay: pollDelay,
         nextPollTask: nextPollTask,
+        validSettingsDoc: validSettingsDoc,
+        pollSucceeded: pollSucceeded,
+        pollFailed: pollFailed,
+        firstInvalidKey: firstInvalidKey,
         connectionView: connectionView,
         leadInStart: leadInStart,
         leadInTick: leadInTick,

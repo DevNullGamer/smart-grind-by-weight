@@ -561,7 +561,7 @@ test('formSaved: saved keys show what the grinder applied, other entries stay', 
     form = PV.formSet(form, 'single_weight_g', '');
     const patch = PV.formPatch(form, FIELDS);
     const applied = Object.assign({}, VALUES, { brightness_normal: 15 });
-    const saved = PV.formSaved(form, applied, patch);
+    const saved = PV.formSaved(form, applied, patch, FIELDS);
     assert.equal(saved.draft.brightness_normal, 15);
     assert.equal(saved.stored.brightness_normal, 15);
     assert.equal(saved.draft.single_weight_g, '');
@@ -717,6 +717,99 @@ test('nextPollTask: the schema is fetched before the settings', () => {
     assert.equal(PV.nextPollTask(f), 'schema');
     assert.equal(PV.nextPollTask(Object.assign({}, f, { needSchema: false })), 'settings');
     assert.equal(PV.nextPollTask(Object.assign({}, f, { forceStatus: true })), 'status');
+});
+
+// ---------------------------------------------------------------------------------------------- step 3: audit round 1
+test('saveReason: Save is blocked while a WiFi update holds the grinder (start or motor test block)', () => {
+    let form = PV.formSet(PV.formNew(VALUES), 'logging', true);
+    for (const key of ['start_block', 'motor_test_block']) {
+        const bar = PV.saveBarView(form, FIELDS, status({ [key]: 'update_in_progress' }), online(), {});
+        assert.equal(bar.canSave, false, key);
+        assert.equal(bar.reason, PV.REASON.update, key);
+        assert.equal(bar.visible, true);
+    }
+});
+
+test('formSaved: a key the user did not edit follows the reply and makes no pending change', () => {
+    let form = PV.formNew(VALUES);
+    form = PV.formSet(form, 'logging', true);
+    const patch = PV.formPatch(form, FIELDS);
+    const saved = PV.formSaved(form, Object.assign({}, VALUES, { single_weight_g: 12, logging: true }), patch, FIELDS);
+    assert.equal(saved.draft.single_weight_g, 12);
+    assert.equal(saved.stored.single_weight_g, 12);
+    assert.deepEqual(PV.formPatch(saved, FIELDS), {});
+    assert.equal(PV.formChangeCount(saved, FIELDS), 0);
+});
+
+test('formRefresh: the typed text is kept when it already equals the new value', () => {
+    let form = PV.formSet(PV.formNew(VALUES), 'single_weight_g', '9.0'); // stored 9.0, typed "9.0"
+    let r = PV.formRefresh(form, Object.assign({}, VALUES, { logging: true }), FIELDS);
+    assert.equal(r.form.draft.single_weight_g, '9.0');
+    form = PV.formSet(PV.formNew(VALUES), 'single_weight_g', '10');
+    r = PV.formRefresh(form, Object.assign({}, VALUES, { single_weight_g: 10 }), FIELDS);
+    assert.equal(r.form.draft.single_weight_g, '10'); // not rewritten to 10.0
+    assert.equal(r.notice, '');
+    form = PV.formSet(PV.formNew(VALUES), 'single_weight_g', '5.');
+    r = PV.formRefresh(form, Object.assign({}, VALUES, { single_weight_g: 5 }), FIELDS);
+    assert.equal(r.form.draft.single_weight_g, '5.');
+    assert.equal(PV.formChangeCount(r.form, FIELDS), 0);
+});
+
+test('saveErrorView: malformed_json with a device name is shown at the field', () => {
+    const v = PV.saveErrorView('malformed_json', { device_name: 'grïnder' }, FIELDS);
+    assert.deepEqual(Object.keys(v.fields), ['device_name']);
+    assert.match(v.form, /Nothing was saved/);
+});
+
+test('fieldView: the device name carries its 24 character limit; firstInvalidKey follows the form order', () => {
+    const name = PV.settingsGroups(FIELDS)[3].fields.find((f) => f.key === 'device_name');
+    assert.equal(name.max, 24);
+    // patch order is schema order, the form shows Profiles before Device
+    assert.equal(PV.firstInvalidKey({ device_name: 'x', double_weight_g: 'y', single_weight_g: 'z' }, FIELDS), 'single_weight_g');
+    assert.equal(PV.firstInvalidKey({ device_name: 'x' }, FIELDS), 'device_name');
+    assert.equal(PV.firstInvalidKey({}, FIELDS), '');
+});
+
+test('validSettingsDoc: only an object with a values object is usable', () => {
+    assert.equal(PV.validSettingsDoc({ values: {}, current_profile: 0 }), true);
+    for (const bad of [null, undefined, {}, 'x', { values: null }, { values: [] }, { values: 'x' }]) {
+        assert.equal(PV.validSettingsDoc(bad), false);
+    }
+});
+
+test('pollSucceeded: the schema is fetched once, settings only again when something asks for them', () => {
+    let needs = { needSchema: true, needSettings: true, needInfo: true };
+    let n = PV.pollSucceeded('status', needs, status(), false, '');
+    assert.equal(n.needSchema, true);
+    n = PV.pollSucceeded('schema', needs, { fields: [] }, true, 'ready');
+    assert.equal(n.needSchema, false);
+    assert.equal(n.quick, true);
+    needs = { needSchema: false, needSettings: true, needInfo: true };
+    n = PV.pollSucceeded('settings', needs, { values: {} }, true, 'ready');
+    assert.deepEqual([n.needSchema, n.needSettings, n.needInfo, n.forceStatus], [false, false, true, false]);
+    needs = { needSchema: false, needSettings: false, needInfo: false };
+    n = PV.pollSucceeded('status', needs, status(), true, 'ready');
+    assert.deepEqual([n.needSchema, n.needSettings, n.quick], [false, false, false]);
+    n = PV.pollSucceeded('status', needs, status(), true, 'edit'); // back to the main screen: settings may have changed
+    assert.equal(n.needSettings, true);
+    n = PV.pollSucceeded('status', needs, status(), false, 'ready'); // back after a gap
+    assert.equal(n.needSettings, true);
+    n = PV.pollSucceeded('info', { needSchema: false, needSettings: false, needInfo: true }, {}, true, 'ready');
+    assert.equal(n.needInfo, false);
+});
+
+test('pollSucceeded: an unusable settings reply keeps the need and sends status next', () => {
+    const needs = { needSchema: false, needSettings: true, needInfo: false };
+    const n = PV.pollSucceeded('settings', needs, { nope: 1 }, true, 'ready');
+    assert.equal(n.needSettings, true);
+    assert.equal(n.forceStatus, true);
+});
+
+test('pollFailed: a 404 on the schema means no form, any other failure loses the connection', () => {
+    assert.deepEqual(PV.pollFailed('schema', 'not_supported'), { schemaMissing: true, connectionLost: false, forceStatus: false });
+    assert.deepEqual(PV.pollFailed('settings', 'not_supported'), { schemaMissing: false, connectionLost: true, forceStatus: true });
+    assert.deepEqual(PV.pollFailed('schema', 'timeout'), { schemaMissing: false, connectionLost: true, forceStatus: true });
+    assert.deepEqual(PV.pollFailed('status', 'network'), { schemaMissing: false, connectionLost: true, forceStatus: false });
 });
 
 test('the page source keeps the settings form rules (no markup writes, switches and radio groups)', () => {

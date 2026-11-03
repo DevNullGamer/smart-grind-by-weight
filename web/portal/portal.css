@@ -53,7 +53,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: 104px;
-  scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 8px);
+  scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + var(--savebar-h, 0px) + 8px);
 }
 
 body {
@@ -235,7 +235,6 @@ input.switch::before {
 }
 input.switch:checked { background: var(--primary); border-color: var(--primary); }
 input.switch:checked::before { left: 24px; background: var(--on-primary); }
-.switch-row .state-text { color: var(--muted); font-size: .875rem; min-width: 2.5em; text-align: right; }
 
 /* unsaved-changes bar: fixed above the STOP dock on phones */
 .savebar {
@@ -262,7 +261,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 /* ---- tablet: tabs on top as a segmented control, STOP in the header */
 @media (min-width: 600px) {
   :root { --gutter: 24px; }
-  html { scroll-padding-top: 72px; scroll-padding-bottom: 0; }
+  html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
   body { padding-bottom: 24px; }
   /* last in the header on the right; DOM and keyboard order keep STOP first */
   .header .stop { order: 3; position: static; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: 10px; }

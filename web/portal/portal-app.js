@@ -17,6 +17,7 @@
   var leadIn = null;
   var commandPending = false;
   var needSettings = true;
+  var settingsGen = 0; // bumped when a save finishes: settings replies requested earlier are stale and dropped
   var needInfo = true;
   var needSchema = true;
   var schema = null; // the field list of GET /api/schema
@@ -279,6 +280,7 @@
       input.setAttribute('autocomplete', 'off');
       input.setAttribute('autocorrect', 'off');
       input.spellcheck = false;
+      if (view.max !== null) input.maxLength = view.max;
       nameRow.appendChild(input);
       if (key === 'device_name') nameRow.appendChild(el('span', 'unit', '.local'));
       wrap.appendChild(nameRow);
@@ -377,12 +379,23 @@
     writeFields();
   }
 
+  // The save bar covers the bottom of the page: tell the CSS how tall it is so a focused field scrolls above it.
+  var savebarHeight = '0px';
+  function setSavebarHeight() {
+    var bar = $('savebar');
+    var h = bar.hidden ? '0px' : bar.offsetHeight + 'px';
+    if (h !== savebarHeight) {
+      savebarHeight = h;
+      document.documentElement.style.setProperty('--savebar-h', h);
+    }
+  }
+
   function renderSettings() {
     var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
     $('settings-status').hidden = placeholder === '';
     setText($('settings-status-text'), placeholder);
     $('settings-form').hidden = !form;
-    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; return; }
+    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
 
     var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     if (!bar.visible) { settingsNotice = ''; formError = ''; }
@@ -394,6 +407,7 @@
     $('settings-notice').hidden = settingsNotice === '';
     setText($('settings-notice-text'), settingsNotice);
     if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
+    setSavebarHeight();
 
     var notes = V.entryNotes(form, schema);
     Object.keys(fieldControls).forEach(function (key) {
@@ -435,7 +449,17 @@
     render();
     client.patchSettings(patch).then(function (doc) {
       commandPending = false;
-      form = V.formSaved(form, doc.values, patch);
+      settingsGen++;
+      if (!V.validSettingsDoc(doc)) {
+        // saved, but the reply cannot be read: read the settings back instead of guessing
+        needSettings = true;
+        quietRefresh = true;
+        say('The grinder answered in a way this page cannot read. The page checks the settings.', true);
+        render();
+        pollNow();
+        return;
+      }
+      form = V.formSaved(form, doc.values, patch, schema);
       settings = { values: doc.values, current_profile: doc.current_profile };
       fieldErrors = {};
       fieldNotes = V.adjustedNotes(doc.adjusted, doc.values, schema);
@@ -447,6 +471,7 @@
       render();
     }, function (err) {
       commandPending = false;
+      settingsGen++;
       var code = err && err.code;
       var shown = V.saveErrorView(code, patch, schema);
       fieldErrors = shown.fields;
@@ -455,7 +480,7 @@
       if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
       if (shown.reload) { needSettings = true; quietRefresh = true; }
       render();
-      var first = Object.keys(fieldErrors)[0];
+      var first = V.firstInvalidKey(fieldErrors, schema);
       if (first && fieldControls[first] && fieldControls[first].focusEl) fieldControls[first].focusEl.focus();
       pollNow();
     });
@@ -518,39 +543,48 @@
         schedule(document.hidden ? null : quickNext ? 100 : V.pollDelay(conn, status, leadInIsActive(), document.hidden));
       }
     }
+    var gen = settingsGen;
     request.then(function (doc) {
-      if (conn.state !== 'online') needSettings = true; // back after a gap: the grinder may have changed
+      var wasOnline = conn.state === 'online';
+      var before = status ? status.ui_state : '';
       conn = V.connectionOk(conn, now());
+      // A settings reply that started before a save finished is older than the saved values: drop it.
+      if (task === 'settings' && gen !== settingsGen) {
+        quickNext = needSchema || needSettings || needInfo;
+        return;
+      }
+      var next = V.pollSucceeded(task, { needSchema: needSchema, needSettings: needSettings, needInfo: needInfo }, doc, wasOnline, before);
+      needSchema = next.needSchema;
+      needSettings = next.needSettings;
+      needInfo = next.needInfo;
+      forceStatus = next.forceStatus;
       if (task === 'status') {
-        var before = status ? status.ui_state : '';
         status = doc;
-        if (before && before !== 'ready' && doc.ui_state === 'ready') needSettings = true;
         statusAt = now();
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'schema') {
         schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
-        needSchema = false;
         ensureForm();
       } else if (task === 'settings') {
-        settings = doc;
-        needSettings = false;
-        onSettings();
+        if (V.validSettingsDoc(doc)) {
+          settings = doc;
+          onSettings();
+        }
       } else {
         setText($('name'), doc.name);
         setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
-        needInfo = false;
       }
-      quickNext = needSchema || needSettings || needInfo;
+      quickNext = next.quick;
     }, function (err) {
-      if (task === 'schema' && err && err.code === 'not_supported') {
+      var failed = V.pollFailed(task, err && err.code);
+      if (failed.schemaMissing) {
         // an older firmware without /api/schema: reachable, but there is no settings form
         schemaMissing = true;
         needSchema = false;
-        conn = V.connectionOk(conn, now());
-        return;
       }
-      conn = V.connectionFailed(conn, err && err.code, now());
-      if (task !== 'status') forceStatus = true; // do not let a failing settings or info request starve status
+      if (failed.connectionLost) conn = V.connectionFailed(conn, err && err.code, now());
+      else conn = V.connectionOk(conn, now());
+      if (failed.forceStatus) forceStatus = true; // do not let a failing settings or info request starve status
     }).then(finalize, finalize);
   }
 
