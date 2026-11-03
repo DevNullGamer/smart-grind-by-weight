@@ -2,66 +2,263 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grinder panel (reference page)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<title>Grinder panel</title>
 <style>
-  body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 1rem; max-width: 40rem; }
-  .banner { background: #ff3d00; color: #fff; font-weight: bold; padding: .75rem 1rem; border-radius: .4rem; }
-  .warn { background: #332200; color: #ffcc66; padding: .5rem 1rem; border-radius: .4rem; margin: .75rem 0; font-size: .9rem; }
-  h1 { font-size: 1.3rem; margin: 1rem 0 .25rem; }
-  h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #333; padding-bottom: .25rem; }
-  .row { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; flex-wrap: wrap; }
-  .row label { flex: 1 1 14rem; }
-  input[type=number], input[type=text], select { background: #222; color: #eee; border: 1px solid #555; border-radius: .3rem; padding: .35rem; width: 9rem; }
-  input[type=text] { width: 12rem; }
-  button { background: #00aaff; color: #000; border: 0; border-radius: .3rem; padding: .5rem .9rem; font-size: 1rem; cursor: pointer; }
-  button.stop { background: #ff0000; color: #fff; font-weight: bold; }
-  button.link { background: none; color: #00aaff; padding: .2rem; font-size: .85rem; text-decoration: underline; }
-  button:disabled { opacity: .5; cursor: default; }
-  .unit { color: #aaa; width: 2rem; }
-  #status dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem 1rem; margin: 0; }
-  #status dt { color: #aaa; }
-  #status dd { margin: 0; }
-  #message { min-height: 1.4rem; margin: .75rem 0; }
-  #message.error { color: #ff7777; }
-  #message.ok { color: #66dd66; }
-  #notes { color: #ffcc66; font-size: .9rem; }
-  #curl { width: 100%; box-sizing: border-box; background: #222; color: #eee; border: 1px solid #555; font-family: monospace; font-size: .8rem; }
-  .hint { color: #aaa; font-size: .85rem; }
+/* Web panel styles (chg016). Mobile first; min-width queries only. All colours are the custom properties below:
+   light values by default, one prefers-color-scheme block switches them. Final values are checked by the contrast
+   test (step 4). Hard rules of the page: no url(), no @import, no external fonts (CSP default-src 'self'). */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --raised: #ececee;
+  --text: #18181b;
+  --muted: #52525b;
+  --border: #8a8a93;
+  --hairline: #d4d4d8;
+  --primary: #c2310a;
+  --on-primary: #ffffff;
+  --accent: #0b6fa8;
+  --success: #12722d;
+  --warning: #8a5a00;
+  --error: #c4161c;
+  --on-error: #ffffff;
+  --focus: #0b6fa8;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 2px 8px rgba(0, 0, 0, .06);
+  --gutter: 16px;
+  --dock-h: 56px;
+  --tabbar-h: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0c;
+    --surface: #151517;
+    --raised: #1d1d20;
+    --text: #f2f2f3;
+    --muted: #a1a1a8;
+    --border: #76767e;
+    --hairline: #2c2c31;
+    --primary: #ff5a2b;
+    --on-primary: #1a0700;
+    --accent: #4cc2ff;
+    --success: #3ddc84;
+    --warning: #f5b83d;
+    --error: #ff6b6b;
+    --on-error: #1a0000;
+    --focus: #4cc2ff;
+    --shadow: none;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  /* room for the fixed STOP dock and the tab bar on phones */
+  padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 16px);
+}
+
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: 1.125rem; line-height: 1.3; }
+h2 { font-size: 1rem; }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+[hidden] { display: none !important; }
+
+.icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.skip-link {
+  position: absolute; left: 8px; top: -100px; z-index: 30;
+  background: var(--surface); color: var(--text); border: 2px solid var(--focus); border-radius: 10px; padding: 12px 16px;
+}
+.skip-link:focus { top: 8px; }
+
+/* ---- header: top bar plus the compact status strip (phones and tablets) */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--surface); border-bottom: 1px solid var(--hairline);
+  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+.topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.brand { flex: 1 1 auto; min-width: 0; }
+.brand .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.strip { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0 10px; }
+.strip .state { color: var(--muted); }
+.strip .weight { font-size: 1.5rem; font-weight: 700; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px;
+  border: 1px solid var(--border); border-radius: 16px; font-size: .875rem; white-space: nowrap;
+}
+.chip .icon { width: 16px; height: 16px; }
+
+/* ---- buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px; min-width: 44px; padding: 8px 16px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.btn:disabled { opacity: .55; cursor: default; }
+.btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+
+/* STOP: outlined while idle, solid while busy or in a lead-in (class is-busy). Same weight at every width. */
+.stop {
+  background: var(--surface); color: var(--error); border: 3px solid var(--error); border-radius: 10px;
+  font: inherit; font-size: 1.125rem; font-weight: 800; letter-spacing: .04em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+}
+.stop.is-busy { background: var(--error); color: var(--on-error); }
+/* phones: a fixed dock above the tab bar */
+.header .stop {
+  position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 20;
+  min-height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
+}
+.pane-stop { display: none; }
+
+/* ---- tab bar: fixed at the bottom on phones */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; background: var(--surface); border-top: 1px solid var(--hairline);
+  padding-bottom: var(--safe-bottom);
+}
+.tab {
+  flex: 1 1 0; min-height: var(--tabbar-h); padding: 6px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: 0; color: var(--muted); font: inherit; font-size: .8125rem; cursor: pointer;
+}
+.tab[aria-current="true"] { color: var(--primary); font-weight: 700; box-shadow: inset 0 3px 0 var(--primary); }
+
+/* ---- content */
+.content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
+.layout { display: block; }
+.panel { display: grid; gap: 16px; align-content: start; }
+.card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+.card h2 { margin-bottom: 8px; }
+.muted { color: var(--muted); }
+.readout .state { color: var(--muted); }
+.readout .weight { font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700; line-height: 1.05; }
+.readout .phase { min-height: 1.5em; }
+
+.notice {
+  margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+  color: var(--muted); font-size: .875rem;
+}
+.message { min-height: 1.5em; }
+.message.error { color: var(--error); }
+
+/* ---- tablet: tabs on top as a segmented control, STOP in the header */
+@media (min-width: 600px) {
+  :root { --gutter: 24px; }
+  body { padding-bottom: 24px; }
+  .header .stop { position: static; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: 10px; }
+  .strip { display: none; }
+  .tabbar {
+    position: static; display: flex; width: max-content; max-width: 100%; margin: 16px auto 0; padding: 4px;
+    background: var(--raised); border: 1px solid var(--hairline); border-radius: 12px;
+  }
+  .tab { flex-direction: row; gap: 8px; min-width: 112px; min-height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
+  .content { max-width: 688px; margin: 0 auto; }
+  .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .panel > .full { grid-column: 1 / -1; }
+}
+
+/* ---- desktop: two panes, live controls on the left */
+@media (min-width: 900px) {
+  .header { padding-inline: max(var(--gutter), calc((100% - 1120px) / 2)); }
+  .tabbar { margin: 16px max(var(--gutter), calc((100% - 1120px) / 2)) 0 auto; }
+  .content { max-width: 1120px; padding-inline: var(--gutter); }
+  .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; align-items: start; }
+  #panel-grind { position: sticky; top: 88px; display: grid; grid-template-columns: minmax(0, 1fr); }
+  #panel-grind[hidden] { display: grid !important; }
+  #tab-grind { display: none; }
+  .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
+  .panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .btn, .stop, .tab { transition: background-color .15s, color .15s, opacity .15s; }
+}
 </style>
 </head>
 <body>
-<div class="banner">REFERENCE PAGE, not the final portal</div>
-<div class="warn">With the web interface on, anyone on this network can change settings and start the grinder. There is no login.
-Keep Menu, WiFi, Web interface off when you do not need it.</div>
-<h1 id="name">Grinder</h1>
-<div id="message" role="status"></div>
-
-<h2>Status</h2>
-<div id="status"><dl id="status-list"></dl></div>
-<div class="row">
-  <button id="stop" class="stop" type="button">STOP</button>
-  <button id="tare" type="button">Tare</button>
-  <button id="motor_test" type="button">Motor test</button>
-</div>
-
-<h2>Profiles</h2>
-<div id="profiles"></div>
-
-<h2>Settings</h2>
-<form id="settings-form"></form>
-<div class="row">
-  <button id="apply" type="button">Apply changes</button>
-  <button id="reload" type="button">Reload from grinder</button>
-  <button id="copy-patch" class="link" type="button">Copy as curl</button>
-</div>
-<div id="notes"></div>
-
-<h2>Copy as curl</h2>
-<p class="hint">Shows the command for the last action (or the pending changes). Select and copy it if the copy button is not allowed by your browser (plain HTTP).</p>
-<textarea id="curl" rows="3" readonly></textarea>
-<div class="row"><button id="copy" type="button">Copy</button></div>
-
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"></rect></symbol>
+  <symbol id="i-grind" viewBox="0 0 24 24"><path d="M5 4h14l-4 7v9h-6v-9z"></path><path d="M9 14h6"></path></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></symbol>
+  <symbol id="i-insights" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"></path></symbol>
+  <symbol id="i-online" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r=".8"></circle></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></symbol>
+</svg>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="header">
+  <div class="topbar">
+    <button id="stop" class="stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+    <div class="brand">
+      <h1 id="name">Grinder</h1>
+      <div id="build" class="build"></div>
+    </div>
+    <span id="conn" class="chip"><svg class="icon" aria-hidden="true"><use href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
+  </div>
+  <div class="strip" aria-hidden="true">
+    <span id="strip-state" class="state">Connecting</span>
+    <span id="strip-weight" class="weight">-- g</span>
+  </div>
+</header>
+<nav id="tabs" class="tabbar" aria-label="Sections">
+  <button id="tab-grind" class="tab" type="button" data-tab="grind" aria-current="true"><svg class="icon" aria-hidden="true"><use href="#i-grind"></use></svg>Grind</button>
+  <button id="tab-settings" class="tab" type="button" data-tab="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
+  <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg>Insights</button>
+</nav>
+<main id="main" class="content" tabindex="-1">
+  <div id="message" class="message" role="status" aria-live="polite"></div>
+  <div id="alert" class="message error" role="alert"></div>
+  <div class="layout">
+    <section id="panel-grind" class="panel" aria-label="Grind">
+      <div class="card readout">
+        <h2>Now</h2>
+        <div id="readout-state" class="state">Connecting</div>
+        <div id="readout-weight" class="weight">-- g</div>
+        <div id="readout-phase" class="phase"></div>
+        <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+      </div>
+      <div class="card">
+        <h2>Profiles</h2>
+        <p class="muted">Profile cards with Start buttons appear here.</p>
+      </div>
+    </section>
+    <section id="panel-settings" class="panel" aria-label="Settings" hidden>
+      <div class="card full">
+        <h2>Settings</h2>
+        <p class="muted">Settings are not available on this page yet.</p>
+      </div>
+    </section>
+    <section id="panel-insights" class="panel" aria-label="Insights" hidden>
+      <div class="card full">
+        <h2>Insights</h2>
+        <p class="muted">Statistics and recent grinds are not available.</p>
+      </div>
+    </section>
+  </div>
+</main>
+<footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
 <script>
 // API client of the web panel (docs/PORTAL-API.md), shared by the reference page (inlined at build by
 // tools/portal/build_page.py) and the node tests (tools/tests/portal-client.test.js).
@@ -382,208 +579,83 @@ Keep Menu, WiFi, Web interface off when you do not need it.</div>
 }));
 </script>
 <script>
+// View helpers of the web panel (pure functions, no DOM, no network), inlined by tools/portal/build_page.py and
+// loaded unchanged by the node tests (tools/tests/portal-view.test.js, from step 2 on). All logic that node can
+// test lives here or in portal-client.js; portal-app.js only wires the DOM.
+'use strict';
+
+(function (root, factory) {
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = factory();
+    } else {
+        root.PortalView = factory();
+    }
+}(typeof self !== 'undefined' ? self : this, function () {
+
+    // The sections of the page in tab order. Insights stays hidden until the firmware has data for it.
+    var TABS = ['grind', 'settings', 'insights'];
+
+    // A weight in grams for the big readout: one decimal, "--" while the grinder reports none.
+    function formatWeight(grams) {
+        if (typeof grams !== 'number' || !isFinite(grams)) return '-- g';
+        return grams.toFixed(1) + ' g';
+    }
+
+    return {
+        TABS: TABS,
+        formatWeight: formatWeight
+    };
+}));
+</script>
+<script>
+// DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
+// into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
+// Step 1 of chg016 is the shell: tabs, the device name and a working STOP; live data follows in step 2.
 (function () {
   'use strict';
   var P = PortalClient;
+  var V = PortalView;
   var client = P.createClient();
-  var schema = null;
-  var known = {};
-  var currentProfile = -1;
-  var inputs = {};
-  var lastStatusError = '';
 
   function $(id) { return document.getElementById(id); }
-  function el(tag, props, children) {
-    var node = document.createElement(tag);
-    Object.keys(props || {}).forEach(function (k) { node[k] = props[k]; });
-    (children || []).forEach(function (c) { node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
-    return node;
-  }
-  function say(text, kind) {
-    var m = $('message');
-    m.textContent = text;
-    m.className = kind || '';
-  }
-  function fail(err) {
-    say(err && err.message ? err.message : 'Something went wrong.', 'error');
-    // One reload after a failed write; loadSettings reports its own failure and never calls fail() again.
-    if (err && (err.code === 'ui_busy' || err.code === 'store_failed')) loadSettings();
-  }
-  function showCurl(method, path, body) {
-    try { $('curl').value = P.toCurl(location.host, method, path, body); } catch (e) { $('curl').value = ''; }
-  }
 
-  // ---- form built from /api/schema
-  function fieldInput(f) {
-    var input;
-    if (f.type === 'bool') {
-      input = el('input', { type: 'checkbox' });
-    } else if (f.type === 'enum') {
-      input = el('select', {}, f.choices.map(function (c) { return el('option', { value: c, textContent: c }); }));
-    } else if (f.type === 'string') {
-      input = el('input', { type: 'text', maxLength: f.max, autocapitalize: 'off', spellcheck: false });
-    } else {
-      input = el('input', { type: 'number', min: f.min, max: f.max, step: f.step || 'any' });
-    }
-    input.id = 'f_' + f.key;
-    inputs[f.key] = { field: f, node: input };
-    return input;
-  }
-  function fieldRow(f) {
-    var input = fieldInput(f);
-    return el('div', { className: 'row' }, [
-      el('label', { htmlFor: input.id, textContent: P.fieldLabel(f.key) }), input,
-      el('span', { className: 'unit', textContent: f.unit || '' })
-    ]);
-  }
-  function buildForm() {
-    var form = $('settings-form');
-    var box = $('profiles');
-    form.textContent = '';
-    box.textContent = '';
-    inputs = {};
-    var profileKeys = {};
-    schema.profiles.forEach(function (p) { profileKeys[p.weight_key] = true; profileKeys[p.time_key] = true; });
-    var byKey = {};
-    schema.fields.forEach(function (f) { byKey[f.key] = f; });
-    schema.fields.forEach(function (f) {
-      if (!profileKeys[f.key]) form.appendChild(fieldRow(f));
-    });
-    schema.profiles.forEach(function (p) {
-      var start = el('button', { type: 'button', textContent: 'Start', id: 'start_' + p.index });
-      start.addEventListener('click', function () { runCommand('start', p.index); });
-      var title = el('strong', { id: 'profile_title_' + p.index, textContent: p.name });
-      box.appendChild(el('div', { className: 'row' }, [title, start]));
-      box.appendChild(fieldRow(byKey[p.weight_key]));
-      box.appendChild(fieldRow(byKey[p.time_key]));
-    });
-  }
-  function fillForm(values) {
-    known = values;
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      if (!(key in values)) return;
-      if (entry.field.type === 'bool') entry.node.checked = values[key];
-      else entry.node.value = values[key];
-    });
-  }
-  function readForm() {
-    var entered = {};
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      var type = entry.field.type;
-      if (type === 'bool') entered[key] = entry.node.checked;
-      else if (type === 'number' || type === 'int') {
-        if (entry.node.value !== '') entered[key] = Number(entry.node.value);
-      } else entered[key] = entry.node.value;
-    });
-    return entered;
-  }
-  function markProfile(index) {
-    currentProfile = index;
-    schema.profiles.forEach(function (p) {
-      $('profile_title_' + p.index).textContent = p.name + (p.index === index ? ' (selected on the grinder)' : '');
+  function showTab(name) {
+    // From 900 px the live pane is always visible beside the tabs, so the Grind tab does not exist there.
+    if (name === 'grind' && window.matchMedia('(min-width: 900px)').matches) name = 'settings';
+    V.TABS.forEach(function (tab) {
+      $('panel-' + tab).hidden = tab !== name;
+      var button = $('tab-' + tab);
+      if (tab === name) button.setAttribute('aria-current', 'true');
+      else button.removeAttribute('aria-current');
     });
   }
 
-  // ---- actions
-  function loadSettings() {
-    return client.getSettings().then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      return true;
+  function say(text, isError) {
+    $(isError ? 'alert' : 'message').textContent = text;
+    $(isError ? 'message' : 'alert').textContent = '';
+  }
+
+  // STOP always tries; a failure is reported in words (the page keeps no other state).
+  function stop() {
+    client.command('stop').then(function () {
+      say('Stop sent.', false);
     }, function (err) {
-      say(err.message, 'error');
-      return false;
-    });
-  }
-  function apply() {
-    var patch = P.diffValues(known, readForm());
-    if (Object.keys(patch).length === 0) { say('Nothing to change.', ''); return; }
-    var body = JSON.stringify(patch);
-    showCurl('PATCH', '/api/settings', body);
-    $('apply').disabled = true;
-    $('notes').textContent = '';
-    client.patchSettings(patch).then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      $('notes').textContent = P.describeAdjusted(r.adjusted, r.values, schema.fields).join(' ');
-      if (r.address) {
-        say('Saved. The grinder is now at http://' + r.address + ' - open the page there; the old name no longer answers.', 'ok');
-      } else {
-        say('Saved.', 'ok');
-      }
-    }).then(null, fail).then(function () { $('apply').disabled = false; });
-  }
-  function runCommand(cmd, profile) {
-    var body = { cmd: cmd };
-    if (profile !== undefined) body.profile = profile;
-    showCurl('POST', '/api/command', JSON.stringify(body));
-    client.command(cmd, profile).then(function (r) {
-      if (cmd === 'start') say('Start accepted. The grinder starts in ' + Math.round((r.lead_in_ms || 0) / 1000) + ' s; touch the grinder or press STOP to cancel.', 'ok');
-      else if (cmd === 'stop') say('Stop sent.', 'ok');
-      else say('Command accepted: ' + cmd.replace('_', ' ') + '.', 'ok');
-      pollStatus();
-    }, fail);
-  }
-  function copyCurl() {
-    var box = $('curl');
-    if (!box.value) { showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm()))); }
-    box.focus();
-    box.select();
-    var done = false;
-    try { done = document.execCommand('copy'); } catch (e) { done = false; }
-    say(done ? 'Copied.' : 'Press Ctrl+C (the text is selected).', done ? 'ok' : '');
-  }
-
-  // ---- status
-  function renderStatus(s) {
-    var d = P.describeStatus(s);
-    var rows = [['State', d.state], ['Grind phase', d.phase], ['Weight', d.weight], ['Busy', d.busy],
-      ['Motor', d.motor], ['Start', d.start], ['Motor test', d.motorTest], ['Uptime', d.uptime], ['Build', d.build]];
-    var list = $('status-list');
-    list.textContent = '';
-    rows.forEach(function (r) {
-      list.appendChild(el('dt', { textContent: r[0] }));
-      list.appendChild(el('dd', { textContent: r[1] }));
-    });
-  }
-  function pollStatus() {
-    client.getStatus().then(function (s) {
-      lastStatusError = '';
-      renderStatus(s);
-    }, function (err) {
-      $('status-list').textContent = '';
-      $('status-list').appendChild(el('dd', { textContent: err.message }));
-      // announce a new problem once, not every poll
-      if (err.code === 'web_interface_off' && lastStatusError !== err.code) say(err.message, 'error');
-      lastStatusError = err.code;
+      say(err && err.message ? err.message : 'Stop could not be sent.', true);
     });
   }
 
-  // ---- start
-  $('stop').addEventListener('click', function () { runCommand('stop'); });
-  $('tare').addEventListener('click', function () { runCommand('tare'); });
-  $('motor_test').addEventListener('click', function () { runCommand('motor_test'); });
-  $('apply').addEventListener('click', apply);
-  $('reload').addEventListener('click', function () { loadSettings().then(function (ok) { if (ok) say('Reloaded.', 'ok'); }); });
-  $('copy-patch').addEventListener('click', function () {
-    showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm())));
+  V.TABS.forEach(function (tab) {
+    $('tab-' + tab).addEventListener('click', function () { showTab(tab); });
   });
-  $('copy').addEventListener('click', copyCurl);
-  $('settings-form').addEventListener('submit', function (e) { e.preventDefault(); apply(); });
+  $('stop').addEventListener('click', stop);
+  $('stop-pane').addEventListener('click', stop);
+  showTab('grind');
 
   client.getInfo().then(function (info) {
-    $('name').textContent = info.name + '.local (firmware ' + info.version + ', build ' + info.build + ')';
+    $('name').textContent = info.name;
+    $('build').textContent = 'Firmware ' + info.version + ', build ' + info.build;
+    $('readout-weight').textContent = V.formatWeight(null);
   }, function () {});
-  client.getSchema().then(function (s) {
-    schema = s;
-    buildForm();
-    return loadSettings();
-  }).then(function () {
-    pollStatus();
-    setInterval(function () { if (!document.hidden) pollStatus(); }, 1000);
-  }, fail);
 }());
 </script>
 </body>

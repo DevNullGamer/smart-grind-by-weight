@@ -138,8 +138,10 @@ def test_committed_page_is_built_from_its_sources():
 
 def test_page_content_rules():
     page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
-    assert "REFERENCE PAGE, not the final portal" in page
-    assert "PortalClient" in page and "/*@@PORTAL_CLIENT@@*/" not in page
+    assert "<title>Grinder panel</title>" in page and "REFERENCE PAGE" not in page
+    assert "prefers-color-scheme" in page
+    assert "PortalClient" in page and "PortalView" in page
+    assert not re.search(r"/\*@@PORTAL_[A-Z]+@@\*/", page), "an unreplaced marker is left in index.html"
     for forbidden in ("localStorage", "sessionStorage", "Authorization", "Bearer", "console.", "innerHTML",
                       "http://", "https://", "<script src", "<link "):
         # CSP default-src 'self': nothing external; the page keeps no state and shows no raw markup
@@ -148,17 +150,61 @@ def test_page_content_rules():
 
 def test_page_fits_the_embed_budget():
     import gzip
-    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 64 * 1024 // 2
+    # hard budget is 64 KB (embed_portal.py); chg016 aims for half of it
+    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 32 * 1024
 
 
-def test_build_page_rejects_bad_sources(tmp_path):
-    (tmp_path / "page.src.html").write_text("<html>no marker</html>", encoding="utf-8")
-    (tmp_path / "portal-client.js").write_text("var a;", encoding="utf-8")
-    with pytest.raises(build_page.PageBuildError):
+def make_sources(directory):
+    """A minimal valid source set for build_page.render_page."""
+    files = {
+        "page.src.html": "<style>\n/*@@PORTAL_CSS@@*/\n</style>\n<script>\n/*@@PORTAL_CLIENT@@*/\n</script>\n"
+                         "<script>\n/*@@PORTAL_VIEW@@*/\n</script>\n<script>\n/*@@PORTAL_APP@@*/\n</script>\n",
+        "portal.css": "a { color: red; }\n",
+        "portal-client.js": "var client;\n",
+        "portal-view.js": "var view;\n",
+        "portal-app.js": "var app;\n",
+    }
+    for name, text in files.items():
+        (directory / name).write_bytes(text.encode("utf-8"))  # bytes: no platform newline translation
+
+
+def test_build_page_inlines_every_part(tmp_path):
+    make_sources(tmp_path)
+    page = build_page.render_page(tmp_path)
+    for part in ("a { color: red; }", "var client;", "var view;", "var app;"):
+        assert part in page
+    assert "@@PORTAL" not in page
+
+
+def test_build_page_crlf_sources_build_the_same_bytes(tmp_path):
+    lf = tmp_path / "lf"
+    crlf = tmp_path / "crlf"
+    lf.mkdir()
+    crlf.mkdir()
+    make_sources(lf)
+    make_sources(crlf)
+    for path in crlf.iterdir():
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert build_page.render_page(lf) == build_page.render_page(crlf)
+
+
+@pytest.mark.parametrize("marker", [m for m, _f, _c in build_page.PARTS])
+def test_build_page_rejects_missing_and_duplicated_marker(tmp_path, marker):
+    make_sources(tmp_path)
+    shell = (tmp_path / "page.src.html").read_text(encoding="utf-8")
+    (tmp_path / "page.src.html").write_text(shell.replace(marker, ""), encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match="exactly once"):
         build_page.render_page(tmp_path)
-    (tmp_path / "page.src.html").write_text("<p>" + build_page.MARKER + "</p>", encoding="utf-8")
-    (tmp_path / "portal-client.js").write_text("var s = '</script>';", encoding="utf-8")
-    with pytest.raises(build_page.PageBuildError):
+    (tmp_path / "page.src.html").write_text(shell + marker, encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match="exactly once"):
+        build_page.render_page(tmp_path)
+
+
+@pytest.mark.parametrize("name,closing", [(f, c) for _m, f, c in build_page.PARTS])
+def test_build_page_rejects_closing_tag_inside_a_part(tmp_path, name, closing):
+    make_sources(tmp_path)
+    (tmp_path / name).write_text(f"var s = '{closing.upper()}>';", encoding="utf-8")
+    with pytest.raises(build_page.PageBuildError, match=name):
         build_page.render_page(tmp_path)
 
 

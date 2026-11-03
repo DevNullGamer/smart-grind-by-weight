@@ -10,10 +10,13 @@ tools for working on the page without a grinder.
 
 | File | What |
 |---|---|
-| `web/portal/page.src.html` | The reference page (banner "REFERENCE PAGE, not the final portal"). Schema-driven settings and profile form, live status, STOP / Tare / Motor test / Start per profile, "Copy as curl", refusals shown in words. |
-| `web/portal/portal-client.js` | The API client (request queue, error mapping, curl export). Tested by `node --test`. Never logs, never touches storage, no token. |
-| `web/portal/index.html` | **Generated and committed**: the page with the client inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget). |
-| `tools/portal/build_page.py` | Builds `index.html` from the two sources. Run it after editing either (`--check` only reports). A pytest fails when `index.html` is stale. |
+| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, header with STOP, tab bar, panels, and one marker per part below. |
+| `web/portal/portal.css` | Design tokens (light and dark via `prefers-color-scheme`) and layout for phone, tablet and desktop. Marker `/*@@PORTAL_CSS@@*/`. |
+| `web/portal/portal-client.js` | The API client (request queue, error mapping, curl export). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
+| `web/portal/portal-view.js` | Pure view helpers (formatting, later the control and state logic), loadable by node. Marker `/*@@PORTAL_VIEW@@*/`. |
+| `web/portal/portal-app.js` | DOM glue only (events, `textContent`); logic belongs in the view or client module. Marker `/*@@PORTAL_APP@@*/`. |
+| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; chg016 aims below 32 KB). |
+| `tools/portal/build_page.py` | Builds `index.html` from the sources. Run it after editing any of them (`--check` only reports). It fails on a missing or duplicated marker and on `</script` / `</style` inside a part. A pytest fails when `index.html` is stale. |
 | `tools/portal/portal_model.py` | The contract as pure Python (scanner, field table, clamping, guards, decisions). Tested against `tools/tests/portal_api_vectors.json`, the vectors the firmware tests use. |
 | `tools/portal/dev_server.py` | Local server: the page plus a simulated grinder behind the real contract. Standard library only. |
 

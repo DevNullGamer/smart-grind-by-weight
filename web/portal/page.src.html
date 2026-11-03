@@ -2,273 +2,85 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grinder panel (reference page)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<title>Grinder panel</title>
 <style>
-  body { font-family: sans-serif; background: #111; color: #eee; margin: 0; padding: 1rem; max-width: 40rem; }
-  .banner { background: #ff3d00; color: #fff; font-weight: bold; padding: .75rem 1rem; border-radius: .4rem; }
-  .warn { background: #332200; color: #ffcc66; padding: .5rem 1rem; border-radius: .4rem; margin: .75rem 0; font-size: .9rem; }
-  h1 { font-size: 1.3rem; margin: 1rem 0 .25rem; }
-  h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #333; padding-bottom: .25rem; }
-  .row { display: flex; align-items: center; gap: .5rem; margin: .4rem 0; flex-wrap: wrap; }
-  .row label { flex: 1 1 14rem; }
-  input[type=number], input[type=text], select { background: #222; color: #eee; border: 1px solid #555; border-radius: .3rem; padding: .35rem; width: 9rem; }
-  input[type=text] { width: 12rem; }
-  button { background: #00aaff; color: #000; border: 0; border-radius: .3rem; padding: .5rem .9rem; font-size: 1rem; cursor: pointer; }
-  button.stop { background: #ff0000; color: #fff; font-weight: bold; }
-  button.link { background: none; color: #00aaff; padding: .2rem; font-size: .85rem; text-decoration: underline; }
-  button:disabled { opacity: .5; cursor: default; }
-  .unit { color: #aaa; width: 2rem; }
-  #status dl { display: grid; grid-template-columns: max-content 1fr; gap: .15rem 1rem; margin: 0; }
-  #status dt { color: #aaa; }
-  #status dd { margin: 0; }
-  #message { min-height: 1.4rem; margin: .75rem 0; }
-  #message.error { color: #ff7777; }
-  #message.ok { color: #66dd66; }
-  #notes { color: #ffcc66; font-size: .9rem; }
-  #curl { width: 100%; box-sizing: border-box; background: #222; color: #eee; border: 1px solid #555; font-family: monospace; font-size: .8rem; }
-  .hint { color: #aaa; font-size: .85rem; }
+/*@@PORTAL_CSS@@*/
 </style>
 </head>
 <body>
-<div class="banner">REFERENCE PAGE, not the final portal</div>
-<div class="warn">With the web interface on, anyone on this network can change settings and start the grinder. There is no login.
-Keep Menu, WiFi, Web interface off when you do not need it.</div>
-<h1 id="name">Grinder</h1>
-<div id="message" role="status"></div>
-
-<h2>Status</h2>
-<div id="status"><dl id="status-list"></dl></div>
-<div class="row">
-  <button id="stop" class="stop" type="button">STOP</button>
-  <button id="tare" type="button">Tare</button>
-  <button id="motor_test" type="button">Motor test</button>
-</div>
-
-<h2>Profiles</h2>
-<div id="profiles"></div>
-
-<h2>Settings</h2>
-<form id="settings-form"></form>
-<div class="row">
-  <button id="apply" type="button">Apply changes</button>
-  <button id="reload" type="button">Reload from grinder</button>
-  <button id="copy-patch" class="link" type="button">Copy as curl</button>
-</div>
-<div id="notes"></div>
-
-<h2>Copy as curl</h2>
-<p class="hint">Shows the command for the last action (or the pending changes). Select and copy it if the copy button is not allowed by your browser (plain HTTP).</p>
-<textarea id="curl" rows="3" readonly></textarea>
-<div class="row"><button id="copy" type="button">Copy</button></div>
-
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"></rect></symbol>
+  <symbol id="i-grind" viewBox="0 0 24 24"><path d="M5 4h14l-4 7v9h-6v-9z"></path><path d="M9 14h6"></path></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></symbol>
+  <symbol id="i-insights" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"></path></symbol>
+  <symbol id="i-online" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
+  <symbol id="i-warning" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"></path><path d="M12 10v4"></path><circle cx="12" cy="17" r=".8"></circle></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></symbol>
+</svg>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="header">
+  <div class="topbar">
+    <button id="stop" class="stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+    <div class="brand">
+      <h1 id="name">Grinder</h1>
+      <div id="build" class="build"></div>
+    </div>
+    <span id="conn" class="chip"><svg class="icon" aria-hidden="true"><use href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
+  </div>
+  <div class="strip" aria-hidden="true">
+    <span id="strip-state" class="state">Connecting</span>
+    <span id="strip-weight" class="weight">-- g</span>
+  </div>
+</header>
+<nav id="tabs" class="tabbar" aria-label="Sections">
+  <button id="tab-grind" class="tab" type="button" data-tab="grind" aria-current="true"><svg class="icon" aria-hidden="true"><use href="#i-grind"></use></svg>Grind</button>
+  <button id="tab-settings" class="tab" type="button" data-tab="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
+  <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg>Insights</button>
+</nav>
+<main id="main" class="content" tabindex="-1">
+  <div id="message" class="message" role="status" aria-live="polite"></div>
+  <div id="alert" class="message error" role="alert"></div>
+  <div class="layout">
+    <section id="panel-grind" class="panel" aria-label="Grind">
+      <div class="card readout">
+        <h2>Now</h2>
+        <div id="readout-state" class="state">Connecting</div>
+        <div id="readout-weight" class="weight">-- g</div>
+        <div id="readout-phase" class="phase"></div>
+        <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+      </div>
+      <div class="card">
+        <h2>Profiles</h2>
+        <p class="muted">Profile cards with Start buttons appear here.</p>
+      </div>
+    </section>
+    <section id="panel-settings" class="panel" aria-label="Settings" hidden>
+      <div class="card full">
+        <h2>Settings</h2>
+        <p class="muted">Settings are not available on this page yet.</p>
+      </div>
+    </section>
+    <section id="panel-insights" class="panel" aria-label="Insights" hidden>
+      <div class="card full">
+        <h2>Insights</h2>
+        <p class="muted">Statistics and recent grinds are not available.</p>
+      </div>
+    </section>
+  </div>
+</main>
+<footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
 <script>
 /*@@PORTAL_CLIENT@@*/
 </script>
 <script>
-(function () {
-  'use strict';
-  var P = PortalClient;
-  var client = P.createClient();
-  var schema = null;
-  var known = {};
-  var currentProfile = -1;
-  var inputs = {};
-  var lastStatusError = '';
-
-  function $(id) { return document.getElementById(id); }
-  function el(tag, props, children) {
-    var node = document.createElement(tag);
-    Object.keys(props || {}).forEach(function (k) { node[k] = props[k]; });
-    (children || []).forEach(function (c) { node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
-    return node;
-  }
-  function say(text, kind) {
-    var m = $('message');
-    m.textContent = text;
-    m.className = kind || '';
-  }
-  function fail(err) {
-    say(err && err.message ? err.message : 'Something went wrong.', 'error');
-    // One reload after a failed write; loadSettings reports its own failure and never calls fail() again.
-    if (err && (err.code === 'ui_busy' || err.code === 'store_failed')) loadSettings();
-  }
-  function showCurl(method, path, body) {
-    try { $('curl').value = P.toCurl(location.host, method, path, body); } catch (e) { $('curl').value = ''; }
-  }
-
-  // ---- form built from /api/schema
-  function fieldInput(f) {
-    var input;
-    if (f.type === 'bool') {
-      input = el('input', { type: 'checkbox' });
-    } else if (f.type === 'enum') {
-      input = el('select', {}, f.choices.map(function (c) { return el('option', { value: c, textContent: c }); }));
-    } else if (f.type === 'string') {
-      input = el('input', { type: 'text', maxLength: f.max, autocapitalize: 'off', spellcheck: false });
-    } else {
-      input = el('input', { type: 'number', min: f.min, max: f.max, step: f.step || 'any' });
-    }
-    input.id = 'f_' + f.key;
-    inputs[f.key] = { field: f, node: input };
-    return input;
-  }
-  function fieldRow(f) {
-    var input = fieldInput(f);
-    return el('div', { className: 'row' }, [
-      el('label', { htmlFor: input.id, textContent: P.fieldLabel(f.key) }), input,
-      el('span', { className: 'unit', textContent: f.unit || '' })
-    ]);
-  }
-  function buildForm() {
-    var form = $('settings-form');
-    var box = $('profiles');
-    form.textContent = '';
-    box.textContent = '';
-    inputs = {};
-    var profileKeys = {};
-    schema.profiles.forEach(function (p) { profileKeys[p.weight_key] = true; profileKeys[p.time_key] = true; });
-    var byKey = {};
-    schema.fields.forEach(function (f) { byKey[f.key] = f; });
-    schema.fields.forEach(function (f) {
-      if (!profileKeys[f.key]) form.appendChild(fieldRow(f));
-    });
-    schema.profiles.forEach(function (p) {
-      var start = el('button', { type: 'button', textContent: 'Start', id: 'start_' + p.index });
-      start.addEventListener('click', function () { runCommand('start', p.index); });
-      var title = el('strong', { id: 'profile_title_' + p.index, textContent: p.name });
-      box.appendChild(el('div', { className: 'row' }, [title, start]));
-      box.appendChild(fieldRow(byKey[p.weight_key]));
-      box.appendChild(fieldRow(byKey[p.time_key]));
-    });
-  }
-  function fillForm(values) {
-    known = values;
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      if (!(key in values)) return;
-      if (entry.field.type === 'bool') entry.node.checked = values[key];
-      else entry.node.value = values[key];
-    });
-  }
-  function readForm() {
-    var entered = {};
-    Object.keys(inputs).forEach(function (key) {
-      var entry = inputs[key];
-      var type = entry.field.type;
-      if (type === 'bool') entered[key] = entry.node.checked;
-      else if (type === 'number' || type === 'int') {
-        if (entry.node.value !== '') entered[key] = Number(entry.node.value);
-      } else entered[key] = entry.node.value;
-    });
-    return entered;
-  }
-  function markProfile(index) {
-    currentProfile = index;
-    schema.profiles.forEach(function (p) {
-      $('profile_title_' + p.index).textContent = p.name + (p.index === index ? ' (selected on the grinder)' : '');
-    });
-  }
-
-  // ---- actions
-  function loadSettings() {
-    return client.getSettings().then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      return true;
-    }, function (err) {
-      say(err.message, 'error');
-      return false;
-    });
-  }
-  function apply() {
-    var patch = P.diffValues(known, readForm());
-    if (Object.keys(patch).length === 0) { say('Nothing to change.', ''); return; }
-    var body = JSON.stringify(patch);
-    showCurl('PATCH', '/api/settings', body);
-    $('apply').disabled = true;
-    $('notes').textContent = '';
-    client.patchSettings(patch).then(function (r) {
-      fillForm(r.values);
-      markProfile(r.current_profile);
-      $('notes').textContent = P.describeAdjusted(r.adjusted, r.values, schema.fields).join(' ');
-      if (r.address) {
-        say('Saved. The grinder is now at http://' + r.address + ' - open the page there; the old name no longer answers.', 'ok');
-      } else {
-        say('Saved.', 'ok');
-      }
-    }).then(null, fail).then(function () { $('apply').disabled = false; });
-  }
-  function runCommand(cmd, profile) {
-    var body = { cmd: cmd };
-    if (profile !== undefined) body.profile = profile;
-    showCurl('POST', '/api/command', JSON.stringify(body));
-    client.command(cmd, profile).then(function (r) {
-      if (cmd === 'start') say('Start accepted. The grinder starts in ' + Math.round((r.lead_in_ms || 0) / 1000) + ' s; touch the grinder or press STOP to cancel.', 'ok');
-      else if (cmd === 'stop') say('Stop sent.', 'ok');
-      else say('Command accepted: ' + cmd.replace('_', ' ') + '.', 'ok');
-      pollStatus();
-    }, fail);
-  }
-  function copyCurl() {
-    var box = $('curl');
-    if (!box.value) { showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm()))); }
-    box.focus();
-    box.select();
-    var done = false;
-    try { done = document.execCommand('copy'); } catch (e) { done = false; }
-    say(done ? 'Copied.' : 'Press Ctrl+C (the text is selected).', done ? 'ok' : '');
-  }
-
-  // ---- status
-  function renderStatus(s) {
-    var d = P.describeStatus(s);
-    var rows = [['State', d.state], ['Grind phase', d.phase], ['Weight', d.weight], ['Busy', d.busy],
-      ['Motor', d.motor], ['Start', d.start], ['Motor test', d.motorTest], ['Uptime', d.uptime], ['Build', d.build]];
-    var list = $('status-list');
-    list.textContent = '';
-    rows.forEach(function (r) {
-      list.appendChild(el('dt', { textContent: r[0] }));
-      list.appendChild(el('dd', { textContent: r[1] }));
-    });
-  }
-  function pollStatus() {
-    client.getStatus().then(function (s) {
-      lastStatusError = '';
-      renderStatus(s);
-    }, function (err) {
-      $('status-list').textContent = '';
-      $('status-list').appendChild(el('dd', { textContent: err.message }));
-      // announce a new problem once, not every poll
-      if (err.code === 'web_interface_off' && lastStatusError !== err.code) say(err.message, 'error');
-      lastStatusError = err.code;
-    });
-  }
-
-  // ---- start
-  $('stop').addEventListener('click', function () { runCommand('stop'); });
-  $('tare').addEventListener('click', function () { runCommand('tare'); });
-  $('motor_test').addEventListener('click', function () { runCommand('motor_test'); });
-  $('apply').addEventListener('click', apply);
-  $('reload').addEventListener('click', function () { loadSettings().then(function (ok) { if (ok) say('Reloaded.', 'ok'); }); });
-  $('copy-patch').addEventListener('click', function () {
-    showCurl('PATCH', '/api/settings', JSON.stringify(P.diffValues(known, readForm())));
-  });
-  $('copy').addEventListener('click', copyCurl);
-  $('settings-form').addEventListener('submit', function (e) { e.preventDefault(); apply(); });
-
-  client.getInfo().then(function (info) {
-    $('name').textContent = info.name + '.local (firmware ' + info.version + ', build ' + info.build + ')';
-  }, function () {});
-  client.getSchema().then(function (s) {
-    schema = s;
-    buildForm();
-    return loadSettings();
-  }).then(function () {
-    pollStatus();
-    setInterval(function () { if (!document.hidden) pollStatus(); }, 1000);
-  }, fail);
-}());
+/*@@PORTAL_VIEW@@*/
+</script>
+<script>
+/*@@PORTAL_APP@@*/
 </script>
 </body>
 </html>
