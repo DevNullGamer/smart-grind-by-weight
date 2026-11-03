@@ -1,6 +1,7 @@
 // DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
-// The Grind and Settings tabs are live (chg016 steps 2 and 3); Insights follows in a later step.
+// The Grind, Settings and Insights tabs are live (chg016 steps 2, 3 and 9; the Insights tab shows once the firmware
+// has sent its statistics).
 (function () {
   'use strict';
   var P = PortalClient;
@@ -30,6 +31,7 @@
   var formError = ''; // refusal text for the whole form
   var settingsNotice = ''; // "the grinder changed values while you were editing"
   var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
+  var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
   var polling = false;
   var pollTimer = null;
   var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
@@ -50,6 +52,10 @@
       else button.removeAttribute('aria-current');
     });
     setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
+    if (name === 'insights') {
+      stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
+      pollNow();
+    }
   }
 
   // Writes only when the text differs, so a poll does not touch the DOM (or re-announce) for an unchanged value.
@@ -108,6 +114,50 @@
     });
   }
 
+  // The tiles are rebuilt only when their content changes. Values go in with textContent only.
+  var insightsKey = '';
+  function renderInsights() {
+    var view = V.statsView(stats, conn, now());
+    var tab = $('tab-insights');
+    if (tab.hidden === view.tabVisible) {
+      tab.hidden = !view.tabVisible;
+      if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
+    }
+    setText($('insights-message'), view.message);
+    setText($('insights-note'), view.note);
+    $('tiles').hidden = view.tiles.length === 0;
+    $('mix').hidden = !view.mix.visible;
+    var key = JSON.stringify([view.tiles, view.mix]);
+    if (key === insightsKey) return;
+    insightsKey = key;
+    var tiles = $('tiles');
+    while (tiles.firstChild) tiles.removeChild(tiles.firstChild);
+    view.tiles.forEach(function (tile) {
+      var item = el('div', 'tile');
+      item.appendChild(el('dt', '', tile.label));
+      // a line may break after a comma (never inside a group of digits): zero-width space after each comma
+      item.appendChild(el('dd', 'stat-value', tile.value.replace(/,/g, ',\u200b')));
+      item.appendChild(el('dd', 'stat-detail', tile.detail));
+      tiles.appendChild(item);
+    });
+    var bar = $('mix-bar');
+    var list = $('mix-list');
+    while (bar.firstChild) bar.removeChild(bar.firstChild);
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.mix.segments.forEach(function (segment, i) {
+      var seg = el('span', 'seg s' + i);
+      seg.style.flexGrow = String(segment.flex);
+      bar.appendChild(seg);
+      var row = el('div', 'mix-row');
+      var name = el('dt');
+      name.appendChild(el('span', 'swatch s' + i));
+      name.appendChild(el('span', '', segment.label));
+      row.appendChild(name);
+      row.appendChild(el('dd', '', segment.text));
+      list.appendChild(row);
+    });
+  }
+
   function render() {
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -163,6 +213,7 @@
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
     renderWarnings();
     renderSettings();
+    renderInsights();
   }
 
   // --- settings form
@@ -550,14 +601,18 @@
     pollTimer = null;
     if (polling) return;
     polling = true;
+    var statsDue = V.statsDue(stats, {
+      online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+    });
     var task = V.nextPollTask({
       haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
-      online: conn.state === 'online', forceStatus: forceStatus
+      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue
     });
     forceStatus = false;
     quickNext = false;
     var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
-      task === 'info' ? client.getInfo() : client.getStatus();
+      task === 'info' ? client.getInfo() : task === 'stats' ? client.getStats() : client.getStatus();
     // Runs after success and after failure, even if the handler or render() throws: polling must go on.
     function finalize() {
       polling = false;
@@ -585,6 +640,7 @@
       if (task === 'status') {
         status = doc;
         statusAt = now();
+        stats = V.statsOnStatus(stats, before, status.ui_state, statusAt);
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'schema') {
         schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
@@ -594,6 +650,8 @@
           settings = doc;
           onSettings();
         }
+      } else if (task === 'stats') {
+        stats = V.statsLoaded(stats, doc, now());
       } else {
         setText($('name'), doc.name);
         setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
@@ -601,6 +659,7 @@
       quickNext = next.quick;
     }, function (err) {
       var failed = V.pollFailed(task, err && err.code);
+      if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
       if (failed.schemaMissing) {
         // an older firmware without /api/schema: reachable, but there is no settings form
         schemaMissing = true;

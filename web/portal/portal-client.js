@@ -276,6 +276,8 @@
             getInfo: function () { return request('GET', '/api/info'); },
             getSchema: function () { return request('GET', '/api/schema'); },
             getSettings: function () { return request('GET', '/api/settings'); },
+            // Lifetime statistics; a firmware without the route answers 404, which becomes not_supported.
+            getStats: function () { return request('GET', '/api/stats'); },
             // Polling-friendly: a call while one is still waiting returns the same promise.
             getStatus: function () {
                 if (statusInFlight) return statusInFlight;

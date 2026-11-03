@@ -300,7 +300,7 @@ def test_info_is_open_even_when_web_is_off(server):
     assert status == 200 and doc["name"] == "grindbyweight"
 
 
-@pytest.mark.parametrize("path", ["/", "/api/status", "/api/settings", "/api/schema"])
+@pytest.mark.parametrize("path", ["/", "/api/status", "/api/settings", "/api/schema", "/api/stats"])
 def test_web_off_refuses_page_and_reads(server, path):
     server.sim.web_interface = False
     status, doc, _ = call(server, "GET", path)
@@ -700,7 +700,7 @@ def test_weight_hold_shows_a_fixed_reading_until_released(server):
 
 def test_dev_state_lists_every_key(server):
     doc = call(server, "GET", "/dev/state")[1]
-    assert set(doc) == set(dev.DEV_STATE_KEYS)
+    assert set(doc) | set(dev.DEV_ACTION_KEYS) == set(dev.DEV_STATE_KEYS)
     assert doc["latency_ms"] == 0 and doc["weight"] is None and doc["drop_start"] is False
 
 
@@ -751,8 +751,8 @@ def test_readme_documents_every_flag():
 def test_readme_documents_every_dev_state_key():
     readme = _readme_text()
     keys = set(dev.SimGrinder().dev_state())  # the keys the server really reports, not the constant
-    assert keys == set(dev.DEV_STATE_KEYS)
-    for key in keys:
+    assert keys | set(dev.DEV_ACTION_KEYS) == set(dev.DEV_STATE_KEYS)
+    for key in set(dev.DEV_STATE_KEYS):
         assert f"| `{key}` |" in readme, f"README.md has no table row for the /dev/state key {key}"
 
 
@@ -771,3 +771,115 @@ def test_strip_is_marked_stale_with_the_readout():
     assert 'id="strip"' in src
     assert "setClass($('strip'), 'is-stale', readout.stale);" in app
     assert ".strip.is-stale .weight" in css
+
+
+# ------------------------------------------------------------------------------------------ lifetime statistics
+def test_stats_vectors():
+    assert len(VECTORS["stats_cases"]) >= 10
+    for c in VECTORS["stats_cases"]:
+        assert model.encode_json(model.stats_document(c["input"])) == c["json"], c["name"]
+
+
+def test_stats_document_orders_members_and_bounds_fractions():
+    doc = model.stats_document({"powered_minutes": 5, "total_grinds": 2.0, "avg_pulses": float("nan"),
+                                "total_weight_kg": "inf", "avg_abs_error_g": -3, "unknown_member": 9})
+    assert list(doc) == list(model.STATS_KEYS) and "unknown_member" not in doc
+    assert doc["total_grinds"] == 2 and isinstance(doc["total_grinds"], int)
+    assert doc["avg_pulses"] == 0.0 and doc["total_weight_kg"] == 0.0 and doc["avg_abs_error_g"] == 0.0
+    assert doc["single"] == 0 and doc["powered_minutes"] == 5
+    assert model.stats_document({"total_weight_kg": 5e12})["total_weight_kg"] == 1e9
+
+
+def test_stats_route_shape_and_headers(server):
+    status, doc, res = call(server, "GET", "/api/stats")
+    assert status == 200 and list(doc) == list(model.STATS_KEYS)
+    assert doc["total_grinds"] == 412 and doc["total_weight_kg"] == 8.43
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "GET", "/dev/state")[1]["stats"] == doc
+
+
+def test_stats_route_is_gated_like_the_other_reads(server):
+    assert call(server, "GET", "/api/stats", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/stats", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+    assert call(server, "POST", "/api/stats", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/stats", "{}")[0] == 405
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/stats")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/stats")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_no_insights_answers_404_like_a_firmware_without_the_route(server):
+    server.sim.insights = False
+    server.sim.web_interface = False  # the HTTP server answers 404 before any gate of ours
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/stats", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/dev/state")[1]["insights"] is False
+    assert call(server, "POST", "/dev/state", '{"insights":true}')[1]["insights"] is True
+
+
+def test_a_finished_grind_joins_the_statistics_and_a_stopped_one_does_not(server):
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')  # 9 g in weight mode
+    server.clock.now += 3.5
+    call(server, "POST", "/api/command", '{"cmd":"stop"}')
+    assert call(server, "GET", "/api/stats")[1] == before
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5 + 20
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["total_grinds"] == before["total_grinds"] + 1
+    assert after["single"] == before["single"] + 1 and after["double"] == before["double"]
+    assert after["weight_mode"] == before["weight_mode"] + 1 and after["time_mode"] == before["time_mode"]
+    assert after["total_weight_kg"] == pytest.approx(before["total_weight_kg"] + 0.009, abs=0.001)
+    assert after["total_pulses"] == before["total_pulses"] + dev.SIM_GRIND_PULSES
+    assert after["motor_runtime_s"] > before["motor_runtime_s"]
+
+
+def test_the_double_bucket_and_time_mode_are_counted(server):
+    call(server, "PATCH", "/api/settings", '{"grind_mode":"time"}')
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":1}')
+    server.clock.now += 3.5 + 60
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["time_mode"] == before["time_mode"] + 1 and after["weight_mode"] == before["weight_mode"]
+    assert after["avg_abs_error_g"] == before["avg_abs_error_g"]  # time mode has no error sample
+    assert after["single"] + after["double"] + after["custom"] == before["single"] + before["double"] + before["custom"] + 1
+
+
+def test_a_motor_test_adds_only_run_time(server):
+    before = call(server, "GET", "/api/stats")[1]
+    call(server, "POST", "/api/command", '{"cmd":"motor_test"}')
+    server.clock.now += 2
+    after = call(server, "GET", "/api/stats")[1]
+    assert after["total_grinds"] == before["total_grinds"]
+    assert after["motor_runtime_s"] == before["motor_runtime_s"] + 1  # 1.5 s on top of a whole second, rounded down
+
+
+def test_powered_minutes_follow_the_clock(server):
+    before = call(server, "GET", "/api/stats")[1]["powered_minutes"]
+    server.clock.now += 125
+    assert call(server, "GET", "/api/stats")[1]["powered_minutes"] == before + 2
+
+
+def test_stats_reset_makes_a_new_grinder_and_the_next_grind_is_the_first(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"stats_reset":true}')
+    assert s == 200 and all(v == 0 for v in d["stats"].values())
+    assert call(server, "GET", "/api/stats")[1] == d["stats"]
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 3.5 + 20
+    doc = call(server, "GET", "/api/stats")[1]
+    assert doc["total_grinds"] == 1 and doc["single"] == 1 and doc["weight_mode"] == 1
+    assert doc["avg_abs_error_g"] == dev.SIM_GRIND_ERROR_G and doc["avg_pulses"] == dev.SIM_GRIND_PULSES
+
+
+def test_stats_override_sets_members_and_rejects_bad_ones(server):
+    s, d, _ = call(server, "POST", "/dev/state", '{"stats":{"total_grinds":4294967295,"total_weight_kg":1234.5,"powered_minutes":900}}')
+    assert s == 200 and d["stats"]["total_grinds"] == 4294967295 and d["stats"]["total_weight_kg"] == 1234.5
+    assert d["stats"]["powered_minutes"] == 900 and d["stats"]["single"] == 180  # the rest is kept
+    for bad in ('{"stats":5}', '{"stats":{"nope":1}}', '{"stats":{"total_grinds":-1}}', '{"stats":{"total_grinds":"x"}}',
+                '{"stats":{"total_grinds":true}}', '{"stats_reset":false}', '{"insights":"yes"}'):
+        assert call(server, "POST", "/dev/state", bad)[0] == 400, bad

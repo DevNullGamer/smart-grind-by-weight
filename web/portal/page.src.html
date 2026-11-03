@@ -74,6 +74,20 @@
         <div id="leadin" class="card leadin" hidden>
           <p id="leadin-text"></p>
         </div>
+        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
+          <h2 id="warnings-h">Grinder warnings</h2>
+          <ul id="warnings-list" class="warn-list" role="list"></ul>
+          <template id="warning-row">
+            <li class="warn-row">
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <div class="warn-body">
+                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
+                <p class="warn-action"></p>
+              </div>
+            </li>
+          </template>
+        </section>
         <div class="card">
           <h2>Profiles</h2>
           <div class="profiles">
@@ -110,20 +124,6 @@
             </div>
           </div>
         </div>
-        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
-          <h2 id="warnings-h">Grinder warnings</h2>
-          <ul id="warnings-list" class="warn-list" role="list"></ul>
-          <template id="warning-row">
-            <li class="warn-row">
-              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
-              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
-              <div class="warn-body">
-                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
-                <p class="warn-action"></p>
-              </div>
-            </li>
-          </template>
-        </section>
       </div>
     </section>
     <section id="panel-settings" class="panel" aria-label="Settings" hidden>
@@ -149,9 +149,17 @@
     </section>
     <section id="panel-insights" class="panel" aria-label="Insights" hidden>
       <div class="card full">
-        <h2>Insights</h2>
-        <p class="muted">Statistics and recent grinds are not available.</p>
+        <h2 id="insights-h">Lifetime statistics</h2>
+        <p id="insights-message" class="muted"></p>
+        <dl id="tiles" class="tiles" hidden></dl>
+        <p id="insights-note" class="muted note-line"></p>
       </div>
+      <section id="mix" class="card full" aria-labelledby="mix-h" hidden>
+        <h2 id="mix-h">Grinds by final weight</h2>
+        <div id="mix-bar" class="mix-bar" aria-hidden="true"></div>
+        <dl id="mix-list" class="mix-list"></dl>
+        <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
+      </section>
     </section>
   </div>
 </main>

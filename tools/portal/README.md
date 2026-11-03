@@ -63,6 +63,7 @@ touch cancel of the lead-in and the overlay, and the Insights data (the routes c
 | `--motor-test-block CODE` | none | Grinder-side refusal of the motor test (same codes). |
 | `--drop-start` | off | Every remote start is dropped when its lead-in ends (another screen took over). |
 | `--legacy-status` | off | `GET /api/status` leaves out the `warnings` member, like a firmware from before it existed. The page then shows no warnings list; the `warnings` key of `/dev/state` still holds its value. |
+| `--no-insights` | off | `GET /api/stats` answers 404 from the server (no JSON), like a firmware from before it existed. The page keeps the Insights tab hidden and shows no error. |
 
 The default listens on `127.0.0.1` only.
 
@@ -90,10 +91,13 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `start_block` | `null` or a block code | The start refusal the status reports and a start answers with. |
 | `motor_test_block` | `null` or a block code | The same for the motor test. |
 | `drop_start` | bool | Every remote start is dropped when its lead-in ends (`--drop-start`). |
-| `ui_busy` | bool | `GET` and `PATCH /api/settings` answer 503 `ui_busy`. |
+| `ui_busy` | bool | `GET` and `PATCH /api/settings` and `GET /api/stats` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
 | `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
 | `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The Grind tab lists them, highest priority first. |
+| `insights` | bool | `false` is `--no-insights`: `/api/stats` answers 404 (back on with `true`). |
+| `stats` | object of statistics members | Sets any of the 13 members of `/api/stats` (numbers from 0 to 1e12; `motor_runtime_s` and `powered_minutes` keep growing from the value set) to see unusual numbers. The `GET` shows the current document under `stats`. |
+| `stats_reset` | `true` | Zeroes every statistic, as after a reset on the grinder (`false` is refused). The next finished grind is the first one. |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
 
 ## Reproduce each page state
@@ -118,7 +122,11 @@ above.
 | `out_of_range` 400 | Set a single or double target below 5 g and Save (or `PATCH` `{"single_weight_g":4}`). | Message beside the offending field. |
 | Dropped start | `--drop-start` (or `{"drop_start":true}`), then press Start. | The countdown runs out and then "The start was dropped on the grinder (check its screen)". |
 | Slow grinder, in progress and timeout | `{"latency_ms":1500}` shows the requests in progress. `{"latency_ms":6000}` gives the timeout: the client waits 5 s, then "The grinder took too long to answer". Reset with `{"latency_ms":0}`. | In progress: buttons wait with their reason. Timeout: the page takes the offline path (chip, stale readout, backed-off polling). |
-| Empty data (history, statistics) | Not reproducible yet: the dev server has no history or statistics routes until chg016 steps 8 and 10. | "No grinds recorded since the grinder started" and "Statistics not available" appear then. |
+| Insights tiles | Open the page (the tab shows as soon as the first reply arrives), pick Insights. A finished grind (`start`, then wait out the lead-in and the grind) changes the numbers within a few seconds; `{"stats":{"total_grinds":4294967295,"total_weight_kg":1e9,"powered_minutes":257698037759}}` gives very large numbers. | Seven tiles (grinds, coffee ground, motor run time, powered on, average error, average pulses, extra time-mode pulses) and the split by final weight; "Updated N s ago". |
+| Empty data (statistics) | `{"stats_reset":true}`. | "No grinds recorded yet. The totals appear after the first grind." and no tiles. |
+| Statistics not available | `--no-insights`, or `{"insights":false}`. | The Insights tab stays hidden, no error; if the tab was shown before, it disappears. |
+| Statistics cannot be read | `{"ui_busy":true}` (back with `false`), or stop the server while the tab is shown. | The tiles stay with "The numbers could not be refreshed ... from N s ago" (or "The grinder is not reachable"); the page asks again every 10 s. |
+| Empty history | Not reproducible yet: the dev server has no history route until chg016 step 10. | "No grinds recorded since the grinder started" appears then. |
 
 ## Manual browser check
 

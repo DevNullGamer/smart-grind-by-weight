@@ -33,8 +33,16 @@ COMPLETE_SHOW_S = 3.0
 MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
-DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed")
-DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings")
+DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed", "insights")
+DEV_ACTION_KEYS = ("stats_reset",)  # accepted by a POST, not part of the state a GET reports
+DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings",
+                                  "stats") + DEV_ACTION_KEYS
+# Lifetime statistics a fresh simulated grinder starts with (the example of docs/PORTAL-API.md)
+START_STATS = {"total_grinds": 412, "single": 180, "double": 200, "custom": 32, "weight_mode": 390, "time_mode": 22,
+               "total_weight_kg": 8.43, "motor_runtime_s": 5120, "avg_abs_error_g": 0.12, "total_pulses": 1100,
+               "avg_pulses": 2.7, "time_pulses": 14, "powered_minutes": 22890}
+SIM_GRIND_ERROR_G = 0.1  # every simulated weight-mode grind lands this far from its target, in 2 pulses
+SIM_GRIND_PULSES = 2
 LATENCY_MAX_MS = 30000
 WEIGHT_MAX_G = 1000.0
 PAGE_HEADERS = {
@@ -63,6 +71,7 @@ class SimGrinder:
         self.ui_busy = False          # settings reads and writes answer 503 ui_busy
         self.store_failed = False     # a settings write that changes a value answers 500 store_failed
         self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
+        self.insights = True          # --no-insights: /api/stats does not exist (404), like a firmware from before it
         self.legacy_status = False    # --legacy-status: the status has no "warnings" member (an older firmware)
         self.warnings = []            # active diagnostics as warning codes (status member "warnings", priority order)
         self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
@@ -71,6 +80,11 @@ class SimGrinder:
         self.stored["brightness_screensaver"] = float(self.stored["brightness_screensaver"])
         self.current_profile = 1
         self.weight = 0.0
+        self.stats = dict(START_STATS)  # lifetime statistics; powered_minutes is the stored base, see stats_doc
+        self.powered_origin = clock()   # powered_minutes grows by the minutes since this moment
+        self.error_samples = START_STATS["weight_mode"]  # averages are kept as mean and sample count
+        self.pulse_samples = START_STATS["total_grinds"]
+        self.motor_s = float(START_STATS["motor_runtime_s"])
         self.run = None               # dict: kind, started, ... while something is running
         self.complete_until = None
 
@@ -88,14 +102,34 @@ class SimGrinder:
                 if run["kind"] == "start":
                     self.weight = min(run["target_g"], elapsed * run["rate"])
                     if elapsed >= run["duration"]:
+                        self._count_grind(run)
                         self.run = None
                         self.ui_state = "grind_complete"
                         self.complete_until = now + COMPLETE_SHOW_S
                 elif elapsed >= MOTOR_TEST_S:
+                    self.motor_s += MOTOR_TEST_S  # a motor test only adds run time
                     self.run = None
         if self.complete_until is not None and now >= self.complete_until:
             self.complete_until = None
             self.ui_state = "ready"
+
+    def _count_grind(self, run):
+        """A finished simulated grind joins the lifetime statistics (a stopped one never gets here)."""
+        s = self.stats
+        grams = run["target_g"]
+        s["total_grinds"] += 1
+        s["single" if grams <= 10 else "double" if grams <= 22 else "custom"] += 1
+        s["total_weight_kg"] += grams / 1000.0
+        self.motor_s += run["duration"]
+        s["total_pulses"] += SIM_GRIND_PULSES
+        s["avg_pulses"] = (s["avg_pulses"] * self.pulse_samples + SIM_GRIND_PULSES) / (self.pulse_samples + 1)
+        self.pulse_samples += 1
+        if run["mode"] == "weight":
+            s["weight_mode"] += 1
+            s["avg_abs_error_g"] = (s["avg_abs_error_g"] * self.error_samples + SIM_GRIND_ERROR_G) / (self.error_samples + 1)
+            self.error_samples += 1
+        else:
+            s["time_mode"] += 1
 
     def _poll_lead_in(self, run, elapsed):
         """Like the firmware's lead-in poll (contract section 6): the start is decided again on every look while it
@@ -172,9 +206,25 @@ class SimGrinder:
                 del doc["warnings"]
             return doc
 
+    def stats_doc(self):
+        with self.lock:
+            self._tick()
+            doc = dict(self.stats)
+            doc["motor_runtime_s"] = int(self.motor_s)
+            doc["powered_minutes"] += int((self.clock() - self.powered_origin) // 60)
+            return model.stats_document(doc)
+
+    def reset_stats(self):
+        """Statistics reset to zero (a factory reset): the next grind is the first one."""
+        with self.lock:
+            self.stats = {k: 0 for k in model.STATS_KEYS}
+            self.powered_origin = self.clock()
+            self.error_samples = self.pulse_samples = 0
+            self.motor_s = 0.0
+
     # --- writes
     def read_settings_refusal(self):
-        """The refusal a settings read gets (503 while the UI task is simulated as stuck), or None."""
+        """The refusal a settings or statistics read gets (503 while the UI task is simulated as stuck), or None."""
         return "ui_busy" if self.ui_busy else None
 
     def patch(self, applied, adjusted):
@@ -245,7 +295,28 @@ class SimGrinder:
                     "in_flight": self.in_flight, "start_block": self.start_block,
                     "motor_test_block": self.motor_test_block, "drop_start": self.drop_start,
                     "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
-                    "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings)}
+                    "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings),
+                    "insights": self.insights, "stats": self.stats_doc()}
+
+    @staticmethod
+    def _stats_problem(value):
+        if not isinstance(value, dict) or any(k not in model.STATS_KEYS for k in value):
+            return "stats must be an object with members of: " + ", ".join(model.STATS_KEYS)
+        for v in value.values():
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e12:
+                return "stats members must be numbers from 0 to 1e12"
+        return None
+
+    def _set_stats(self, value):
+        """Overrides statistics members (any number of them) to see how the page copes with unusual values."""
+        for key, number in value.items():
+            if key == "motor_runtime_s":
+                self.motor_s = float(number)
+            elif key == "powered_minutes":
+                self.stats[key] = int(number)
+                self.powered_origin = self.clock()
+            else:
+                self.stats[key] = float(number) if key in model.STATS_FLOAT_KEYS else int(number)
 
     def set_dev_state(self, changes):
         """Applies the members of a /dev/state body. Returns an error text or None."""
@@ -268,11 +339,24 @@ class SimGrinder:
                 elif key == "warnings":
                     if not isinstance(value, list) or any(c not in model.WARNING_CODES for c in value):
                         return "warnings must be a list of: " + ", ".join(model.WARNING_CODES)
+                elif key == "stats_reset":
+                    if value is not True:
+                        return "stats_reset must be true (it zeroes the statistics)"
+                elif key == "stats":
+                    problem = self._stats_problem(value)
+                    if problem:
+                        return problem
                 elif key == "weight":
                     if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                               or abs(value) > WEIGHT_MAX_G):
                         return f"weight must be null or a number from -{WEIGHT_MAX_G:g} to {WEIGHT_MAX_G:g} g"
             for key, value in changes.items():
+                if key == "stats_reset":
+                    self.reset_stats()
+                    continue
+                if key == "stats":
+                    self._set_stats(value)
+                    continue
                 if key == "warnings":
                     value = model.ordered_warnings(value)
                 if key == "weight":
@@ -358,11 +442,19 @@ def make_handler(sim, page_text):
             elif path in ("/", "/index.html"):
                 if self._admit(False):
                     self._send(200, page_bytes, "text/html; charset=utf-8", PAGE_HEADERS)
-            elif path in ("/api/status", "/api/settings", "/api/schema"):
+            elif path == "/api/stats" and not sim.insights:
+                self._send(404, "Not found", "text/plain")  # the HTTP server of a firmware without the route
+            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats"):
                 if not self._admit(False):
                     return
                 if path == "/api/status":
                     self._api(200, sim.status_doc())
+                elif path == "/api/stats":
+                    refusal = sim.read_settings_refusal()
+                    if refusal:
+                        self._refuse(refusal)
+                    else:
+                        self._api(200, sim.stats_doc())
                 elif path == "/api/settings":
                     refusal = sim.read_settings_refusal()
                     if refusal:
@@ -382,6 +474,7 @@ def make_handler(sim, page_text):
             self._delay(self._path())
             if self._path() != "/api/settings":
                 self._send(404 if self._path() not in ("/api/status", "/api/schema", "/api/command", "/api/info", "/")
+                           and not (self._path() == "/api/stats" and sim.insights)
                            else 405, "", "text/plain")
                 return
             if not self._admit(True):
@@ -420,7 +513,7 @@ def make_handler(sim, page_text):
                 return
             if path != "/api/command":
                 self._send(405 if path in ("/api/status", "/api/settings", "/api/schema", "/api/info", "/")
-                           else 404, "", "text/plain")
+                           or (path == "/api/stats" and sim.insights) else 404, "", "text/plain")
                 return
             if not self._admit(True):
                 return
@@ -448,6 +541,8 @@ def build_parser():
                    help="every remote start is dropped when its lead-in ends (another screen took over)")
     p.add_argument("--legacy-status", action="store_true",
                    help="the status has no warnings member, like a firmware from before chg016 step 6")
+    p.add_argument("--no-insights", action="store_true",
+                   help="GET /api/stats answers 404, like a firmware from before chg016 step 8 (the page hides Insights)")
     return p
 
 
@@ -460,6 +555,7 @@ def make_simulator(args):
     sim.motor_test_block = args.motor_test_block
     sim.drop_start = args.drop_start
     sim.legacy_status = args.legacy_status
+    sim.insights = not args.no_insights
     return sim
 
 

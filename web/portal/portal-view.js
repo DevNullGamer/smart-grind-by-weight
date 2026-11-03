@@ -14,7 +14,7 @@
     }
 }(typeof self !== 'undefined' ? self : this, function (PC) {
 
-    // The sections of the page in tab order. Insights stays hidden until the firmware has data for it.
+    // The sections of the page in tab order. Insights stays hidden until the firmware has sent statistics.
     var TABS = ['grind', 'settings', 'insights'];
 
     var PROFILE_NAMES = ['Single', 'Double', 'Custom'];
@@ -252,6 +252,7 @@
         if (flags.needSchema) return 'schema';
         if (flags.needSettings) return 'settings';
         if (flags.needInfo) return 'info';
+        if (flags.statsDue) return 'stats'; // see statsDue: one request at a time, in turn with the status requests
         return 'status';
     }
 
@@ -273,9 +274,9 @@
         } else if (task === 'settings') {
             if (validSettingsDoc(doc)) next.needSettings = false;
             else next.forceStatus = true;
-        } else {
+        } else if (task === 'info') {
             next.needInfo = false;
-        }
+        } // 'stats' changes no need: the statistics keep their own state (statsLoaded)
         // an unusable settings reply must not be asked again at once (a firmware/page mismatch would loop)
         next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
         return next;
@@ -285,6 +286,11 @@
     // lost connection; a failing settings, schema or info request must not starve status.
     function pollFailed(task, code) {
         if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
+        if (task === 'stats') {
+            // The statistics are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
+            var lost = code !== 'not_supported' && code !== 'ui_busy' && code !== 'bad_reply' && code !== 'http_error';
+            return { schemaMissing: false, connectionLost: lost, forceStatus: true };
+        }
         return { schemaMissing: false, connectionLost: true, forceStatus: task !== 'status' };
     }
 
@@ -566,6 +572,233 @@
                 selected: !!settings && settings.current_profile === i
             };
         });
+    }
+
+    // ------------------------------------------------------------------ Insights: lifetime statistics (chg016 step 9)
+    // GET /api/stats (docs/PORTAL-API.md section 7). The page keeps one small state object:
+    // {doc: parsed statistics or null, fetchedAt, seen: a reply with data has arrived, unavailable: the route is
+    // missing (404), error: words for the latest failure, retryAt, refreshAt / followUpAt: asked-for fetch times}.
+    // The Insights tab shows only once data has arrived, so an older firmware never gets an empty tab.
+
+    var STATS_PERIOD_MS = 30000;   // refresh while the tab is shown
+    var STATS_RETRY_MS = 10000;    // after a failed request
+    var STATS_FOLLOW_UP_MS = 6000; // the grinder republishes its statistics every 5 s: look again after a grind ended
+    var STATS_KEYS = ['total_grinds', 'single', 'double', 'custom', 'weight_mode', 'time_mode', 'total_weight_kg',
+        'motor_runtime_s', 'avg_abs_error_g', 'total_pulses', 'avg_pulses', 'time_pulses', 'powered_minutes'];
+    var STATS_NOT_AVAILABLE = 'Statistics not available. This grinder firmware does not provide them yet.';
+
+    function newStats() {
+        return { doc: null, fetchedAt: null, seen: false, unavailable: false, error: '', retryAt: 0, refreshAt: null, followUpAt: null };
+    }
+
+    function copyStats(s) {
+        return { doc: s.doc, fetchedAt: s.fetchedAt, seen: s.seen, unavailable: s.unavailable, error: s.error,
+            retryAt: s.retryAt, refreshAt: s.refreshAt, followUpAt: s.followUpAt };
+    }
+
+    function statNumber(v) {
+        return typeof v === 'number' && isFinite(v) && v >= 0 ? v : null;
+    }
+
+    // The members of a statistics reply as numbers; a member that is missing or not a plain non-negative number is
+    // null ("unknown", never 0). A reply that is no object, or has no usable total_grinds, is not a statistics reply.
+    function parseStats(doc) {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+        var out = {};
+        STATS_KEYS.forEach(function (key) { out[key] = statNumber(doc[key]); });
+        return out.total_grinds === null ? null : out;
+    }
+
+    function statsLoaded(s, doc, nowMs) {
+        var parsed = parseStats(doc);
+        if (!parsed) return statsFailed(s, 'bad_reply', nowMs);
+        var next = copyStats(s);
+        next.doc = parsed;
+        next.fetchedAt = nowMs;
+        next.seen = true;
+        next.unavailable = false;
+        next.error = '';
+        next.retryAt = 0;
+        next.refreshAt = null;
+        if (next.followUpAt !== null && nowMs >= next.followUpAt) next.followUpAt = null;
+        return next;
+    }
+
+    // A failed request. 404 means the firmware has no such route: stop asking. Anything else is retried later.
+    function statsFailed(s, code, nowMs) {
+        var next = copyStats(s);
+        next.refreshAt = null;
+        if (next.followUpAt !== null && nowMs >= next.followUpAt) next.followUpAt = null;
+        if (code === 'not_supported') {
+            next.unavailable = true;
+            next.error = '';
+            return next;
+        }
+        next.error = PC.describeError(code);
+        next.retryAt = nowMs + STATS_RETRY_MS;
+        return next;
+    }
+
+    // Ask for a fetch at nowMs + afterMs (the earlier request wins).
+    function statsRefresh(s, afterMs, nowMs) {
+        var next = copyStats(s);
+        var at = nowMs + afterMs;
+        if (next.refreshAt === null || at < next.refreshAt) next.refreshAt = at;
+        return next;
+    }
+
+    // The Insights tab was opened: fetch now.
+    function statsShown(s, nowMs) {
+        return statsRefresh(s, 0, nowMs);
+    }
+
+    // The screen state of the grinder changed: a grind that just ended changes the totals. Fetch now and once more
+    // after the grinder's own refresh. ui_state values: 'grinding' and 'grind_complete' are the grind screens.
+    function grindEnded(prevUi, nextUi) {
+        var grindScreens = ['grinding', 'grind_complete'];
+        return grindScreens.indexOf(prevUi) >= 0 && nextUi !== prevUi;
+    }
+
+    function statsOnStatus(s, prevUi, nextUi, nowMs) {
+        if (!grindEnded(prevUi, nextUi)) return s;
+        var next = statsRefresh(s, 0, nowMs);
+        next.followUpAt = nowMs + STATS_FOLLOW_UP_MS;
+        return next;
+    }
+
+    // Whether the polling loop should fetch the statistics now. ctx: {online, haveStatus, hidden, tabShown,
+    // commandBusy, nowMs}. Never while a command is on the wire (the grinder serves two connections), never after a
+    // 404, and not before the status is known. Until data has arrived the page probes once (a failed probe waits for
+    // its retry time); once the tab is shown it refreshes on request and every STATS_PERIOD_MS.
+    function statsDue(s, ctx) {
+        if (s.unavailable || ctx.hidden || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+        if (ctx.nowMs < s.retryAt) return false;
+        if (!s.seen) return true;
+        var asked = (s.refreshAt !== null && ctx.nowMs >= s.refreshAt) || (s.followUpAt !== null && ctx.nowMs >= s.followUpAt);
+        if (!ctx.tabShown) return false;
+        return asked || s.fetchedAt === null || ctx.nowMs - s.fetchedAt >= STATS_PERIOD_MS;
+    }
+
+    // Whole numbers with a comma every three digits ("4,294,967,295"). Not locale based: the page is English and the
+    // result must not depend on the browser.
+    function formatCount(n) {
+        if (typeof n !== 'number' || !isFinite(n) || n < 0) return '--';
+        var digits = String(Math.floor(n));
+        if (/e/.test(digits)) return '--';
+        return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function pad2(n) {
+        return n < 10 ? '0' + n : String(n);
+    }
+
+    // "59 s", "12 min 5 s", "1 h 02 min", "3 d 4 h"; 0 is "0 s".
+    function formatDuration(seconds) {
+        if (typeof seconds !== 'number' || !isFinite(seconds) || seconds < 0) return '--';
+        var s = Math.floor(seconds);
+        if (s < 60) return s + ' s';
+        if (s < 3600) {
+            var rest = s % 60;
+            return Math.floor(s / 60) + ' min' + (rest ? ' ' + rest + ' s' : '');
+        }
+        if (s < 86400) return Math.floor(s / 3600) + ' h ' + pad2(Math.floor((s % 3600) / 60)) + ' min';
+        return formatCount(Math.floor(s / 86400)) + ' d ' + Math.floor((s % 86400) / 3600) + ' h';
+    }
+
+    // Total ground weight: grams below 1 kg, then kg with two decimals below 10, one below 1000, whole kg above.
+    function formatKg(kg) {
+        if (typeof kg !== 'number' || !isFinite(kg) || kg < 0) return '--';
+        if (kg < 1) return Math.round(kg * 1000) + ' g';
+        if (kg < 10) return kg.toFixed(2) + ' kg';
+        if (kg < 1000) return kg.toFixed(1) + ' kg';
+        return formatCount(Math.round(kg)) + ' kg';
+    }
+
+    function statText(value) {
+        return value === null ? '--' : formatCount(value);
+    }
+
+    // The three weight buckets of the grinder's statistics (final weight, not the profile that was used).
+    var MIX_BUCKETS = [
+        { key: 'single', label: 'Up to 10 g' },
+        { key: 'double', label: 'Over 10 g, up to 22 g' },
+        { key: 'custom', label: 'Over 22 g' }
+    ];
+
+    function percentText(count, total) {
+        var pct = Math.round(count * 100 / total);
+        if (count > 0 && pct === 0) return 'under 1 %';
+        return pct + ' %';
+    }
+
+    function mixView(doc) {
+        var counts = MIX_BUCKETS.map(function (b) { return doc[b.key]; });
+        var known = counts.every(function (c) { return c !== null; });
+        var total = known ? counts[0] + counts[1] + counts[2] : 0;
+        if (!known || total <= 0) return { visible: false, segments: [] };
+        return {
+            visible: true,
+            segments: MIX_BUCKETS.map(function (b, i) {
+                return { key: b.key, label: b.label, count: counts[i], flex: counts[i],
+                    text: formatCount(counts[i]) + (counts[i] === 1 ? ' grind' : ' grinds') + ' (' + percentText(counts[i], total) + ')' };
+            })
+        };
+    }
+
+    function tilesFor(doc) {
+        var noError = doc.weight_mode === null || doc.weight_mode === 0 || doc.avg_abs_error_g === null;
+        var noPulses = doc.total_grinds === 0 || doc.avg_pulses === null;
+        return [
+            { id: 'grinds', label: 'Grinds', value: statText(doc.total_grinds),
+                detail: statText(doc.weight_mode) + ' by weight, ' + statText(doc.time_mode) + ' by time' },
+            { id: 'coffee', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
+            { id: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
+                detail: 'Grinding, pulses and motor tests' },
+            { id: 'powered', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
+                detail: 'Total time the grinder has been switched on' },
+            { id: 'error', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
+                detail: noError ? 'No weight-mode grinds yet' : 'Final weight against the target, weight mode' },
+            { id: 'pulses', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
+                detail: doc.total_pulses === null ? 'Correction pulses per grind' : statText(doc.total_pulses) + ' correction pulses in total' },
+            { id: 'timepulses', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
+        ];
+    }
+
+    // What the Insights tab shows. kind: unavailable | loading | error | empty | ready. `message` is the sentence
+    // above the tiles ('' = none); `note` says how old the numbers are or why they could not be refreshed.
+    function statsView(s, conn, nowMs) {
+        var online = !!conn && conn.state === 'online';
+        var view = { tabVisible: s.seen && !s.unavailable, kind: 'ready', message: '', note: '', tiles: [], mix: { visible: false, segments: [] } };
+        if (s.unavailable) {
+            view.kind = 'unavailable';
+            view.message = STATS_NOT_AVAILABLE;
+            return view;
+        }
+        if (!s.doc) {
+            if (!online && conn && conn.state !== 'connecting') {
+                view.kind = 'error';
+                view.message = 'The grinder is not reachable, so the statistics cannot be read. This page tries again by itself.';
+            } else if (s.error) {
+                view.kind = 'error';
+                view.message = 'The statistics could not be read. ' + s.error + ' This page tries again by itself.';
+            } else {
+                view.kind = 'loading';
+                view.message = 'Loading the statistics.';
+            }
+            return view;
+        }
+        var age = formatAge(nowMs - s.fetchedAt);
+        if (!online) view.note = 'The grinder is not reachable. These numbers are from ' + age + ' ago.';
+        else if (s.error) view.note = 'The numbers could not be refreshed (' + s.error + ') and are from ' + age + ' ago.';
+        else view.note = 'Updated ' + age + ' ago.';
+        if (s.doc.total_grinds === 0) {
+            view.kind = 'empty';
+            view.message = 'No grinds recorded yet. The totals appear after the first grind.';
+            return view;
+        }
+        view.tiles = tilesFor(s.doc);
+        view.mix = mixView(s.doc);
+        return view;
     }
 
     // ------------------------------------------------------------------ settings form (chg016 step 3)
@@ -1007,6 +1240,24 @@
         WARNING_CODE_MAX: WARNING_CODE_MAX,
         readoutView: readoutView,
         profileCards: profileCards,
+        STATS_PERIOD_MS: STATS_PERIOD_MS,
+        STATS_RETRY_MS: STATS_RETRY_MS,
+        STATS_FOLLOW_UP_MS: STATS_FOLLOW_UP_MS,
+        STATS_KEYS: STATS_KEYS,
+        STATS_NOT_AVAILABLE: STATS_NOT_AVAILABLE,
+        newStats: newStats,
+        parseStats: parseStats,
+        statsLoaded: statsLoaded,
+        statsFailed: statsFailed,
+        statsRefresh: statsRefresh,
+        statsShown: statsShown,
+        grindEnded: grindEnded,
+        statsOnStatus: statsOnStatus,
+        statsDue: statsDue,
+        statsView: statsView,
+        formatCount: formatCount,
+        formatDuration: formatDuration,
+        formatKg: formatKg,
         FRESHNESS_STEPS: FRESHNESS_STEPS,
         settingsGroups: settingsGroups,
         groupedKeys: groupedKeys,

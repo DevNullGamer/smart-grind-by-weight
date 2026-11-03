@@ -990,3 +990,260 @@ test('the warnings list is wired as a named region built from the template witho
     assert.equal(app.includes('http'), false);
     assert.match(app, /V\.warningsView\(status, conn\)/);
 });
+
+// ---------------------------------------------------------------------------------------------- step 9 (Insights)
+const statsDoc = (over) => Object.assign({
+    total_grinds: 412, single: 180, double: 200, custom: 32, weight_mode: 390, time_mode: 22, total_weight_kg: 8.43,
+    motor_runtime_s: 5120, avg_abs_error_g: 0.12, total_pulses: 1100, avg_pulses: 2.7, time_pulses: 14, powered_minutes: 22890
+}, over || {});
+const loadedStats = (over, at) => PV.statsLoaded(PV.newStats(), statsDoc(over), at === undefined ? 1000 : at);
+const tileOf = (view, id) => view.tiles.find((t) => t.id === id);
+const lostConn = () => PV.connectionFailed(PV.connectionFailed(online(), 'network', 1), 'network', 2);
+
+test('formatDuration: seconds, minutes, hours and days, 0 is "0 s"', () => {
+    assert.equal(PV.formatDuration(0), '0 s');
+    assert.equal(PV.formatDuration(59), '59 s');
+    assert.equal(PV.formatDuration(60), '1 min');
+    assert.equal(PV.formatDuration(125), '2 min 5 s');
+    assert.equal(PV.formatDuration(3599), '59 min 59 s');
+    assert.equal(PV.formatDuration(3720), '1 h 02 min');
+    assert.equal(PV.formatDuration(86399), '23 h 59 min');
+    assert.equal(PV.formatDuration(3 * 86400 + 4 * 3600 + 59), '3 d 4 h');
+    assert.equal(PV.formatDuration(5120.9), '1 h 25 min');
+});
+
+test('formatDuration: very large and unusable values stay readable', () => {
+    assert.match(PV.formatDuration(257698037759 * 60), /^[\d,]+ d \d{1,2} h$/);
+    for (const bad of [null, undefined, NaN, Infinity, -1, '5']) assert.equal(PV.formatDuration(bad), '--');
+});
+
+test('formatCount groups thousands without a locale and rejects non-numbers', () => {
+    assert.equal(PV.formatCount(0), '0');
+    assert.equal(PV.formatCount(999), '999');
+    assert.equal(PV.formatCount(1000), '1,000');
+    assert.equal(PV.formatCount(4294967295), '4,294,967,295');
+    assert.equal(PV.formatCount(1234.9), '1,234');
+    for (const bad of [null, undefined, NaN, Infinity, -5, '7']) assert.equal(PV.formatCount(bad), '--');
+});
+
+test('formatKg: grams below a kilogram, then kg with fewer decimals as it grows', () => {
+    assert.equal(PV.formatKg(0), '0 g');
+    assert.equal(PV.formatKg(0.018), '18 g');
+    assert.equal(PV.formatKg(8.43), '8.43 kg');
+    assert.equal(PV.formatKg(123.456), '123.5 kg');
+    assert.equal(PV.formatKg(12345.6), '12,346 kg');
+    assert.equal(PV.formatKg(1000000000), '1,000,000,000 kg');
+    assert.equal(PV.formatKg(NaN), '--');
+    assert.equal(PV.formatKg(-1), '--');
+});
+
+test('parseStats: numbers only, missing members are unknown (null), anything else is not a statistics reply', () => {
+    const ok = PV.parseStats(statsDoc());
+    assert.equal(ok.total_grinds, 412);
+    assert.deepEqual(Object.keys(ok), PV.STATS_KEYS);
+    const partial = PV.parseStats({ total_grinds: 3, powered_minutes: 'x', avg_pulses: -1, time_pulses: Infinity, extra: 1 });
+    assert.equal(partial.total_grinds, 3);
+    assert.equal(partial.powered_minutes, null);
+    assert.equal(partial.avg_pulses, null);
+    assert.equal(partial.time_pulses, null);
+    assert.equal(partial.single, null);
+    assert.equal('extra' in partial, false);
+    for (const bad of [null, undefined, 5, 'x', [], {}, { total_grinds: 'many' }, { total_grinds: -1 }, { total_grinds: NaN }]) {
+        assert.equal(PV.parseStats(bad), null);
+    }
+});
+
+test('statsView: the tiles of a normal reply', () => {
+    const view = PV.statsView(loadedStats(), online(), 1000);
+    assert.equal(view.kind, 'ready');
+    assert.equal(view.tabVisible, true);
+    assert.deepEqual(view.tiles.map((t) => t.id), ['grinds', 'coffee', 'motor', 'powered', 'error', 'pulses', 'timepulses']);
+    assert.equal(tileOf(view, 'grinds').value, '412');
+    assert.match(tileOf(view, 'grinds').detail, /390 by weight, 22 by time/);
+    assert.equal(tileOf(view, 'coffee').value, '8.43 kg');
+    assert.equal(tileOf(view, 'motor').value, '1 h 25 min');
+    assert.equal(tileOf(view, 'powered').value, '15 d 21 h');
+    assert.equal(tileOf(view, 'error').value, '\u00b10.12 g');
+    assert.equal(tileOf(view, 'pulses').value, '2.7');
+    assert.match(tileOf(view, 'pulses').detail, /1,100 correction pulses in total/);
+    assert.equal(tileOf(view, 'timepulses').value, '14');
+    assert.equal(view.note, 'Updated 0 s ago.');
+    for (const t of view.tiles) assert.ok(t.label && t.value && t.detail, t.id); // every tile says what it is in words
+});
+
+test('statsView: the weight split names the buckets by weight, with counts and percentages', () => {
+    const mix = PV.statsView(loadedStats(), online(), 1000).mix;
+    assert.equal(mix.visible, true);
+    assert.deepEqual(mix.segments.map((s) => s.key), ['single', 'double', 'custom']);
+    assert.deepEqual(mix.segments.map((s) => s.label), ['Up to 10 g', 'Over 10 g, up to 22 g', 'Over 22 g']);
+    assert.deepEqual(mix.segments.map((s) => s.text), ['180 grinds (44 %)', '200 grinds (49 %)', '32 grinds (8 %)']);
+    assert.deepEqual(mix.segments.map((s) => s.flex), [180, 200, 32]);
+    const tiny = PV.statsView(loadedStats({ single: 1, double: 0, custom: 100000 }), online(), 1000).mix;
+    assert.deepEqual(tiny.segments.map((s) => s.text), ['1 grind (under 1 %)', '0 grinds (0 %)', '100,000 grinds (100 %)']);
+    assert.equal(PV.statsView(loadedStats({ single: 0, double: 0, custom: 0 }), online(), 1000).mix.visible, false);
+    const unknown = PV.statsLoaded(PV.newStats(), { total_grinds: 5, single: 5 }, 0);
+    assert.equal(PV.statsView(unknown, online(), 0).mix.visible, false); // one bucket unknown: no bar
+});
+
+test('statsView: zero data is an empty state without tiles', () => {
+    const zero = PV.statsLoaded(PV.newStats(), statsDoc({ total_grinds: 0, single: 0, double: 0, custom: 0, weight_mode: 0, time_mode: 0 }), 0);
+    const view = PV.statsView(zero, online(), 0);
+    assert.equal(view.kind, 'empty');
+    assert.match(view.message, /No grinds recorded yet/);
+    assert.deepEqual(view.tiles, []);
+    assert.equal(view.tabVisible, true);
+});
+
+test('statsView: no weight-mode samples and unknown members show a dash with a reason, never NaN', () => {
+    const view = PV.statsView(loadedStats({ weight_mode: 0, avg_abs_error_g: 0, avg_pulses: 0, total_pulses: 0 }), online(), 1000);
+    assert.equal(tileOf(view, 'error').value, '--');
+    assert.match(tileOf(view, 'error').detail, /No weight-mode grinds yet/);
+    assert.equal(tileOf(view, 'pulses').value, '0.0');
+    const partial = PV.statsView(PV.statsLoaded(PV.newStats(), { total_grinds: 7 }, 0), online(), 0);
+    assert.equal(tileOf(partial, 'coffee').value, '--');
+    assert.equal(tileOf(partial, 'pulses').value, '--');
+    assert.equal(tileOf(partial, 'powered').value, '--');
+    for (const t of partial.tiles) assert.doesNotMatch(t.value + t.detail, /NaN|undefined|null/);
+});
+
+test('statsView: very large numbers are grouped and keep their shape', () => {
+    const max = 4294967295;
+    const view = PV.statsView(loadedStats({
+        total_grinds: max, single: max, double: max, custom: max, weight_mode: max, time_mode: max, total_weight_kg: 1e9,
+        motor_runtime_s: max, avg_abs_error_g: 1e9, total_pulses: max, avg_pulses: 255, time_pulses: max, powered_minutes: 257698037759
+    }), online(), 1000);
+    assert.equal(tileOf(view, 'grinds').value, '4,294,967,295');
+    assert.equal(tileOf(view, 'coffee').value, '1,000,000,000 kg');
+    assert.match(tileOf(view, 'motor').value, /^49,710 d \d{1,2} h$/);
+    assert.match(tileOf(view, 'powered').value, /^[\d,]+ d \d{1,2} h$/);
+    assert.equal(tileOf(view, 'error').value, '\u00b11,000,000,000 g');
+    assert.equal(tileOf(PV.statsView(loadedStats({ avg_abs_error_g: 999.994 }), online(), 1000), 'error').value, '\u00b1999.99 g');
+    assert.equal(tileOf(view, 'timepulses').value, '4,294,967,295');
+    assert.equal(view.mix.segments[0].text, '4,294,967,295 grinds (33 %)');
+});
+
+test('statsView: loading, error, offline and not available', () => {
+    assert.equal(PV.statsView(PV.newStats(), online(), 0).kind, 'loading');
+    assert.equal(PV.statsView(PV.newStats(), PV.newConnection(), 0).kind, 'loading');
+    assert.equal(PV.statsView(PV.newStats(), PV.newConnection(), 0).tabVisible, false);
+    const errorView = PV.statsView(PV.statsFailed(PV.newStats(), 'ui_busy', 0), online(), 0);
+    assert.equal(errorView.kind, 'error');
+    assert.match(errorView.message, /could not be read/);
+    assert.equal(errorView.tabVisible, false);
+    assert.equal(PV.statsView(PV.newStats(), lostConn(), 0).kind, 'error');
+    const view = PV.statsView(PV.statsFailed(PV.newStats(), 'not_supported', 0), online(), 0);
+    assert.equal(view.kind, 'unavailable');
+    assert.equal(view.message, PV.STATS_NOT_AVAILABLE);
+    assert.equal(view.tabVisible, false);
+});
+
+test('statsView: stale numbers stay with a note when the grinder is offline or a refresh failed', () => {
+    const loaded = loadedStats({}, 0);
+    const offView = PV.statsView(loaded, lostConn(), 125000);
+    assert.equal(offView.kind, 'ready');
+    assert.equal(offView.tiles.length, 7);
+    assert.match(offView.note, /not reachable.*2 min ago/);
+    const failed = PV.statsFailed(loaded, 'ui_busy', 40000);
+    assert.match(PV.statsView(failed, online(), 45000).note, /could not be refreshed.*45 s ago/);
+    assert.equal(PV.statsView(failed, online(), 45000).tabVisible, true);
+});
+
+test('a missing route after data was seen hides the tab again', () => {
+    const view = PV.statsView(PV.statsFailed(loadedStats(), 'not_supported', 5000), online(), 5000);
+    assert.equal(view.tabVisible, false);
+    assert.equal(view.kind, 'unavailable');
+});
+
+test('statsLoaded with an unusable reply counts as a failed request and keeps what was shown', () => {
+    const bad = PV.statsLoaded(PV.newStats(), '{"total_grinds":1}', 100);
+    assert.equal(bad.seen, false);
+    assert.match(bad.error, /does not understand/);
+    assert.equal(bad.retryAt, 100 + PV.STATS_RETRY_MS);
+    const kept = PV.statsLoaded(loadedStats(), [], 200);
+    assert.equal(kept.seen, true);
+    assert.equal(kept.doc.total_grinds, 412);
+});
+
+test('statsDue: probe once online, then only on request, on a grind end, or every 30 s while the tab is shown', () => {
+    const ctx = (over) => Object.assign({ online: true, haveStatus: true, hidden: false, tabShown: false, commandBusy: false, nowMs: 1000 }, over || {});
+    const fresh = PV.newStats();
+    assert.equal(PV.statsDue(fresh, ctx()), true); // the first probe
+    assert.equal(PV.statsDue(fresh, ctx({ online: false })), false);
+    assert.equal(PV.statsDue(fresh, ctx({ haveStatus: false })), false);
+    assert.equal(PV.statsDue(fresh, ctx({ hidden: true })), false);
+    assert.equal(PV.statsDue(fresh, ctx({ commandBusy: true })), false); // never while a command is in flight
+    const seen = loadedStats({}, 1000);
+    assert.equal(PV.statsDue(seen, ctx({ nowMs: 1001 })), false); // tab not shown: no polling
+    assert.equal(PV.statsDue(seen, ctx({ nowMs: 1001, tabShown: true })), false);
+    assert.equal(PV.statsDue(seen, ctx({ nowMs: 1000 + PV.STATS_PERIOD_MS - 1, tabShown: true })), false);
+    assert.equal(PV.statsDue(seen, ctx({ nowMs: 1000 + PV.STATS_PERIOD_MS, tabShown: true })), true);
+    const opened = PV.statsShown(seen, 5000); // opening the tab asks for a fetch at once
+    assert.equal(PV.statsDue(opened, ctx({ nowMs: 5000, tabShown: true })), true);
+    assert.equal(PV.statsDue(PV.statsLoaded(opened, statsDoc(), 5100), ctx({ nowMs: 5200, tabShown: true })), false);
+});
+
+test('statsDue: a failed request waits for its retry time, a 404 stops for good', () => {
+    const ctx = (nowMs) => ({ online: true, haveStatus: true, hidden: false, tabShown: true, commandBusy: false, nowMs: nowMs });
+    const failed = PV.statsFailed(PV.newStats(), 'timeout', 1000);
+    assert.equal(PV.statsDue(failed, ctx(1000 + PV.STATS_RETRY_MS - 1)), false);
+    assert.equal(PV.statsDue(failed, ctx(1000 + PV.STATS_RETRY_MS)), true);
+    const missing = PV.statsFailed(PV.newStats(), 'not_supported', 1000);
+    assert.equal(PV.statsDue(missing, ctx(99999999)), false);
+    assert.equal(missing.retryAt, 0);
+});
+
+test('a grind that ends asks for a fetch now and once more after the grinder refreshed', () => {
+    assert.equal(PV.grindEnded('grinding', 'grind_complete'), true);
+    assert.equal(PV.grindEnded('grinding', 'ready'), true);
+    assert.equal(PV.grindEnded('grind_complete', 'ready'), true);
+    assert.equal(PV.grindEnded('grinding', 'grinding'), false);
+    assert.equal(PV.grindEnded('ready', 'menu'), false);
+    assert.equal(PV.grindEnded('', 'ready'), false);
+    const ctx = (nowMs) => ({ online: true, haveStatus: true, hidden: false, tabShown: true, commandBusy: false, nowMs: nowMs });
+    let s = loadedStats({}, 1000);
+    assert.equal(PV.statsOnStatus(s, 'ready', 'menu', 2000), s); // same object: nothing asked
+    s = PV.statsOnStatus(s, 'grinding', 'grind_complete', 2000);
+    assert.equal(PV.statsDue(s, ctx(2000)), true);
+    s = PV.statsLoaded(s, statsDoc(), 2100);
+    assert.equal(PV.statsDue(s, ctx(2200)), false);
+    assert.equal(PV.statsDue(s, ctx(2000 + PV.STATS_FOLLOW_UP_MS - 1)), false);
+    assert.equal(PV.statsDue(s, ctx(2000 + PV.STATS_FOLLOW_UP_MS)), true); // the follow-up
+    s = PV.statsLoaded(s, statsDoc(), 8100);
+    assert.equal(PV.statsDue(s, ctx(8200)), false);
+    const waiting = PV.statsOnStatus(loadedStats({}, 1000), 'grinding', 'ready', 2000); // tab hidden: waits for the tab
+    assert.equal(PV.statsDue(waiting, Object.assign(ctx(2500), { tabShown: false })), false);
+    assert.equal(PV.statsDue(waiting, ctx(2500)), true);
+});
+
+test('the polling loop gives stats their turn after settings and info, and a stats failure keeps the connection', () => {
+    const f = { haveStatus: true, online: true, needSchema: false, needSettings: false, needInfo: false, forceStatus: false, statsDue: true };
+    assert.equal(PV.nextPollTask(f), 'stats');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { needInfo: true })), 'info');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { forceStatus: true })), 'status');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { online: false })), 'status');
+    assert.equal(PV.nextPollTask(Object.assign({}, f, { statsDue: false })), 'status');
+    const needs = { needSchema: false, needSettings: false, needInfo: false };
+    const next = PV.pollSucceeded('stats', needs, statsDoc(), true, 'ready');
+    assert.deepEqual([next.needSchema, next.needSettings, next.needInfo, next.forceStatus, next.quick], [false, false, false, false, false]);
+    for (const code of ['not_supported', 'ui_busy', 'bad_reply', 'http_error']) {
+        assert.deepEqual(PV.pollFailed('stats', code), { schemaMissing: false, connectionLost: false, forceStatus: true }, code);
+    }
+    for (const code of ['network', 'timeout', 'web_interface_off']) assert.equal(PV.pollFailed('stats', code).connectionLost, true, code);
+});
+
+test('the Insights tab is wired in the page: definition lists, a named region, no markup written from data', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.match(html, /<button id="tab-insights"[^>]*\bhidden>/);
+    assert.match(html, /<dl id="tiles"[^>]*hidden>/);
+    assert.match(html, /<dl id="mix-list"/);
+    assert.match(html, /<div id="mix-bar"[^>]*aria-hidden="true"/);
+    assert.match(app, /V\.statsView\(stats, conn, now\(\)\)/);
+    assert.match(app, /client\.getStats\(\)/);
+    assert.match(app, /commandBusy: commandPending \|\| client\.pending\(\) > 0/);
+    assert.equal(app.includes('innerHTML'), false);
+    // the warnings card sits above Profiles and Tools in the left pane, so it is not behind a long scroll at 900 px and up
+    assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<section id="warnings"'));
+    assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<h2>Profiles</h2>'));
+    assert.ok(html.indexOf('<h2>Profiles</h2>') < html.indexOf('<h2>Tools</h2>'));
+});
