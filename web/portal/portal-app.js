@@ -9,9 +9,13 @@
 
   function $(id) { return document.getElementById(id); }
 
-  function showTab(name) {
-    // From 900 px the live pane is always visible beside the tabs, so the Grind tab does not exist there.
-    if (name === 'grind' && window.matchMedia('(min-width: 900px)').matches) name = 'settings';
+  // matchMedia may be missing in old browsers: then the narrow layout (one tab at a time) is assumed.
+  var wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 900px)') : null;
+  var requestedTab = 'grind';
+
+  function showTab(requested) {
+    requestedTab = requested;
+    var name = V.tabForViewport(requested, !!(wide && wide.matches));
     V.TABS.forEach(function (tab) {
       $('panel-' + tab).hidden = tab !== name;
       var button = $('tab-' + tab);
@@ -20,9 +24,12 @@
     });
   }
 
+  // A repeated text is announced again: the region is emptied first and filled on the next tick.
   function say(text, isError) {
-    $(isError ? 'alert' : 'message').textContent = text;
+    var target = $(isError ? 'alert' : 'message');
     $(isError ? 'message' : 'alert').textContent = '';
+    target.textContent = '';
+    setTimeout(function () { target.textContent = text; }, 0);
   }
 
   // STOP always tries; a failure is reported in words (the page keeps no other state).
@@ -40,6 +47,11 @@
   $('stop').addEventListener('click', stop);
   $('stop-pane').addEventListener('click', stop);
   showTab('grind');
+  // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
+  if (wide) {
+    if (typeof wide.addEventListener === 'function') wide.addEventListener('change', function () { showTab(requestedTab); });
+    else if (typeof wide.addListener === 'function') wide.addListener(function () { showTab(requestedTab); });
+  }
 
   client.getInfo().then(function (info) {
     $('name').textContent = info.name;

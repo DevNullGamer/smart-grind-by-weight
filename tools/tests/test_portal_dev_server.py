@@ -188,6 +188,24 @@ def test_build_page_crlf_sources_build_the_same_bytes(tmp_path):
     assert build_page.render_page(lf) == build_page.render_page(crlf)
 
 
+def test_build_page_keeps_marker_text_inside_a_part_verbatim(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-app.js").write_text("var m = '/*@@PORTAL_VIEW@@*/';\n", encoding="utf-8")
+    page = build_page.render_page(tmp_path)
+    assert "var m = '/*@@PORTAL_VIEW@@*/';" in page  # not expanded a second time
+    assert page.count("var view;") == 1
+
+
+def test_stop_is_the_first_button_after_the_skip_link_and_never_disabled():
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    body = page[page.index("<body>"):]
+    assert body.index('class="skip-link"') < body.index("<button")
+    first = re.search(r"<button\b[^>]*>", body).group(0)
+    assert 'id="stop"' in first and "disabled" not in first
+    for tag in re.findall(r"<button\b[^>]*\bid=\"stop(?:-pane)?\"[^>]*>", body):
+        assert "disabled" not in tag, tag
+
+
 @pytest.mark.parametrize("marker", [m for m, _f, _c in build_page.PARTS])
 def test_build_page_rejects_missing_and_duplicated_marker(tmp_path, marker):
     make_sources(tmp_path)

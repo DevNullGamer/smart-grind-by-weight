@@ -20,8 +20,17 @@
         return grams.toFixed(1) + ' g';
     }
 
+    // Which tab to show for the tab the user picked. From 900 px the live pane sits beside the tabs, so the Grind tab
+    // does not exist there and Settings takes its place; an unknown name also falls back to Grind or Settings.
+    function tabForViewport(requested, isWide) {
+        var name = TABS.indexOf(requested) >= 0 ? requested : 'grind';
+        if (name === 'grind' && isWide) return 'settings';
+        return name;
+    }
+
     return {
         TABS: TABS,
+        tabForViewport: tabForViewport,
         formatWeight: formatWeight
     };
 }));
