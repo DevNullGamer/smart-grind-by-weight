@@ -830,6 +830,9 @@ test('the page source wires the stale-reply guard, the name length limit and the
     assert.match(app, /gen !== settingsGen/);
     assert.match(app, /\.maxLength = view\.max/);
     assert.match(app, /setProperty\('--savebar-h'/);
-    assert.match(app, /function showTab[\s\S]*?setSavebarHeight\(\)/);
+    // the body of showTab only: it ends at the first closing brace at function indent
+    const showTabBody = app.match(/function showTab\([^)]*\) \{[\s\S]*?\r?\n  \}\r?\n/);
+    assert.ok(showTabBody, 'showTab found');
+    assert.match(showTabBody[0], /setSavebarHeight\(\)/);
     assert.match(app, /addEventListener\('resize', setSavebarHeight\)/);
 });
