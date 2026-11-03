@@ -25,6 +25,9 @@ PURGE_MIN_G, PURGE_MAX_G = 0.1, 2.5
 FRESHNESS_STEPS_H = (0.5, 1.0, 2.0, 3.0, 4.0, 8.0, 12.0, 24.0, 48.0)
 PROFILE_NAMES = ("SINGLE", "DOUBLE", "CUSTOM")
 COMMANDS = ("stop", "tare", "start", "motor_test")
+# Status warning codes in priority order (kWarningNames in portal_api.cpp)
+WARNING_CODES = ("board_unrecognized", "motor_fault", "motor_disabled", "hx711_not_connected", "hx711_no_data",
+                 "hx711_sample_rate_invalid", "mechanical_instability", "load_cell_noisy", "load_cell_not_calibrated")
 
 # code -> (HTTP status, reason). Same table as kErrors in portal_api.cpp.
 ERRORS = {
@@ -153,6 +156,31 @@ def encode_json(obj):
     if isinstance(obj, dict):
         return "{" + ",".join(json.dumps(k) + ":" + encode_json(v) for k, v in obj.items()) + "}"
     raise TypeError(f"cannot encode {type(obj).__name__}")
+
+
+def ordered_warnings(codes):
+    """The warnings member of the status: the known codes among `codes`, once each, highest priority first
+    (unknown codes are dropped, like unknown mask bits in the firmware)."""
+    present = set(codes)
+    return [c for c in WARNING_CODES if c in present]
+
+
+def status_document(ui_state, grind_phase, busy, weight_g, motor_available, start_block, motor_test_block,
+                    uptime_s, build, web_interface=True, warnings=()):
+    """The GET /api/status document, members in the firmware's order (portal_encode_status)."""
+    return {
+        "ui_state": ui_state,
+        "grind_phase": grind_phase,
+        "busy": busy,
+        "weight_g": weight_g,
+        "motor_available": motor_available,
+        "start_block": start_block,
+        "motor_test_block": motor_test_block,
+        "uptime_s": uptime_s,
+        "build": build,
+        "web_interface": web_interface,
+        "warnings": ordered_warnings(warnings),
+    }
 
 
 def error_body(code):

@@ -36,7 +36,25 @@ struct PortalStatusInputs {
     MotorTestBlock motor_test_block = MotorTestBlock::NONE;
     uint32_t uptime_s = 0;
     int32_t build = -1;
+    uint32_t diag_mask = 0;  // active DiagnosticCode values, bit n = code n (DiagnosticsController::active_mask)
 };
+
+// DiagnosticCode (numeric value, system/diagnostics_controller.h) behind warning index 0 .. PORTAL_WARNING_COUNT - 1,
+// in the priority order of portal_api.cpp kWarningNames. The firmware asserts these against the enum
+// (portal_ui_controller.cpp); the contract test checks the order against get_highest_priority_warning.
+constexpr int PORTAL_WARNING_DIAG_CODES[PORTAL_WARNING_COUNT] = {
+    6,  // BOARD_UNRECOGNIZED
+    8,  // MOTOR_FAULT
+    7,  // MOTOR_DISABLED
+    1,  // HX711_NOT_CONNECTED
+    9,  // HX711_NO_DATA
+    2,  // HX711_SAMPLE_RATE_INVALID
+    5,  // MECHANICAL_INSTABILITY
+    4,  // LOAD_CELL_NOISY_SUSTAINED
+    3,  // LOAD_CELL_NOT_CALIBRATED
+};
+// Status warnings bitmask (PortalStatus::warnings) of a diagnostics mask: unknown bits, including NONE (bit 0), drop
+uint16_t portal_warnings_from_diag_mask(uint32_t diag_mask);
 
 PortalStatus portal_build_status(const PortalStatusInputs& in);
 

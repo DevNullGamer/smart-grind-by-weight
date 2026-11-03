@@ -8,6 +8,7 @@ The vectors themselves are executed by test_native/test_portal_api.cpp and test_
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -344,6 +345,37 @@ def test_status_names_follow_the_firmware_enums_and_the_document():
     assert re.search(r"PORTAL_GRIND_PHASE_COUNT\s*=\s*(\d+)", read("src/network/portal_snapshot.h")).group(1) == str(len(phases))
     for phase in phases:
         assert f"`{phase.lower()}`" in doc, f"grind_phase {phase.lower()} missing in PORTAL-API.md"
+
+
+def test_warning_codes_follow_diagnostics_priority_and_the_document():
+    diagnostics = read("src/system/diagnostics_controller.cpp")
+    codes = enum_members(read("src/system/diagnostics_controller.h"), "DiagnosticCode")
+    assert codes[0] == "NONE"
+    # Priority order = the order of the checks in get_highest_priority_warning
+    body = re.search(r"get_highest_priority_warning\(\) const \{(.*?)\n\}", diagnostics, re.S).group(1)
+    priority = re.findall(r"find_diagnostic\(DiagnosticCode::([A-Z0-9_]+)\)\) \{\s*return", body)
+    assert sorted(priority) == sorted(codes[1:]), "every DiagnosticCode except NONE has a priority"
+    # The API code is the lower-case enumerator, except the sustained-noise code
+    rename = {"LOAD_CELL_NOISY_SUSTAINED": "load_cell_noisy"}
+    expected = [rename.get(c, c.lower()) for c in priority]
+    api = read("src/network/portal_api.cpp")
+    table = re.search(r"kWarningNames\[PORTAL_WARNING_COUNT\] = \{(.*?)\};", api, re.S).group(1)
+    assert re.findall(r'"([a-z0-9_]+)"', table) == expected
+    assert re.search(r"PORTAL_WARNING_COUNT\s*=\s*(\d+)", read("src/network/portal_api.h")).group(1) == str(len(expected))
+    # The snapshot's DiagnosticCode values (bit n of the mask) follow the enum declaration order
+    snapshot = read("src/network/portal_snapshot.h")
+    values = re.search(r"PORTAL_WARNING_DIAG_CODES\[PORTAL_WARNING_COUNT\] = \{(.*?)\};", snapshot, re.S).group(1)
+    assert [int(v) for v in re.findall(r"^\s*(\d+),", values, re.M)] == [codes.index(c) for c in priority]
+    # The dev server mirror and the document
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    assert list(portal_model.WARNING_CODES) == expected
+    doc = read("docs/PORTAL-API.md")
+    for name in expected:
+        assert f"`{name}`" in doc, f"warning {name} missing in PORTAL-API.md"
+    # Vectors: every code appears in a status case
+    used = {w for c in VECTORS["status_cases"] for w in c["input"]["warnings"]}
+    assert used == set(expected)
 
 
 def test_http_task_code_stays_off_the_ui_side():

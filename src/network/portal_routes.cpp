@@ -204,10 +204,10 @@ int portal_handle_status(httpd_req* req) {
 
     PortalStatus status;
     if (!portal_command_gate.read_snapshot(nullptr, &status)) return portal_send_error(req, PortalError::UI_BUSY);
-    char json[PORTAL_STATUS_JSON_MAX];
-    if (!portal_encode_status(status, json, sizeof(json))) return send_internal_error(req);
+    ReplyBuffer json(PORTAL_STATUS_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_status(status, json.data, json.capacity)) return send_internal_error(req);
     static bool stack_logged = false;
-    const int sent = send_json_ok(req, json);
+    const int sent = send_json_ok(req, json.data);
     log_stack_once(&stack_logged, "GET /api/status");
     return sent;
 }

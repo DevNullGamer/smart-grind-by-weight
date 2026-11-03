@@ -15,6 +15,14 @@ const char* const kGrindPhaseNames[PORTAL_GRIND_PHASE_COUNT] = {
 
 }  // namespace
 
+uint16_t portal_warnings_from_diag_mask(uint32_t diag_mask) {
+    uint16_t warnings = 0;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if ((diag_mask >> PORTAL_WARNING_DIAG_CODES[i]) & 1u) warnings = static_cast<uint16_t>(warnings | (1u << i));
+    }
+    return warnings;
+}
+
 const char* portal_ui_state_name(UIState state) {
     switch (state) {
         case UIState::READY: return "ready";
@@ -57,6 +65,7 @@ PortalStatus portal_build_status(const PortalStatusInputs& in) {
     status.uptime_s = in.uptime_s;
     status.build = in.build;
     status.web_interface = true;
+    status.warnings = portal_warnings_from_diag_mask(in.diag_mask);
     return status;
 }
 

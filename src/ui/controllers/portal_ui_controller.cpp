@@ -29,7 +29,22 @@ static_assert(static_cast<int>(GrindPhase::IDLE) == 0 && static_cast<int>(GrindP
                   static_cast<int>(GrindPhase::PURGE_CONFIRM) == static_cast<int>(PORTAL_GRIND_PHASE_COUNT) - 1,
               "GrindPhase order changed: update kGrindPhaseNames in network/portal_snapshot.cpp");
 
+// The pure snapshot module maps DiagnosticCode values to warning codes without including the enum
+#define PORTAL_ASSERT_WARNING(index, code)                                                                            static_assert(PORTAL_WARNING_DIAG_CODES[index] == static_cast<int>(DiagnosticCode::code),                                      "DiagnosticCode changed: update PORTAL_WARNING_DIAG_CODES in network/portal_snapshot.h")
+PORTAL_ASSERT_WARNING(0, BOARD_UNRECOGNIZED);
+PORTAL_ASSERT_WARNING(1, MOTOR_FAULT);
+PORTAL_ASSERT_WARNING(2, MOTOR_DISABLED);
+PORTAL_ASSERT_WARNING(3, HX711_NOT_CONNECTED);
+PORTAL_ASSERT_WARNING(4, HX711_NO_DATA);
+PORTAL_ASSERT_WARNING(5, HX711_SAMPLE_RATE_INVALID);
+PORTAL_ASSERT_WARNING(6, MECHANICAL_INSTABILITY);
+PORTAL_ASSERT_WARNING(7, LOAD_CELL_NOISY_SUSTAINED);
+PORTAL_ASSERT_WARNING(8, LOAD_CELL_NOT_CALIBRATED);
+#undef PORTAL_ASSERT_WARNING
+
 namespace {
+
+// Brightness percent, purge
 
 // Brightness percent, purge slider units or freshness step of a normalised API value, as the slider handler
 // of the menu would hold them
@@ -145,6 +160,7 @@ PortalStatusInputs PortalUIController::gather_status() const {
     in.motor_test_block = ui_manager_->motor_pulse_block();
     in.uptime_s = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
     in.build = BUILD_NUMBER;
+    in.diag_mask = ui_manager_->diagnostics_controller_ ? ui_manager_->diagnostics_controller_->active_mask() : 0;
     return in;
 }
 

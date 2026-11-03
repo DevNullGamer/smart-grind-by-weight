@@ -92,6 +92,13 @@ const PortalField kFields[PORTAL_FIELD_COUNT] = {
 };
 
 const char* const kProfileNames[PORTAL_PROFILE_COUNT] = {"SINGLE", "DOUBLE", "CUSTOM"};
+
+// Warning codes in priority order, the order of DiagnosticsController::get_highest_priority_warning
+// (tools/tests/test_portal_api_contract.py keeps the two in step)
+const char* const kWarningNames[PORTAL_WARNING_COUNT] = {
+    "board_unrecognized", "motor_fault",    "motor_disabled",     "hx711_not_connected",     "hx711_no_data",
+    "hx711_sample_rate_invalid", "mechanical_instability", "load_cell_noisy", "load_cell_not_calibrated",
+};
 const char* const kCommandNames[] = {"stop", "tare", "start", "motor_test"};
 constexpr size_t kCommandCount = sizeof(kCommandNames) / sizeof(kCommandNames[0]);
 
@@ -776,6 +783,18 @@ int portal_command_success_status(PortalCommand cmd) {
     return (cmd == PortalCommand::START || cmd == PortalCommand::MOTOR_TEST) ? 202 : 200;
 }
 
+const char* portal_warning_name(size_t index) {
+    return index < PORTAL_WARNING_COUNT ? kWarningNames[index] : "";
+}
+
+int portal_warning_index(const char* name) {
+    if (!name) return -1;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if (strcmp(name, kWarningNames[i]) == 0) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
     JsonOut j(out, cap);
     j.put('{');
@@ -800,6 +819,15 @@ bool portal_encode_status(const PortalStatus& s, char* out, size_t cap) {
     if (s.build < 0) j.raw("null"); else j.integer(s.build);
     j.raw(",\"web_interface\":");
     j.boolean(s.web_interface);
+    j.raw(",\"warnings\":[");
+    bool first_warning = true;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        if (!((s.warnings >> i) & 1u)) continue;
+        if (!first_warning) j.put(',');
+        first_warning = false;
+        j.str(kWarningNames[i]);
+    }
+    j.put(']');
     j.put('}');
     return j.done();
 }

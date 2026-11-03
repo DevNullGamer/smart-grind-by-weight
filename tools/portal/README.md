@@ -92,6 +92,7 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `ui_busy` | bool | `GET` and `PATCH /api/settings` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
 | `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
+| `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The page does not show them yet. |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
 
 ## Reproduce each page state

@@ -79,6 +79,37 @@ static void test_status_is_built_from_the_inputs() {
     TEST_ASSERT_NOT_NULL(strstr(json, "\"motor_test_block\":\"motor_fault\""));
 }
 
+static void test_diag_mask_maps_to_warnings_in_priority_order() {
+    TEST_ASSERT_EQUAL_UINT16(0, portal_warnings_from_diag_mask(0));
+    TEST_ASSERT_EQUAL_UINT16(0, portal_warnings_from_diag_mask(1u));  // DiagnosticCode::NONE (0) is not a warning
+    // Every code on its own lands on its own distinct warning bit
+    uint16_t seen = 0;
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        const int code = PORTAL_WARNING_DIAG_CODES[i];
+        TEST_ASSERT_TRUE(code >= 1 && code <= 31);
+        const uint16_t w = portal_warnings_from_diag_mask(1u << code);
+        TEST_ASSERT_EQUAL_UINT16(1u << i, w);
+        seen = static_cast<uint16_t>(seen | w);
+    }
+    TEST_ASSERT_EQUAL_UINT16((1u << PORTAL_WARNING_COUNT) - 1, seen);
+    TEST_ASSERT_EQUAL_UINT16((1u << PORTAL_WARNING_COUNT) - 1, portal_warnings_from_diag_mask(0xFFFFFFFFu));
+    // The enum has the values 1..9; a value past it is ignored
+    TEST_ASSERT_EQUAL_UINT16(0, portal_warnings_from_diag_mask(1u << 10));
+    TEST_ASSERT_EQUAL_UINT16(0, portal_warnings_from_diag_mask(0x80000000u));
+}
+
+static void test_status_warnings_follow_the_diag_mask() {
+    PortalStatusInputs in;
+    in.diag_mask = (1u << 8) | (1u << 3) | (1u << 6);  // MOTOR_FAULT, LOAD_CELL_NOT_CALIBRATED, BOARD_UNRECOGNIZED
+    const PortalStatus s = portal_build_status(in);
+    char json[PORTAL_STATUS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_status(s, json, sizeof(json)));
+    TEST_ASSERT_NOT_NULL(strstr(
+        json, "\"warnings\":[\"board_unrecognized\",\"motor_fault\",\"load_cell_not_calibrated\"]}"));
+    TEST_ASSERT_TRUE(portal_encode_status(portal_build_status(PortalStatusInputs()), json, sizeof(json)));
+    TEST_ASSERT_NOT_NULL(strstr(json, "\"warnings\":[]}"));
+}
+
 static void test_status_defaults_are_all_clear() {
     const PortalStatus s = portal_build_status(PortalStatusInputs());
     TEST_ASSERT_EQUAL_STRING("ready", s.ui_state);
@@ -175,6 +206,8 @@ void run_portal_snapshot_tests() {
     RUN_TEST(test_grind_phase_names_follow_the_enum_order);
     RUN_TEST(test_ui_mode_needs_the_home_screens_without_an_overlay);
     RUN_TEST(test_status_is_built_from_the_inputs);
+    RUN_TEST(test_diag_mask_maps_to_warnings_in_priority_order);
+    RUN_TEST(test_status_warnings_follow_the_diag_mask);
     RUN_TEST(test_status_defaults_are_all_clear);
     RUN_TEST(test_an_invalid_weight_is_null);
     RUN_TEST(test_status_json_fits_its_buffer_in_the_worst_case);

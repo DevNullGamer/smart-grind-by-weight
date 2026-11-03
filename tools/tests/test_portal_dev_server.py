@@ -126,6 +126,21 @@ def test_decision_and_write_vectors():
         assert got == c["error"], c["name"]
 
 
+def test_status_vectors():
+    assert len(VECTORS["status_cases"]) >= 9
+    for c in VECTORS["status_cases"]:
+        i = c["input"]
+        doc = model.status_document(i["ui_state"], i["grind_phase"], i["busy"], i["weight_g"], i["motor_available"],
+                                    i["start_block"], i["motor_test_block"], i["uptime_s"], i["build"],
+                                    i["web_interface"], i["warnings"])
+        assert model.encode_json(doc) == c["json"], c["name"]
+
+
+def test_warning_ordering_ignores_duplicates_and_unknown_codes():
+    assert model.ordered_warnings([]) == []
+    assert model.ordered_warnings(["load_cell_not_calibrated", "motor_fault", "motor_fault", "bogus"]) ==         ["motor_fault", "load_cell_not_calibrated"]
+
+
 def test_number_formatting_rule():
     assert model.encode_json({"a": 9.0, "b": 21.5, "c": 0.1, "d": 0.12345, "e": 3, "f": True, "g": None}) == \
         '{"a":9.0,"b":21.5,"c":0.1,"d":0.123,"e":3,"f":true,"g":null}'
@@ -436,8 +451,19 @@ def test_command_body_refusals(server):
 def test_status_shape(server):
     doc = call(server, "GET", "/api/status")[1]
     assert set(doc) == {"ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
-                        "motor_test_block", "uptime_s", "build", "web_interface"}
+                        "motor_test_block", "uptime_s", "build", "web_interface", "warnings"}
     assert doc["web_interface"] is True and doc["start_block"] is None
+
+
+def test_status_warnings_member_is_last_and_follows_dev_state(server):
+    raw = call(server, "GET", "/api/status")[1]
+    assert raw["warnings"] == [] and list(raw)[-2:] == ["web_interface", "warnings"]
+    s, d, _ = call(server, "POST", "/dev/state", '{"warnings":["load_cell_not_calibrated","motor_fault","motor_fault"]}')
+    assert s == 200 and d["warnings"] == ["motor_fault", "load_cell_not_calibrated"]
+    assert call(server, "GET", "/api/status")[1]["warnings"] == ["motor_fault", "load_cell_not_calibrated"]
+    for bad in ('{"warnings":"motor_fault"}', '{"warnings":["bogus"]}', '{"warnings":[1]}', '{"warnings":null}'):
+        assert call(server, "POST", "/dev/state", bad)[0] == 400
+    assert call(server, "POST", "/dev/state", '{"warnings":[]}')[1]["warnings"] == []
 
 
 def test_unknown_paths_and_methods(server):
@@ -552,7 +578,7 @@ def test_update_held_status_keeps_screen_and_shape(server):
     assert doc["start_block"] == "update_in_progress" and doc["motor_test_block"] == "update_in_progress"
     assert doc["ui_state"] == "ready" and doc["motor_available"] is True and doc["busy"] is False
     assert set(doc) == {"ui_state", "grind_phase", "busy", "weight_g", "motor_available", "start_block",
-                        "motor_test_block", "uptime_s", "build", "web_interface"}
+                        "motor_test_block", "uptime_s", "build", "web_interface", "warnings"}
     server.sim.update_held = False
     assert call(server, "GET", "/api/status")[1]["start_block"] is None
 

@@ -200,5 +200,13 @@ struct PortalStatus {
     uint32_t uptime_s = 0;
     int32_t build = -1;                 // -1 encodes null
     bool web_interface = true;
+    uint16_t warnings = 0;              // bit i = warning i of the table below (priority order); other bits are ignored
 };
+// "warnings":[...] member of the status: the active diagnostics as stable snake_case codes, highest priority first.
+// The table is fixed (no text from the device); user-facing wording lives in the page.
+constexpr size_t PORTAL_WARNING_COUNT = 9;
+// Code of warning index 0 (highest priority) .. PORTAL_WARNING_COUNT - 1; "" for anything else
+const char* portal_warning_name(size_t index);
+// Index of a code, or -1 (exact match)
+int portal_warning_index(const char* name);
 bool portal_encode_status(const PortalStatus& status, char* out, size_t cap);

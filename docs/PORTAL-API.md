@@ -76,7 +76,7 @@ needs no snapshot.
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
-needs are 1 KB for the values and patch reply, 4 KB for the schema.
+needs are 1 KB for the values and patch reply, 4 KB for the schema and 640 bytes for the status (the longest possible status is 470 bytes).
 
 ## 4. Settings and profile fields
 
@@ -314,7 +314,7 @@ through this API or when the menu is left; a change made on the touchscreen show
 
 ```
 {"ui_state":"ready","grind_phase":"idle","busy":false,"weight_g":0.0,"motor_available":true,
- "start_block":null,"motor_test_block":null,"uptime_s":123,"build":123,"web_interface":true}
+ "start_block":null,"motor_test_block":null,"uptime_s":123,"build":123,"web_interface":true,"warnings":[]}
 ```
 
 | Field | Type | Meaning |
@@ -329,6 +329,26 @@ through this API or when the menu is left; a change made on the touchscreen show
 | `uptime_s` | int | seconds since boot |
 | `build` | int or null | firmware build number |
 | `web_interface` | bool | always true (the route is only served while the switch is on) |
+| `warnings` | array of strings | the grinder's active warnings (the diagnostics behind the warning icon), highest priority first, `[]` when there are none; see below |
+
+`warnings` is an additive member (the contract version does not change): it is always the last member, and a page
+written before it existed ignores it. Every entry is one of the fixed codes below (at most 25 characters, nine in total,
+each at most once); the grinder never sends free text, the wording belongs to the page. The list is built by the UI
+task from the diagnostics of the grinder (the same source as the warning icon) and shares the snapshot's age of at most
+250 ms. A client should tolerate a code it does not know (a later firmware may add one) and an absent member (an older
+firmware). The codes, in priority order:
+
+| Code | Meaning |
+|---|---|
+| `board_unrecognized` | the hardware board (V1 or V2) could not be identified; the motor stays off until it is chosen on the grinder |
+| `motor_fault` | the motor output was cut off by the deadman; latched until the grinder is restarted |
+| `motor_disabled` | the grinder output is off (board not confirmed, or the grinder failed to initialise) |
+| `hx711_not_connected` | the load cell amplifier is missing or does not answer |
+| `hx711_no_data` | the load cell amplifier is connected but delivers no samples |
+| `hx711_sample_rate_invalid` | the load cell amplifier is wired for the wrong sample rate |
+| `mechanical_instability` | the grinder reported repeated mechanical anomalies during grinding |
+| `load_cell_noisy` | sustained excessive noise on the load cell (60 s or more) |
+| `load_cell_not_calibrated` | the load cell has not been calibrated |
 
 ## 8. Error codes
 

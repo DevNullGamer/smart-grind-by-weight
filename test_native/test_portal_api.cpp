@@ -632,6 +632,107 @@ static void test_encode_status() {
     TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
 }
 
+static PortalStatus status_from_vector(const PJson& in) {
+    PortalStatus s;
+    s.ui_state = in.at("ui_state").s.c_str();
+    s.grind_phase = in.at("grind_phase").s.c_str();
+    s.busy = in.at("busy").b;
+    s.weight_g = in.at("weight_g").is_null() ? NAN : static_cast<float>(in.at("weight_g").n);
+    s.motor_available = in.at("motor_available").b;
+    s.start_block = in.at("start_block").is_null() ? PortalError::NONE : error_from_code(in.at("start_block").s);
+    s.motor_test_block = in.at("motor_test_block").is_null() ? PortalError::NONE : error_from_code(in.at("motor_test_block").s);
+    s.uptime_s = static_cast<uint32_t>(in.at("uptime_s").n);
+    s.build = in.at("build").is_null() ? -1 : static_cast<int32_t>(in.at("build").n);
+    s.web_interface = in.at("web_interface").b;
+    for (const PJson& w : in.at("warnings").a) {
+        const int index = portal_warning_index(w.s.c_str());
+        if (index < 0) TEST_FAIL_MESSAGE(w.s.c_str());
+        s.warnings = static_cast<uint16_t>(s.warnings | (1u << index));
+    }
+    return s;
+}
+
+static void test_status_vectors() {
+    const PJson& cases = portal_vectors().at("status_cases");
+    TEST_ASSERT_TRUE(cases.a.size() >= 9);
+    for (const PJson& c : cases.a) {
+        const std::string& name = c.at("name").s;
+        const PortalStatus s = status_from_vector(c.at("input"));
+        char buf[512];
+        TEST_ASSERT_TRUE_MESSAGE(portal_encode_status(s, buf, sizeof(buf)), name.c_str());
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(c.at("json").s.c_str(), buf, name.c_str());
+    }
+}
+
+static void test_warning_table_is_unique_lower_snake_case() {
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        const char* name = portal_warning_name(i);
+        TEST_ASSERT_TRUE(strlen(name) > 0 && strlen(name) <= 32);
+        for (const char* p = name; *p; p++) TEST_ASSERT_TRUE((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_');
+        TEST_ASSERT_EQUAL_INT(static_cast<int>(i), portal_warning_index(name));  // unique: the first match is itself
+    }
+    TEST_ASSERT_EQUAL_STRING("", portal_warning_name(PORTAL_WARNING_COUNT));
+    TEST_ASSERT_EQUAL_INT(-1, portal_warning_index("nope"));
+    TEST_ASSERT_EQUAL_INT(-1, portal_warning_index(""));
+    TEST_ASSERT_EQUAL_INT(-1, portal_warning_index(nullptr));
+    TEST_ASSERT_EQUAL_STRING("motor_fault", portal_warning_name(1));
+}
+
+static void test_status_warnings_empty_ordered_and_bounded() {
+    char buf[PORTAL_STATUS_JSON_MAX];
+    PortalStatus s;
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, ",\"web_interface\":true,\"warnings\":[]}"));  // appended after web_interface
+
+    s.warnings = static_cast<uint16_t>((1u << 8) | (1u << 1));  // bit order is the output order
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"warnings\":[\"motor_fault\",\"load_cell_not_calibrated\"]}"));
+
+    s.warnings = 0xFFFF;  // unknown bits beyond the table are ignored, all nine known ones come out
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_UINT32(PORTAL_WARNING_COUNT, j.at("warnings").a.size());
+    for (size_t i = 0; i < PORTAL_WARNING_COUNT; i++) {
+        TEST_ASSERT_EQUAL_STRING(portal_warning_name(i), j.at("warnings").a[i].s.c_str());
+    }
+    s.warnings = static_cast<uint16_t>(0xFFFFu << PORTAL_WARNING_COUNT);  // only unknown bits
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"warnings\":[]}"));
+}
+
+static void test_status_worst_case_leaves_margin_in_its_buffer() {
+    PortalStatus s;
+    s.ui_state = "ota_update_failed";
+    s.grind_phase = "time_additional_pulse";
+    s.busy = true;
+    s.weight_g = -1000.123f;
+    s.start_block = PortalError::LOAD_CELL_NOT_CONNECTED;
+    s.motor_test_block = PortalError::UPDATE_IN_PROGRESS;
+    s.uptime_s = 4294967295u;
+    s.build = 2147483647;
+    s.warnings = 0xFFFF;
+    char buf[PORTAL_STATUS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(strlen(buf) + 100 < PORTAL_STATUS_JSON_MAX);  // documented worst case 470 bytes, margin for later
+}
+
+static void test_status_truncates_safely_with_warnings() {
+    PortalStatus s;
+    s.warnings = 0xFFFF;
+    char full[PORTAL_STATUS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_status(s, full, sizeof(full)));
+    const size_t full_len = strlen(full);
+    char buf[PORTAL_STATUS_JSON_MAX];
+    for (size_t cap = 1; cap <= full_len; cap++) {  // every cut, including inside the warnings array
+        memset(buf, 'x', sizeof(buf));
+        TEST_ASSERT_FALSE(portal_encode_status(s, buf, cap));
+        TEST_ASSERT_EQUAL_UINT32(cap - 1, strlen(buf));
+    }
+    TEST_ASSERT_TRUE(portal_encode_status(s, buf, full_len + 1));  // exactly enough
+    TEST_ASSERT_FALSE(portal_encode_status(s, buf, 0));
+}
+
 static void test_encode_escapes_control_characters() {
     char buf[256];
     PortalStatus s;
@@ -698,6 +799,11 @@ void run_portal_api_tests() {
     RUN_TEST(test_encode_schema_matches_the_field_table);
     RUN_TEST(test_encode_command_reply);
     RUN_TEST(test_encode_status);
+    RUN_TEST(test_status_vectors);
+    RUN_TEST(test_warning_table_is_unique_lower_snake_case);
+    RUN_TEST(test_status_warnings_empty_ordered_and_bounded);
+    RUN_TEST(test_status_worst_case_leaves_margin_in_its_buffer);
+    RUN_TEST(test_status_truncates_safely_with_warnings);
     RUN_TEST(test_encode_escapes_control_characters);
     RUN_TEST(test_encoders_truncate_safely);
     RUN_TEST(test_encoded_sizes_fit_a_reasonable_buffer);

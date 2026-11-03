@@ -34,7 +34,7 @@ MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
 DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed")
-DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight")
+DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings")
 LATENCY_MAX_MS = 30000
 WEIGHT_MAX_G = 1000.0
 PAGE_HEADERS = {
@@ -63,6 +63,7 @@ class SimGrinder:
         self.ui_busy = False          # settings reads and writes answer 503 ui_busy
         self.store_failed = False     # a settings write that changes a value answers 500 store_failed
         self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
+        self.warnings = []            # active diagnostics as warning codes (status member "warnings", priority order)
         self.weight_hold = None       # a fixed weight shown instead of the simulated one (None = not held)
         self.stored = {k: v for k, v in model.default_values().items()}
         self.stored["brightness_normal"] = float(self.stored["brightness_normal"])
@@ -163,18 +164,9 @@ class SimGrinder:
             self._tick()
             start, motor = self._effective_blocks()
             weight = self.weight if self.weight_hold is None else self.weight_hold
-            return {
-                "ui_state": self.ui_state,
-                "grind_phase": self._phase(),
-                "busy": self._busy(),
-                "weight_g": round(weight, 1),
-                "motor_available": self.start_block != "motor_disabled",
-                "start_block": start,
-                "motor_test_block": motor,
-                "uptime_s": int(self.clock() - self.boot),
-                "build": BUILD_NUMBER,
-                "web_interface": True,
-            }
+            return model.status_document(
+                self.ui_state, self._phase(), self._busy(), round(weight, 1), self.start_block != "motor_disabled",
+                start, motor, int(self.clock() - self.boot), BUILD_NUMBER, True, self.warnings)
 
     # --- writes
     def read_settings_refusal(self):
@@ -249,7 +241,7 @@ class SimGrinder:
                     "in_flight": self.in_flight, "start_block": self.start_block,
                     "motor_test_block": self.motor_test_block, "drop_start": self.drop_start,
                     "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
-                    "weight": self.weight_hold}
+                    "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings)}
 
     def set_dev_state(self, changes):
         """Applies the members of a /dev/state body. Returns an error text or None."""
@@ -269,11 +261,16 @@ class SimGrinder:
                 elif key == "latency_ms":
                     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= LATENCY_MAX_MS:
                         return f"latency_ms must be a whole number of milliseconds from 0 to {LATENCY_MAX_MS}"
+                elif key == "warnings":
+                    if not isinstance(value, list) or any(c not in model.WARNING_CODES for c in value):
+                        return "warnings must be a list of: " + ", ".join(model.WARNING_CODES)
                 elif key == "weight":
                     if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                               or abs(value) > WEIGHT_MAX_G):
                         return f"weight must be null or a number from -{WEIGHT_MAX_G:g} to {WEIGHT_MAX_G:g} g"
             for key, value in changes.items():
+                if key == "warnings":
+                    value = model.ordered_warnings(value)
                 if key == "weight":
                     value = None if value is None else float(value)
                     key = "weight_hold"
