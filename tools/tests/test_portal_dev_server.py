@@ -599,13 +599,26 @@ def test_lead_in_is_dropped_when_something_took_over(server, change, ui_after):
     assert st["busy"] is False and st["ui_state"] == ui_after and st["grind_phase"] == "idle"
 
 
-def test_lead_in_decides_when_it_ends_not_when_the_screen_changes(server):
+def test_lead_in_is_dropped_at_once_when_the_screen_changes(server):
     call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
-    call(server, "POST", "/dev/state", '{"ui_state":"menu"}')
-    call(server, "POST", "/dev/state", '{"ui_state":"ready"}')
-    server.clock.now += 3.5
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    call(server, "POST", "/dev/state", '{"ui_state":"edit"}')
+    # no time has passed: the lead-in is gone and nothing is in flight any more
     st = call(server, "GET", "/api/status")[1]
-    assert st["ui_state"] == "grinding" and st["busy"] is True
+    assert st["ui_state"] == "edit" and st["busy"] is False
+    server.sim.ui_state = "ready"
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
+    server.clock.now += 3.5
+    assert call(server, "GET", "/api/status")[1]["busy"] is False
+
+
+def test_drop_start_switch_waits_for_the_end_of_the_lead_in(server):
+    server.sim.drop_start = True
+    call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')
+    server.clock.now += 1.0
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[1]["error"] == "command_in_flight"
+    server.clock.now += 2.5
+    assert call(server, "POST", "/api/command", '{"cmd":"tare"}')[0] == 200
 
 
 def test_in_flight_switch_refuses_commands_and_writes(server):
@@ -694,8 +707,10 @@ def test_readme_documents_every_flag():
 
 def test_readme_documents_every_dev_state_key():
     readme = _readme_text()
-    for key in dev.DEV_STATE_KEYS:
-        assert f"`{key}`" in readme, f"README.md does not document the /dev/state key {key}"
+    keys = set(dev.SimGrinder().dev_state())  # the keys the server really reports, not the constant
+    assert keys == set(dev.DEV_STATE_KEYS)
+    for key in keys:
+        assert f"| `{key}` |" in readme, f"README.md has no table row for the /dev/state key {key}"
 
 
 def test_readme_has_a_row_for_every_page_state():

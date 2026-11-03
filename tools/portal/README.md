@@ -38,15 +38,16 @@ What it simulates:
   and `stop` always accepted.
 - A firmware update holding the grinder (`--update-held`): the status reports `update_in_progress` in `start_block`
   and `motor_test_block`, as the firmware does, except where a disabled motor or a latched fault comes first.
-- A grind: `start` is accepted with `lead_in_ms` 3000 (the lead-in counts as in flight; `stop` cancels it). When the
-  lead-in runs out the grinder decides again: the start is **dropped** (the screen stays as it is, nothing runs) if
-  the screen is no longer READY, an update holds the grinder, a start block applies, or `drop_start` is set. Otherwise
+- A grind: `start` is accepted with `lead_in_ms` 3000 (the lead-in counts as in flight; `stop` cancels it). While the
+  lead-in waits, every look at the simulator decides the start again, as the firmware does every frame: the start is
+  **dropped** at once (the screen stays as it is, nothing runs, nothing is in flight) if the screen is no longer READY,
+  an update holds the grinder or a start block applies. `drop_start` drops it when the lead-in ends. Otherwise
   it runs at about 3 g/s (weight mode) or for the profile time (time mode), shows `grind_complete` for 3 s (writes get
   `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s (firmware: 1.0 s).
   `tare` zeroes the weight.
 - Settings live in memory only; a restart resets them.
 
-Not simulated: real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply), the
+Not simulated: STOP bypassing `latency_ms` (the grinder's STOP skips the UI task mailbox), real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply), the
 touch cancel of the lead-in and the overlay, and the Insights data (the routes come in later steps).
 
 ### Flags
@@ -82,7 +83,7 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | Key | Type | Effect |
 |---|---|---|
 | `web_interface` | bool | The Web interface switch (`false`: 403 `web_interface_off` on everything but `/api/info`). |
-| `ui_state` | one of the screen states above | The screen. Changing it ends a grind or a motor run; a remote start still in its lead-in is decided when the lead-in ends. |
+| `ui_state` | one of the screen states above | The screen. Changing it ends a grind or a motor run; a remote start still in its lead-in is dropped at once unless the screen is `ready`. |
 | `update_held` | bool | A firmware update holds the grinder (`update_in_progress`). |
 | `in_flight` | bool | Another request is still being handled: every command and write answers 409 `command_in_flight` (`stop` is never refused). |
 | `start_block` | `null` or a block code | The start refusal the status reports and a start answers with. |
@@ -90,7 +91,7 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `drop_start` | bool | Every remote start is dropped when its lead-in ends (`--drop-start`). |
 | `ui_busy` | bool | `GET` and `PATCH /api/settings` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
-| `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. |
+| `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
 
 ## Reproduce each page state
@@ -115,6 +116,19 @@ above.
 | Dropped start | `--drop-start` (or `{"drop_start":true}`), then press Start. | The countdown runs out and then "The start was dropped on the grinder (check its screen)". |
 | Slow grinder, in progress and timeout | `{"latency_ms":1500}` shows the requests in progress. `{"latency_ms":6000}` gives the timeout: the client waits 5 s, then "The grinder took too long to answer". Reset with `{"latency_ms":0}`. | In progress: buttons wait with their reason. Timeout: the page takes the offline path (chip, stale readout, backed-off polling). |
 | Empty data (history, statistics) | Not reproducible yet: the dev server has no history or statistics routes until chg016 steps 8 and 10. | "No grinds recorded since the grinder started" and "Statistics not available" appear then. |
+
+## Manual browser check
+
+A human pass after changing the page (the automated tests do not render it). Start the dev server, then:
+
+1. Open http://127.0.0.1:8080 at 320 px (phone), 768 px (tablet) and 1280 px (desktop) wide, in the light and the
+   dark scheme (browser or OS setting). Nothing overflows sideways, text is readable, STOP is always reachable.
+2. Walk every page state in the table above at each of the six combinations; the chip, banner and disabled reasons
+   match the "What to expect" column.
+3. Keyboard only: Tab through the page in order (skip link, STOP, tabs, controls, save bar). Every focus ring is
+   visible, including on the checked segmented control and on a busy STOP; Enter and Space activate buttons.
+4. Offline recovery: stop the server (Ctrl+C), see "Offline" and the stale readout, restart it, press "Retry now" and
+   check the page recovers without a reload.
 
 ## Run the page against a real grinder
 

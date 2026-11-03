@@ -59,7 +59,7 @@ class SimGrinder:
         self.in_flight = False        # forces "another request is in flight" (dev switch)
         self.start_block = None       # error code the grinder-side start checks would give
         self.motor_test_block = None
-        self.drop_start = False       # the next lead-in that ends is dropped (another screen took over)
+        self.drop_start = False       # stays on: every lead-in is dropped when it ends (another screen took over)
         self.ui_busy = False          # settings reads and writes answer 503 ui_busy
         self.store_failed = False     # a settings write that changes a value answers 500 store_failed
         self.latency_ms = 0           # every reply but /dev/state waits this long (a slow grinder)
@@ -78,8 +78,8 @@ class SimGrinder:
         run = self.run
         if run is not None:
             elapsed = now - run["started"]
-            if self._in_lead_in() and elapsed >= LEAD_IN_S:
-                self._end_lead_in(run)
+            if self._in_lead_in():
+                self._poll_lead_in(run, elapsed)
                 run = self.run
             if run is not None and run["live"]:
                 elapsed = now - run["started"]
@@ -95,13 +95,17 @@ class SimGrinder:
             self.complete_until = None
             self.ui_state = "ready"
 
-    def _end_lead_in(self, run):
-        """The lead-in is over: the grinder decides again on what is true now (contract section 6). A start that
-        still passes runs the grind; anything else is dropped and the screen stays as it is."""
-        refused = self.drop_start or model.decide_command(
+    def _poll_lead_in(self, run, elapsed):
+        """Like the firmware's lead-in poll (contract section 6): the start is decided again on every look while it
+        waits, and dropped at once when the screen, an update or a start block says no (the screen stays as it is).
+        drop_start is the dev switch for "another screen took over at the very end", so it acts when the lead-in
+        ends. A start that still passes then runs the grind."""
+        refused = model.decide_command(
             "start", self._ui_mode(), False, self.update_held, False, self.start_block or "NONE", "NONE")
-        if refused:
+        if refused or (elapsed >= LEAD_IN_S and self.drop_start):
             self.run = None
+            return
+        if elapsed < LEAD_IN_S:
             return
         run["live"] = True
         self.ui_state = "grinding"  # during the lead-in the status still reads ready (contract section 7)
@@ -251,6 +255,8 @@ class SimGrinder:
         """Applies the members of a /dev/state body. Returns an error text or None."""
         with self.lock:
             for key, value in changes.items():
+                if key not in DEV_STATE_KEYS:
+                    return f"unknown dev setting {key}"
                 if key in DEV_BOOL_KEYS:
                     if not isinstance(value, bool):
                         return f"{key} must be true or false"
@@ -267,14 +273,12 @@ class SimGrinder:
                     if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                               or abs(value) > WEIGHT_MAX_G):
                         return f"weight must be null or a number from -{WEIGHT_MAX_G:g} to {WEIGHT_MAX_G:g} g"
-                else:
-                    return f"unknown dev setting {key}"
             for key, value in changes.items():
                 if key == "weight":
                     value = None if value is None else float(value)
                     key = "weight_hold"
                 setattr(self, key, value)
-            # A screen change ends a grind or a motor run. A lead-in is kept: it is decided when it runs out.
+            # A screen change ends a grind or a motor run. A lead-in is kept: its next look decides it.
             if "ui_state" in changes and not self._in_lead_in():
                 self.run = None
                 self.complete_until = None
@@ -300,10 +304,10 @@ def make_handler(sim, page_text):
             for name, value in (extra or {}).items():
                 self.send_header(name, value)
             self.send_header("Connection", "close")
-            self.end_headers()
             try:
+                self.end_headers()
                 self.wfile.write(data)
-            except (BrokenPipeError, ConnectionResetError):
+            except ConnectionError:
                 pass  # the page gave up while the reply was delayed (latency_ms): nothing to tell
             self.close_connection = True
 
