@@ -46,10 +46,14 @@
 //------------------------------------------------------------------------------
 // SCREEN AUTO-DIMMING
 //------------------------------------------------------------------------------
-#define USER_SCREEN_AUTO_DIM_TIMEOUT_MS 300000                                 // Time before screen dims due to inactivity
+#define USER_SCREEN_AUTO_DIM_TIMEOUT_MS 300000                                 // Default time before screen dims due to inactivity (the setting is in minutes below)
 #define USER_SCREEN_BRIGHTNESS_NORMAL 1.0f                                     // Normal screen brightness
 #define USER_SCREEN_BRIGHTNESS_DIMMED 0.35f                                    // Dimmed screen brightness
 #define USER_WEIGHT_ACTIVITY_THRESHOLD_G 1.0f                                  // Weight change threshold for screen timeout reset (grams)
+#define USER_SCREEN_DIM_DEFAULT_MIN 5                                          // Default "Dim after" setting (minutes, 0 = never)
+#define USER_SCREEN_OFF_DEFAULT_MIN 60                                         // Default "Screen off" setting (minutes, 0 = never)
+#define USER_WEIGHT_ACTIVITY_WINDOW_MS 30000                                   // Window for the weight-change check behind screen dim/off (ms)
+#define USER_SCREEN_WAKE_FROM_OFF_THRESHOLD_G 2.0f                             // Weight change that wakes a screen that is off (grams, at least)
 
 //------------------------------------------------------------------------------
 // AUTO ACTIONS

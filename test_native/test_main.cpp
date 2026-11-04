@@ -37,6 +37,7 @@ void run_portal_snapshot_tests();
 void run_grind_history_tests();
 void run_grind_history_store_tests();
 void run_portal_insights_tests();
+void run_screen_power_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -78,5 +79,6 @@ int main() {
     run_grind_history_tests();
     run_grind_history_store_tests();
     run_portal_insights_tests();
+    run_screen_power_tests();
     return UNITY_END();
 }
