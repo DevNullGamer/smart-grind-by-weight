@@ -358,6 +358,77 @@ def test_patch_roundtrip_clamps_and_reports_adjusted(server):
     assert call(server, "GET", "/api/settings")[1]["values"] == d["values"]
 
 
+def test_screen_timeouts_round_trip_through_the_server(server):
+    values = call(server, "GET", "/api/settings")[1]["values"]
+    assert values["screen_dim_min"] == 5 and values["screen_off_min"] == 60
+    assert list(values)[11:13] == ["screen_dim_min", "screen_off_min"]
+    s, d, _ = call(server, "PATCH", "/api/settings", '{"screen_dim_min":10,"screen_off_min":240}')
+    assert s == 200 and d["adjusted"] == []
+    assert d["values"]["screen_dim_min"] == 10 and d["values"]["screen_off_min"] == 240
+    assert call(server, "GET", "/api/settings")[1]["values"] == d["values"]
+    # one key leaves the other, Never reads back as 0, snapping is reported
+    d = call(server, "PATCH", "/api/settings", '{"screen_off_min":0}')[1]
+    assert d["values"]["screen_off_min"] == 0 and d["values"]["screen_dim_min"] == 10 and d["adjusted"] == []
+    d = call(server, "PATCH", "/api/settings", '{"screen_dim_min":0}')[1]
+    assert d["values"]["screen_dim_min"] == 0 and d["values"]["screen_off_min"] == 0
+    d = call(server, "PATCH", "/api/settings", '{"screen_dim_min":7,"screen_off_min":100000}')[1]
+    assert d["values"]["screen_dim_min"] == 5 and d["values"]["screen_off_min"] == 480
+    assert d["adjusted"] == ["screen_dim_min", "screen_off_min"]
+    d = call(server, "PATCH", "/api/settings", '{"screen_dim_min":-3,"screen_off_min":20}')[1]
+    assert d["values"]["screen_dim_min"] == 0 and d["values"]["screen_off_min"] == 10
+    # stored as the minutes they report (not run through the brightness conversion)
+    assert call(server, "GET", "/api/settings")[1]["values"]["screen_off_min"] == 10
+
+
+def test_screen_timeouts_do_not_disturb_profile_keys_or_the_device_name(server):
+    s, d, _ = call(server, "PATCH", "/api/settings",
+                   '{"screen_off_min":30,"single_weight_g":10,"custom_time_s":4,"device_name":"kitchen"}')
+    assert s == 200
+    values = d["values"]
+    assert values["single_weight_g"] == 10 and values["custom_time_s"] == 4 and values["device_name"] == "kitchen"
+    assert values["screen_off_min"] == 30 and values["screen_dim_min"] == 5
+    assert values["double_weight_g"] == 18.0 and values["brightness_screensaver"] == 35
+    # the schema's profile entries still name the profile keys
+    profiles = call(server, "GET", "/api/schema")[1]["profiles"]
+    assert profiles[0]["weight_key"] == "single_weight_g" and profiles[2]["time_key"] == "custom_time_s"
+
+
+@pytest.mark.parametrize("body,error", [
+    ('{"screen_dim_min":"5"}', "wrong_type"), ('{"screen_off_min":true}', "wrong_type"),
+    ('{"screen_off_min":null}', "wrong_type"), ('{"screen_dim_min":[5]}', "nested_value"),
+    ('{"screen_dim_min":1e999}', "invalid_value"), ('{"screen_on_min":5}', "unknown_key"),
+    ('{"screen_dim_min":10,"screen_off_min":"x"}', "wrong_type")])
+def test_screen_timeout_refusals_apply_nothing(server, body, error):
+    s, d, _ = call(server, "PATCH", "/api/settings", body)
+    assert s == 400 and d["error"] == error
+    values = call(server, "GET", "/api/settings")[1]["values"]
+    assert values["screen_dim_min"] == 5 and values["screen_off_min"] == 60
+
+
+def test_screen_timeout_writes_are_refused_like_other_settings(server):
+    body = '{"screen_dim_min":10}'
+    server.sim.update_held = True
+    assert call(server, "PATCH", "/api/settings", body)[1]["error"] == "update_in_progress"
+    server.sim.update_held = False
+    server.sim.ui_busy = True
+    s, d, _ = call(server, "PATCH", "/api/settings", body)
+    assert (s, d["error"]) == (503, "ui_busy")
+    server.sim.ui_busy = False
+    server.sim.ui_state = "edit"
+    s, d, _ = call(server, "PATCH", "/api/settings", body)
+    assert (s, d["error"]) == (409, "not_ready")
+    server.sim.ui_state = "menu"
+    server.sim.in_flight = True
+    assert call(server, "PATCH", "/api/settings", body)[1]["error"] == "command_in_flight"
+    server.sim.in_flight = False
+    server.sim.store_failed = True
+    assert call(server, "PATCH", "/api/settings", body)[1]["error"] == "store_failed"
+    assert call(server, "PATCH", "/api/settings", '{"screen_dim_min":5}')[0] == 200  # unchanged: not written
+    server.sim.store_failed = False
+    assert call(server, "GET", "/api/settings")[1]["values"]["screen_dim_min"] == 5  # nothing got through
+    assert call(server, "PATCH", "/api/settings", body)[0] == 200
+
+
 def test_patch_refusal_applies_nothing(server):
     s, d, _ = call(server, "PATCH", "/api/settings", '{"logging":true,"single_weight_g":4}')
     assert (s, d["error"]) == (400, "out_of_range")

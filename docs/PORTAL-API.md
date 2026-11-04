@@ -66,7 +66,7 @@ which the grinder never answers.
 | `GET /api/stats` | | lifetime statistics object (section 7, "Statistics") |
 | `GET /api/history` | | the newest finished grinds (section 7, "Recent grinds") |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
-| `GET /api/settings` | | `{"values":{<18 keys>},"current_profile":N}` |
+| `GET /api/settings` | | `{"values":{<20 keys>},"current_profile":N}` |
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
 | `POST /api/command` | `{"cmd":"...","profile":N}`, see 6 | 200 or 202 `{"ok":true,"cmd":"..."}` |
 
@@ -82,7 +82,7 @@ needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes fo
 
 ## 4. Settings and profile fields
 
-One flat namespace: the 11 menu settings (the 10 settings of the Settings pages plus the grind mode), the 6
+One flat namespace: the 13 menu settings (the 10 settings of the Settings pages, the two screen timeouts plus the grind mode), the 6
 profile targets (single/double/custom, weight and time) and the **device setting** `device_name`. Names, types and limits of every field are also served
 by `GET /api/schema`. Values in `GET /api/settings` use the same JSON types as the table; numbers are written with at most 3 decimals (trailing zeros trimmed, at least one decimal kept, e.g. `9.0`, `21.5`).
 
@@ -99,6 +99,8 @@ by `GET /api/schema`. Values in `GET /api/settings` use the same JSON types as t
 | `purge_amount_g` | number | g | 0.1 - 2.5 | 0.1 | 1.0 | clamped into the range, then snapped to a tenth |
 | `freshness_hours` | number | h | 0.5 - 48 | steps 0.5, 1, 2, 3, 4, 8, 12, 24, 48 | 8.0 | snapped to the nearest step (a tie goes to the lower step), so below 0.5 -> 0.5 and above 48 -> 48 |
 | `grind_mode` | enum | | `"weight"` (stored 0), `"time"` (stored 1) | | `"weight"` | other string -> `invalid_value` |
+| `screen_dim_min` | int | min | 0 - 60 | steps 1, 2, 5, 10, 15, 30, 60; 0 = Never | 5 | snapped to the nearest step (a tie goes to the lower step), above 60 -> 60; 0 or less -> 0 (Never) |
+| `screen_off_min` | int | min | 0 - 480 | steps 10, 30, 60, 120, 240, 480; 0 = Never | 60 | snapped like `screen_dim_min`, above 480 -> 480; 0 or less -> 0 (Never) |
 | `single_weight_g` | number | g | 5 - 1000 | | 9.0 | **refused** (`out_of_range`) |
 | `single_time_s` | number | s | 0.5 - 25 | | 5.0 | **refused** (`out_of_range`) |
 | `double_weight_g` | number | g | 5 - 1000 | | 18.0 | **refused** |
@@ -120,6 +122,13 @@ Clamping is exactly what the menu does with the same value:
   0-100, then raised to the display minimum 15 (`HW_DISPLAY_MINIMAL_BRIGHTNESS_PERCENT`). Stored as percent/100.
 - `purge_amount_g`: limited to 0.1-2.5 and rounded to the 0.1 g slider position (`purge_slider_from_amount`).
 - `freshness_hours`: nearest of the nine menu steps.
+- `screen_dim_min`, `screen_off_min`: a number is rounded to a whole minute (half rounds up), then 0 or less (also
+  anything that rounds to 0, such as 0.4) means Never (0); otherwise the nearest listed step wins, a tie goes to the
+  lower step (45 -> 30 for dim, 20 -> 10 for off), and above the largest step it is the largest step (not Never).
+  The menu offers the same steps ("Dim after", "Screen off"); a stored value that is not a step reads back as the
+  default (5 / 60). The grinder dims or turns the screen off after this much time without a touch or a weight change
+  of at least 1 g (details in `docs/DOC.md`, "Screen saver and screen off"); a write is picked up at once, but it
+  never wakes or darkens the screen by itself, and a screen that is off stays off.
 - **Profile targets are refused, not clamped**, like `ProfileController::set_profile_weight/time` (valid means
   min <= value <= max on the stored float). Any value in range is stored as given; the screen shows one decimal.
 - Brightness read-back: the menu reads a stored fraction back with `(int)(fraction * 100)`, which truncates, so
@@ -155,7 +164,7 @@ side of the mailbox like every other write (the HTTP task never touches NVS or W
 
 ## 5. Request body rules (`PATCH /api/settings`, `POST /api/command`)
 
-A body is **one flat JSON object** of simple values, at most 512 bytes (the firmware also caps the member count at 24, a defensive limit that cannot be reached: there are only 18 known keys and duplicates are refused). Anything else is
+A body is **one flat JSON object** of simple values, at most 512 bytes (the firmware also caps the member count at 24, a defensive limit that cannot be reached: there are only 20 known keys and duplicates are refused). Anything else is
 refused and nothing is applied (all or nothing, also for a patch with one good and one bad field).
 
 | Rule | Refusal |
@@ -199,15 +208,15 @@ while an EDIT screen, a dialog, a grind or an update is active). Decision order:
 
 **Apply order and partial failure.** The body is validated completely first (all or nothing, section 5). Then the
 fields it names are written one by one in a fixed order: ascending field index (the order of the table in section
-4: the settings, then `grind_mode`, then the six profile targets) and the **device name last**, whatever the order
+4: the settings including `grind_mode` and the two screen timeouts, then the six profile targets) and the **device name last**, whatever the order
 in the body. A field whose value already equals the stored one is not written. The device name goes last because it
 is the disruptive change (the page must be reopened at the new address), so it only happens when every other field
 of the patch was stored. The write **stops at the first** field that cannot be persisted: the fields before it stay
 applied, the failing one and everything after it are not touched (the grinder keeps the value it had: a profile target or
 grind mode that could not be stored is rolled back in memory too, so the screen and the next start agree with what is saved), and the reply is 500 `store_failed` (no `values`
 in it). After a `store_failed` or a `ui_busy` the page must read `GET /api/settings` to see what is stored. The
-grinder's screen follows what was applied (brightness, auto actions, the READY tab values and grind mode, an open
-menu page) before the reply is sent. The `values` of a successful reply are re-read from the stored state, so a
+grinder's screen follows what was applied (brightness, auto actions, the cached screen timeouts, the READY tab values and grind mode, an open
+menu page) before the reply is sent. A screen that is off stays dark, and the new brightness is used when it wakes. The `values` of a successful reply are re-read from the stored state, so a
 brightness reads back as the menu would show it (section 4).
 
 **Commands** (`POST /api/command`, body `{"cmd":"<name>"[,"profile":0..2]}`). Unknown members (a free weight or

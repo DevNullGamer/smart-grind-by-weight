@@ -17,6 +17,7 @@ SRC = ROOT / "src"
 LITERALS = [
     "bluetooth", "startup", "logging", "enabled", "swipe", "autogrind", "auto_start", "auto_return",
     "brightness", "normal", "screensaver", "grind_mode", "grinder_mode", "grinder_amt_g", "freshness_hrs",
+    "screen", "dim_min", "off_min",
 ]
 LITERAL_RE = re.compile(r'"(' + "|".join(LITERALS) + r')"')
 PREFERENCES_RE = re.compile(r"\bPreferences\b")
@@ -85,7 +86,7 @@ def test_guard_detects_a_planted_raw_use():
 
 def test_facade_keys_are_defined_once_in_ui_settings_header():
     header = (SRC / "system" / "ui_settings.h").read_text(encoding="utf-8")
-    for ns in ["bluetooth", "logging", "swipe", "autogrind", "brightness"]:
+    for ns in ["bluetooth", "logging", "swipe", "autogrind", "brightness", "screen"]:
         assert len(re.findall(rf'= "{ns}";', header)) == 1, ns
 
 

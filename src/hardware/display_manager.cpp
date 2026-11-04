@@ -464,7 +464,12 @@ bool DisplayManager::color_transfer_done_cb(esp_lcd_panel_io_handle_t,
 
 void DisplayManager::touchpad_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     if (!g_display_manager) return;
-    
+
+    if (g_display_manager->input_blocked) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+
     TouchData touch = g_display_manager->touch_driver.get_touch_data();
     
     if (touch.pressed) {

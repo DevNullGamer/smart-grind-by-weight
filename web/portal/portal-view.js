@@ -983,7 +983,10 @@
             hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
             keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
         },
-        { id: 'display', title: 'Display', hint: '', keys: ['brightness_normal', 'brightness_screensaver'] },
+        {
+            id: 'display', title: 'Display', hint: '',
+            keys: ['brightness_normal', 'brightness_screensaver', 'screen_dim_min', 'screen_off_min']
+        },
         {
             id: 'grinding', title: 'Grinding', hint: '',
             keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
@@ -998,11 +1001,18 @@
         brightness_normal: 'slider',
         brightness_screensaver: 'slider',
         purge_amount_g: 'slider',
-        freshness_hours: 'select'
+        freshness_hours: 'select',
+        screen_dim_min: 'select',
+        screen_off_min: 'select'
     };
 
-    // The nine steps of the freshness setting (hours), as in the grinder menu.
-    var FRESHNESS_STEPS = [0.5, 1, 2, 3, 4, 8, 12, 24, 48];
+    // The steps of the select settings as in the grinder menu: freshness in hours, screen timeouts in minutes
+    // (0 = Never, last).
+    var STEP_OPTIONS = {
+        freshness_hours: [0.5, 1, 2, 3, 4, 8, 12, 24, 48],
+        screen_dim_min: [1, 2, 5, 10, 15, 30, 60, 0],
+        screen_off_min: [10, 30, 60, 120, 240, 480, 0]
+    };
 
     var CHOICE_TEXT = {
         purge_mode: { keep: 'Prime (keep)', remove: 'Purge (remove)' },
@@ -1039,19 +1049,21 @@
         return formatLimit(field.min) + ' to ' + formatLimit(field.max) + unitSuffix(field);
     }
 
-    function freshnessLabel(hours) {
-        if (hours < 1) return Math.round(hours * 60) + ' minutes';
-        return hours === 1 ? '1 hour' : formatLimit(hours) + ' hours';
+    function stepLabel(key, value) {
+        if (value === 0) return 'Never';
+        var m = key === 'freshness_hours' ? Math.round(value * 60) : value;
+        if (m < 60) return m + (m === 1 ? ' minute' : ' minutes');
+        return m === 60 ? '1 hour' : formatLimit(m / 60) + ' hours';
     }
 
-    // The options of the freshness select; a stored value off the nine steps is added so it stays visible.
-    function freshnessOptions(current) {
-        var steps = FRESHNESS_STEPS.slice();
+    // The options of a select; a stored value off the steps is added so it stays visible.
+    function selectOptions(key, current) {
+        var steps = STEP_OPTIONS[key].slice();
         if (typeof current === 'number' && isFinite(current) && steps.indexOf(current) < 0) {
             steps.push(current);
-            steps.sort(function (a, b) { return a - b; });
+            steps.sort(function (a, b) { return (a || Infinity) - (b || Infinity); });
         }
-        return steps.map(function (h) { return { value: h, label: freshnessLabel(h) }; });
+        return steps.map(function (v) { return { value: v, label: stepLabel(key, v) }; });
     }
 
     function widgetKind(field) {
@@ -1308,7 +1320,8 @@
             var f = has(byKey, key) ? byKey[key] : {};
             var whole = typeof v === 'number' && Math.floor(v) === v && (f.type === 'int' || f.unit === 'h');
             var shown = typeof v === 'number' ? (whole ? String(v) : PC.formatNumber(v)) : String(v);
-            notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
+            if (key.indexOf('screen_') === 0 && typeof v === 'number') notes[key] = 'The grinder adjusted this to ' + stepLabel(key, v) + '.';
+            else notes[key] = 'The grinder adjusted this to ' + shown + unitSuffix(f) + '.';
         });
         return notes;
     }
@@ -1437,11 +1450,11 @@
         historyAgeText: historyAgeText,
         historyErrorText: historyErrorText,
         historyView: historyView,
-        FRESHNESS_STEPS: FRESHNESS_STEPS,
+        STEP_OPTIONS: STEP_OPTIONS,
         settingsGroups: settingsGroups,
         groupedKeys: groupedKeys,
         fieldView: fieldView,
-        freshnessOptions: freshnessOptions,
+        selectOptions: selectOptions,
         rangeText: rangeText,
         currentProfileText: currentProfileText,
         parseNumberText: parseNumberText,

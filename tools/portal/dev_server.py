@@ -236,7 +236,7 @@ class SimGrinder:
             out = {}
             for f in model.FIELDS:
                 v = self.stored[f["key"]]
-                if f["type"] == "int":
+                if f["key"].startswith("brightness_"):  # the screen timeouts are stored as the minutes they report
                     v = model.stored_brightness_percent(v)
                 out[f["key"]] = v
             return out

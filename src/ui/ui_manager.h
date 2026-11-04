@@ -170,7 +170,8 @@ public:
     
     void set_background_active(bool active);
     void refresh_auto_action_settings();
-    
+    void refresh_screen_timeout_settings();
+
 
 private:
     void create_ui();

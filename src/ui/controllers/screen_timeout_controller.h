@@ -1,10 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include "../../system/screen_power.h"
 
 class UIManager;
+class DisplayManager;
+class WeightSensor;
 
-// Implements automatic screen dimming based on touch/weight activity
+// Implements automatic screen dimming and turning off based on touch/weight activity.
+// The decisions are made by the pure screen_power_decide(); this class gathers the inputs and applies the level.
 
 class ScreenTimeoutController {
 public:
@@ -25,15 +29,31 @@ public:
     // saver is on). For a brightness setting changed from outside the menu (web panel); a dimmed screen stays dim.
     void reapply_brightness();
 
+    // Re-reads "Dim after" and "Screen off" from the settings and caches them in milliseconds (0 = never).
+    // UI task only. Also called lazily on the first update(); never read per frame.
+    void reload_settings();
+
 private:
+    void apply_level(DisplayManager* display, ScreenLevel level);
+    void poll_weight_activity(WeightSensor* sensor, uint32_t now_ms);
+
+    uint32_t dim_after_ms_ = 0;
+    uint32_t off_after_ms_ = 0;
+    bool settings_loaded_ = false;
     UIManager* ui_manager_;
-    bool screen_dimmed_;
-    // The 300 s weight-range check walks the whole sample ring under the buffer lock, so it runs at
-    // most once per WEIGHT_ACTIVITY_CHECK_INTERVAL_MS and the result is cached (UI task only).
+    ScreenLevel level_ = ScreenLevel::AWAKE;
+    // Touch input is swallowed while the screen is OFF and for the touch that woke it (see screen_power.h)
+    bool input_blocked_ = false;
+    // The weight-range check walks the sample ring under the buffer lock, so it runs at most once per
+    // WEIGHT_ACTIVITY_CHECK_INTERVAL_MS (UI task only). One USER_WEIGHT_ACTIVITY_WINDOW_MS range feeds both
+    // thresholds; the time of the last hit is remembered, because the ring (about 100 s) is shorter than the timeouts.
     static constexpr uint32_t WEIGHT_ACTIVITY_CHECK_INTERVAL_MS = 1000;
-    bool weight_activity_valid_ = false;
-    bool recent_weight_activity_ = false;
-    uint32_t weight_activity_checked_ms_ = 0;
+    bool weight_poll_valid_ = false;
+    uint32_t weight_poll_ms_ = 0;
+    bool weight_activity_seen_ = false;        // >= 1 g
+    uint32_t last_weight_activity_ms_ = 0;
+    bool strong_weight_activity_seen_ = false; // >= 2 g
+    uint32_t last_strong_weight_activity_ms_ = 0;
     volatile bool held_awake_ = false;
     volatile bool remote_start_hold_ = false;
 };

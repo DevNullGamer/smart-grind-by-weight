@@ -39,13 +39,15 @@ struct ToggleSettingDef {
 // Definition of one setting (id must be below ToggleSetting::COUNT)
 const ToggleSettingDef& toggle_setting_def(ToggleSetting id);
 
-// ---- Sliders (brightness normal/screensaver, purge amount, freshness) ----
+// ---- Sliders (brightness normal/screensaver, purge amount, freshness, screen dim/off timeouts) ----
 
 enum class SliderSetting : unsigned char {
     BRIGHTNESS_NORMAL,
     BRIGHTNESS_SCREENSAVER,
     PURGE_AMOUNT,
     FRESHNESS,
+    SCREEN_DIM_TIMEOUT,
+    SCREEN_OFF_TIMEOUT,
     COUNT
 };
 
@@ -54,10 +56,11 @@ constexpr size_t SLIDER_SETTING_COUNT = static_cast<size_t>(SliderSetting::COUNT
 // Work the controller must do after the released value is stored
 enum class SliderAfter : unsigned char {
     NONE,
-    RESTORE_NORMAL_BRIGHTNESS  // the screensaver slider previews the dimmed level while dragged
+    RESTORE_NORMAL_BRIGHTNESS,  // the screensaver slider previews the dimmed level while dragged
+    RELOAD_SCREEN_TIMEOUTS      // UIManager::refresh_screen_timeout_settings() (the controller caches both timeouts)
 };
 
-// A position is the raw slider value (percent, 0.1 g units or freshness step index). Every hook is set
+// A position is the raw slider value (percent, 0.1 g units or a step index). Every hook is set
 // except live_brightness (only the brightness sliders preview on the display while dragged).
 struct SliderSettingDef {
     const char* row_label;

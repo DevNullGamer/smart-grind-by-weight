@@ -61,7 +61,7 @@ struct PortalErrorInfo {
 const PortalErrorInfo& portal_error_info(PortalError error);
 
 //------------------------------------------------------------------------------
-// Field table: 11 menu settings (incl. grind mode) and 6 profile targets, all addressed by flat keys
+// Field table: 13 menu settings (incl. grind mode and the two screen timeouts), 6 profile targets and the device name, all addressed by flat keys
 //------------------------------------------------------------------------------
 enum class PortalFieldType : uint8_t {
     BOOL,    // JSON true/false
@@ -71,7 +71,7 @@ enum class PortalFieldType : uint8_t {
     STRING   // JSON string (device_name only; PortalValues/PortalPatch::device_name)
 };
 
-constexpr size_t PORTAL_SETTING_COUNT = 11;
+constexpr size_t PORTAL_SETTING_COUNT = 13;
 constexpr size_t PORTAL_PROFILE_FIELD_COUNT = 6;  // single/double/custom x weight/time
 constexpr size_t PORTAL_DEVICE_FIELD_COUNT = 1;   // device_name: a "device setting", not a UiSettings value
 constexpr size_t PORTAL_FIELD_COUNT = PORTAL_SETTING_COUNT + PORTAL_PROFILE_FIELD_COUNT + PORTAL_DEVICE_FIELD_COUNT;
@@ -91,13 +91,15 @@ enum PortalFieldIndex : uint8_t {
     PF_PURGE_AMOUNT_G,
     PF_FRESHNESS_HOURS,
     PF_GRIND_MODE,
+    PF_SCREEN_DIM_MIN,  // minutes, 0 = Never
+    PF_SCREEN_OFF_MIN,  // minutes, 0 = Never
     PF_SINGLE_WEIGHT_G,
     PF_SINGLE_TIME_S,
     PF_DOUBLE_WEIGHT_G,
     PF_DOUBLE_TIME_S,
     PF_CUSTOM_WEIGHT_G,
     PF_CUSTOM_TIME_S,
-    PF_DEVICE_NAME  // last: keeps the settings and profile indices stable
+    PF_DEVICE_NAME  // last: keeps the profile indices stable
 };
 
 struct PortalField {
@@ -126,7 +128,7 @@ const char* portal_profile_name(int profile);
 
 // Normalised values, one float per field: BOOL 0/1, ENUM choice index (= stored value: purge mode 0 Keep/Prime,
 // 1 Remove/Purge; grind mode 0 Weight, 1 Time), brightness in percent, purge amount in grams, freshness in
-// hours, profile weights in grams and times in seconds.
+// hours, screen timeouts in minutes (0 = Never), profile weights in grams and times in seconds.
 struct PortalValues {
     float v[PORTAL_FIELD_COUNT] = {0};
     int current_profile = 1;  // read-only here (the selection on the screen)
@@ -167,7 +169,7 @@ const char* portal_command_name(PortalCommand cmd);
 // Settings as stored (the facade the menu uses), converted exactly like the menu screens do
 //------------------------------------------------------------------------------
 class UiSettings;
-// Fills the 11 settings of *values from UiSettings (profile targets and current_profile are left alone).
+// Fills the 13 settings of *values from UiSettings (profile targets and current_profile are left alone).
 void portal_load_settings(const UiSettings& settings, PortalValues* values);
 
 //------------------------------------------------------------------------------
@@ -175,7 +177,7 @@ void portal_load_settings(const UiSettings& settings, PortalValues* values);
 //------------------------------------------------------------------------------
 // {"error":"code","reason":"text"} (NONE encodes {"ok":true})
 bool portal_encode_error(PortalError error, char* out, size_t cap);
-// {"values":{<18 flat keys>},"current_profile":N}  (GET /api/settings)
+// {"values":{<20 flat keys>},"current_profile":N}  (GET /api/settings)
 bool portal_encode_values(const PortalValues& values, char* out, size_t cap);
 // {"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}  (PATCH reply: the applied state);
 // with device_name_changed also "address":"<name>.local" (the page must be reopened there)

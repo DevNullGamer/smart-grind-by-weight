@@ -27,6 +27,8 @@ private:
     SemaphoreHandle_t transfer_done_sem = nullptr;
     bool transfer_pending = false; // a queued staging transfer has not been confirmed complete
     TouchDriver touch_driver;
+    // While set, the LVGL pointer reports RELEASED whatever the touch controller says (screen off / waking touch)
+    volatile bool input_blocked = false;
 
     uint32_t screen_width = 0;
     uint32_t screen_height = 0;
@@ -37,6 +39,8 @@ public:
     void init();
     void update();
     void set_brightness(float brightness);
+    // Hides touches from LVGL only; touch polling and the touch driver's own state are untouched.
+    void set_input_blocked(bool blocked) { input_blocked = blocked; }
 
     uint32_t get_width() const { return screen_width; }
     uint32_t get_height() const { return screen_height; }

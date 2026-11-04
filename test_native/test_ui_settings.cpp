@@ -92,6 +92,8 @@ const GoldenRow kGolden[] = {
     {"autogrind", "auto_return", T::BOOL, 0.0f},
     {"brightness", "normal", T::FLOAT, USER_SCREEN_BRIGHTNESS_NORMAL},
     {"brightness", "screensaver", T::FLOAT, USER_SCREEN_BRIGHTNESS_DIMMED},
+    {"screen", "dim_min", T::INT, 5.0f},
+    {"screen", "off_min", T::INT, 60.0f},
     {"grinder", "grind_mode", T::INT, 0.0f},
     {"grinder", "grinder_mode", T::INT, 1.0f},
     {"grinder", "grinder_amt_g", T::FLOAT, 1.0f},
@@ -118,6 +120,8 @@ const Accessors kAcc[kRows] = {
     {&UiSettings::auto_return, &UiSettings::set_auto_return, nullptr, nullptr, nullptr, nullptr},
     {nullptr, nullptr, &UiSettings::brightness_normal, &UiSettings::set_brightness_normal, nullptr, nullptr},
     {nullptr, nullptr, &UiSettings::brightness_screensaver, &UiSettings::set_brightness_screensaver, nullptr, nullptr},
+    {nullptr, nullptr, nullptr, nullptr, &UiSettings::screen_dim_minutes, &UiSettings::set_screen_dim_minutes},
+    {nullptr, nullptr, nullptr, nullptr, &UiSettings::screen_off_minutes, &UiSettings::set_screen_off_minutes},
     {nullptr, nullptr, nullptr, nullptr, &UiSettings::grind_mode_raw, nullptr},
     {nullptr, nullptr, nullptr, nullptr, &UiSettings::purge_mode, &UiSettings::set_purge_mode},
     {nullptr, nullptr, &UiSettings::purge_amount_g, &UiSettings::set_purge_amount_g, nullptr, nullptr},
@@ -136,6 +140,8 @@ static void test_empty_store_returns_legacy_defaults() {
     TEST_ASSERT_FALSE(s.auto_return());
     TEST_ASSERT_TRUE(float_bits_equal(USER_SCREEN_BRIGHTNESS_NORMAL, s.brightness_normal()));
     TEST_ASSERT_TRUE(float_bits_equal(USER_SCREEN_BRIGHTNESS_DIMMED, s.brightness_screensaver()));
+    TEST_ASSERT_EQUAL_INT(5, s.screen_dim_minutes());
+    TEST_ASSERT_EQUAL_INT(60, s.screen_off_minutes());
     TEST_ASSERT_EQUAL_INT(0, s.grind_mode_raw());
     TEST_ASSERT_EQUAL_INT(1, s.purge_mode());
     TEST_ASSERT_TRUE(float_bits_equal(1.0f, s.purge_amount_g()));
