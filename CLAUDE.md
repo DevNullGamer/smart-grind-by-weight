@@ -73,7 +73,7 @@ python3 tools/grinder.py analyze
 - No token for the web panel; the update token protects firmware push only.
 
 **Motor / grind safety (details and hardware-run status: `docs/DESIGN-NOTES.md`, "Safety batch 1" and its "Known limitations"; several checks are still not run on hardware):**
-- New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`.
+- New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`. The PREDICTIVE stall abort (`Err: stalled`) its reference only rises; thresholds and limits in DESIGN-NOTES D14.
 - Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
 - Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failure paths use `cleanup_failed_ota()` (unlocks); WiFi updates use `UpdateGuard` (same busy check and lock-out).
 - Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs. `DEBUG_MENU_WALK` (bench UI/NVS walk) only in `...-menu-walk`.
