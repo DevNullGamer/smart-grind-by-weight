@@ -235,7 +235,7 @@ struct PortalStats {
 bool portal_encode_stats(const PortalStats& stats, char* out, size_t cap);
 
 // GET /api/history: the newest grinds (at most PORTAL_HISTORY_MAX, newest first) as the UI task copied them. now_s is the
-// uptime second of the request (millis() / 1000, the clock ended_s was taken from). age_s is now_s - ended_s, never
+// uptime second of the request (esp_timer_get_time() / 1000000, the clock ended_s was taken from; no wrap for 136 years). age_s is now_s - ended_s, never
 // negative, and null for an entry recorded before the last restart. Weights are bounded (not finite = 0, magnitude at
 // most PORTAL_HISTORY_WEIGHT_MAX, under 0.0005 = 0.0), so the reply is always valid JSON. Time-mode grinds carry
 // target_s and a null target_g, weight-mode grinds the reverse. No text from the device other than fixed names.

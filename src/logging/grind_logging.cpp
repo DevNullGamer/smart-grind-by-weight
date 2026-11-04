@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <esp_timer.h>
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "../config/constants.h"
@@ -19,7 +20,7 @@ GrindHistoryEntry history_entry_of(const GrindSession& session, GrindMode mode, 
                                    float final_weight, uint8_t pulse_count) {
     GrindHistoryEntry entry;
     entry.session_id = session.session_id;
-    entry.ended_s = millis() / 1000;
+    entry.ended_s = static_cast<uint32_t>(esp_timer_get_time() / 1000000);  // 64-bit clock: no wrap at 49.7 days
     entry.time_ms = session.total_time_ms;
     entry.motor_ms = session.total_motor_on_time_ms;
     entry.target = (mode == GrindMode::TIME) ? static_cast<float>(session.target_time_ms) / 1000.0f

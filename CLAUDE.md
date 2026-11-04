@@ -51,7 +51,7 @@ python3 tools/grinder.py analyze
 - One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
 - Dual wiring: HX711 SCK pulsed on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
 
-**WiFi / updates (invariants; details in `docs/DESIGN-NOTES.md`; BLE provisioning, screens and the real Pages index are host-tested only, not hardware-verified):**
+**WiFi / updates (invariants; details in `docs/DESIGN-NOTES.md`; BLE provisioning is host-tested only; the on-screen update check and install from the real Pages index ran on hardware (rc4 to rc6, 2026-11-04)):**
 - Push is armed only by the Receive toggle (`push_enabled`, default off); Confirm/Accept (`accept`, default on) needs a tap on the grinder. Turning Confirm off needs the warning dialog.
 - Never call LVGL from the HTTP task or the `UpdatePull` worker; they talk to the UI only via `update_approval`, `UpdateStatus` and `update_pull` (polled by the UI task).
 - One update at a time: `UpdateGuard::is_held()` excludes push, pull and BLE OTA; `onConnect` refuses BLE while it is held.
