@@ -126,8 +126,9 @@ Clamping is exactly what the menu does with the same value:
   anything that rounds to 0, such as 0.4) means Never (0); otherwise the nearest listed step wins, a tie goes to the
   lower step (45 -> 30 for dim, 20 -> 10 for off), and above the largest step it is the largest step (not Never).
   The menu offers the same steps ("Dim after", "Screen off"); a stored value that is not a step reads back as the
-  default (5 / 60). The grinder dims or turns the screen off after this much time without touch or weight change; a
-  write is picked up at once, but it never wakes or darkens the screen by itself.
+  default (5 / 60). The grinder dims or turns the screen off after this much time without a touch or a weight change
+  of at least 1 g (details in `docs/DOC.md`, "Screen saver and screen off"); a write is picked up at once, but it
+  never wakes or darkens the screen by itself, and a screen that is off stays off.
 - **Profile targets are refused, not clamped**, like `ProfileController::set_profile_weight/time` (valid means
   min <= value <= max on the stored float). Any value in range is stored as given; the screen shows one decimal.
 - Brightness read-back: the menu reads a stored fraction back with `(int)(fraction * 100)`, which truncates, so
@@ -215,7 +216,7 @@ applied, the failing one and everything after it are not touched (the grinder ke
 grind mode that could not be stored is rolled back in memory too, so the screen and the next start agree with what is saved), and the reply is 500 `store_failed` (no `values`
 in it). After a `store_failed` or a `ui_busy` the page must read `GET /api/settings` to see what is stored. The
 grinder's screen follows what was applied (brightness, auto actions, the cached screen timeouts, the READY tab values and grind mode, an open
-menu page) before the reply is sent. The `values` of a successful reply are re-read from the stored state, so a
+menu page) before the reply is sent. A screen that is off stays dark, and the new brightness is used when it wakes. The `values` of a successful reply are re-read from the stored state, so a
 brightness reads back as the menu would show it (section 4).
 
 **Commands** (`POST /api/command`, body `{"cmd":"<name>"[,"profile":0..2]}`). Unknown members (a free weight or

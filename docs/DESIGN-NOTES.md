@@ -463,6 +463,8 @@ Goal: split the 1292-line `menu_screen.cpp` and 669-line `menu_controller.cpp`, 
 | purge_mode | `grinder` | `grinder_mode` (0 Prime, 1 Purge) | int | 1 |
 | purge_amount_g | `grinder` | `grinder_amt_g` | float 0.1..2.5 | 1.0 |
 | freshness_hours | `grinder` | `freshness_hrs` | float | 8.0 |
+| screen_dim_minutes | `screen` | `dim_min` | int (minutes, 0 = Never) | 5 |
+| screen_off_minutes | `screen` | `off_min` | int (minutes, 0 = Never) | 60 |
 
 The purge amount key is `grinder_amt_g` (shortened earlier to fit the 15-character NVS key limit; `tools/tests/test_nvs_key_length.py` checks it).
 
@@ -593,7 +595,7 @@ Steps 1-5 of chg004 (step 6 deferred). Goal: load cell reads that are safe acros
 
 - **Clock and membership:** the constructor takes a `ClockFn` (`millis()` on firmware, injected by host tests). Window membership is wrap-safe (`in_window()` uses the sample-age rule). Before, it was wrong while `now < window_ms` (first minutes after boot, and after a `millis()` rollover).
 - **Bounded windows:** readers copy at most `CBM_MAX_WINDOW_SAMPLES` (64, `src/config/hardware.h`) of the newest samples into fixed stack arrays; `alloca` is gone. A window holding more uses the newest 64 and logs one `[CBM]` truncation line.
-- **Window length:** the ring holds 1024 samples, about 100 s at 10 SPS. The 300 s screen-dim window therefore covers about 100 s. This is kept on purpose (chg004 plan).
+- **Window length:** the ring holds 1024 samples, about 100 s at 10 SPS. A window longer than that cannot be read from it; the screen timers therefore keep their own memory of the last weight change (see "Screen off (chg018)").
 - **Single pass:** `get_min_max_raw()` takes min and max in one walk of the ring.
 - **Locking:** one `portMUX` spinlock guards the ring, its indices and the display filter. Core 0 is the only sample writer (`add_sample()`); `clear_all_samples()` and `reset_display_filter()` also change state from the UI task. Readers copy at most 64 samples under the lock (or do a bounded walk in place, such as min/max) and sort or compute outside it. Critical sections never log, allocate or call other locked methods.
 - **O(1) clear:** `clear_all_samples()` resets the indices and count and bumps `reset_epoch`. An `add_sample()` that raced with a reset does not re-seed the display filter from a value computed before it.
@@ -831,6 +833,71 @@ NOT hardware-verified. The host test `tools/tests/test_file_io_probe_contract.py
 - No `Filesystem availability changed` line during that time.
 - A `/test_access` left by an older image is gone after one boot.
 - The flash-write reduction is not measured; the check above only confirms the behaviour.
+
+## Screen off (chg018)
+
+Goal: the screen dims and then turns off after a configurable idle time, with an option to never turn off. Before this, the screen dimmed after an idle time that in practice was about 100 s and never turned off. Plan, steps and the review log live outside the repo (`chgreq/smart-grind-by-weight/chg018`). Branch `feat/chg018-screen-off`.
+
+### Pieces
+
+- `src/system/screen_power.*`: pure decision (`screen_power_decide`), the input swallow rule, the input-state rule for off-screen states, timeout steps and labels, and the normalisers for stored and web values. No Arduino or LVGL. Host tests `test_native/test_screen_power.cpp`.
+- `src/ui/controllers/screen_timeout_controller.*`: gathers the inputs once per frame, applies the level (brightness only), sets `DisplayManager::set_input_blocked()`. Caches both timeouts in `reload_settings()`, never reads NVS per frame.
+- Settings: `UiSettings::screen_dim_minutes()` / `screen_off_minutes()`, namespace `screen`, keys `dim_min` / `off_min`, int, defaults `USER_SCREEN_DIM_DEFAULT_MIN` 5 and `USER_SCREEN_OFF_DEFAULT_MIN` 60 (`src/config/user.h`). Stored values that are not a step read back as the default.
+- Menu: two slider rows in `menu_setting_table` with `SliderAfter::RELOAD_SCREEN_TIMEOUTS`, so a release calls `UIManager::refresh_screen_timeout_settings()` and nothing else (no wake).
+- Web panel: fields `screen_dim_min` / `screen_off_min` (`PF_SCREEN_DIM_MIN`, `PF_SCREEN_OFF_MIN`). `PortalUIController::apply_to_screen()` reloads only; see the web rules below.
+
+### Decision rules
+
+- **Idle time** = the smaller of the time since the last touch and the time since the last weight change of at least 1 g. OFF is checked before DIMMED, so an off time shorter than the dim time goes straight to OFF.
+- **Two never-off inputs, one per block.** `keep_awake` blocks dim and off: grinding, motor test, the WiFi update prompt and progress screen (`hold_awake`), the remote-start lead-in (`hold_awake_remote_start`). `keep_on` blocks off only: any state other than READY, EDIT and MENU (`screen_state_allows_off`), the WiFi page, and an active diagnostic outside the advisory set. The advisory set is `LOAD_CELL_NOT_CALIBRATED` and `LOAD_CELL_NOISY_SUSTAINED` (`screen_error_blocks_off`: `(active & ~advisory) != 0`). Reason: an uncalibrated or noisy bench unit would otherwise never turn off, and those two states are long-lived.
+- **Why OFF is checked on the WiFi page.** The BLE provisioning window is open while that page is on screen, and it must never be open while the screen is dark. `is_wifi_page_current()` is a read-only LVGL getter called once per frame; it sets no label or style, so the per-frame rule of "UI robustness (chg005)" holds.
+- **Level changes while OFF.** A `keep_on` input that appears while the screen is OFF gives AWAKE when the idle time is still below Dim after (Dim after Never, or Screen off shorter than Dim after, can make that the case), and DIMMED otherwise. `screen_power_decide()` has no special case for it: the normal dim check applies. A `keep_awake` hold moves it to AWAKE at once. The plan said "wakes" for both; the code keeps the timers' own answer (the screen was idle), so with a normal Dim after the screen comes back dimmed, not at normal brightness.
+- **OFF needs a strong weight change.** While OFF only the 2 g measure counts (`ms_since_strong_weight_activity`), so drift of 1 g does not wake it. The controller takes the range of the last 30 s (`USER_WEIGHT_ACTIVITY_WINDOW_MS`) and tests it against 1 g (`USER_WEIGHT_ACTIVITY_THRESHOLD_G`) and 2 g (`USER_SCREEN_WAKE_FROM_OFF_THRESHOLD_G`), both "at least". It looks at a change in weight, not at the absolute weight.
+- **Remembered timestamps.** The sample ring holds about 100 s (1024 samples at 10 SPS), shorter than the timeouts. The range is therefore checked at most once a second (`WEIGHT_ACTIVITY_CHECK_INTERVAL_MS`) and the time of the last hit is kept. Dim now comes about 330 s after the last weight change at the 5 min default (300 s plus the 30 s window), not about 100 s as before.
+- **Holds do not refresh the weight timestamps,** except GRINDING, which stamps both. A hold therefore ends with the old idle times: after a hold with no recent touch (a cancelled remote start, a failed update, a prompt that expired) the screen drops straight to DIMMED or OFF. Intended, because nothing happened in the meantime.
+- **Brightness 0 is OFF.** OFF is `set_brightness(0)` through the existing register write (`display_manager.cpp`). The display's own minimum (15 %) applies only to the sliders, not to this path. The frame keeps rendering and the touch keeps polling. A panel sleep command was not used (out of scope). Black on both boards is not yet verified on hardware.
+- **Touch while OFF is swallowed.** `screen_input_block_next()`: while OFF the block is on. On OFF to not-OFF it stays on until the touch that woke the screen is released. The controller runs before `DisplayManager::update()`, so `touchpad_read_cb` already reports RELEASED in the frame that wakes the screen. The swallowed tap is never seen by LVGL, so it does not press the button under the finger.
+- **Touch driver missing or disabled.** `TouchDriver::get_ms_since_last_touch()` returns 0 when the driver is not initialised or disabled (the update paths disable it). The idle time is then 0 and the screen never dims or turns off. The `get_touch_driver()` null check in `update()` is therefore dead code: the touch driver is a member of `DisplayManager`, never a pointer. Kept as defence, not relied on.
+- **Web writes never wake or darken.** For the two timeout fields `apply_to_screen()` calls `refresh_screen_timeout_settings()` (`reload_settings()` only). For the brightness fields it calls `reapply_brightness()`, which returns early while the level is OFF; the new brightness is used when the screen next wakes. Other fields in the same write (auto actions, grind mode, profile) do their own refreshes and do not touch the screen level.
+- **Menu slider release** stores and reloads, nothing else, so moving the timer sliders does not wake the screen.
+
+### Normalisation of values
+
+- Stored (NVS or menu): a listed step is kept; anything else (negative, unlisted, huge) becomes the default (5 / 60).
+- Web (`screen_minutes_normalise_api`): rounded to a whole minute (half up); NaN, 0 and anything that rounds to 0 (for example 0.4) is Never; 0.5 rounds to 1. The nearest listed non-Never step wins, a tie goes to the lower step (45 gives 30 for dim, 20 gives 10 for off). Above the largest step it is the largest step, not Never.
+- Slider position and minutes convert with `screen_minutes_from_index` / `screen_minutes_to_index`; labels come from `screen_dim_label` / `screen_off_label` (`Dim after: 5 min`, `Dim after: 1 h`, `Dim after: Never`, `Screen off: 8 h`, ...).
+
+### Upgrade
+
+Units that update from an earlier firmware have no key in NVS and take the new defaults. Screen off is 60 min, so the screen turns off after the first idle hour following the first boot of the new firmware (idle time counts from boot, not from the update). Documented in DOC.md ("Screen saver and screen off") and TROUBLESHOOTING.md ("Screen Is Black (Screen Off)").
+
+### Measurements
+
+- Firmware build #606 (main env): RAM 22.5 %, flash 79.7 %, 3 warnings (the baseline three).
+- Native tests 613 before chg018, 663 after step 4 (the last code step).
+- Web panel page: gzip 40 488 B (CLI) and 40 552 B (the pytest method), against the 40 960 B test cap (`test_page_fits_the_embed_budget`). Headroom 408 B. The hard build budget stays 64 KB. The next page change has to trim the sources or raise the cap with a reason.
+- Node tests for the page: 29 + 116 + 15, all green.
+
+### Not verified on hardware
+
+Checklist for the bench (V1 and V2, load cell fitted, COM15 for the logs):
+
+1. Brightness 0 is fully black on V1 and V2 and returns to the stored brightness with no flash.
+2. Touch still reports while OFF and wakes the screen; the waking tap does not press what is under the finger (try it over START).
+3. Weight: a 2 g change wakes an OFF screen, a 1 g change does not; auto-start on cup with the screen off.
+4. The screen stays on through a real grind, autotune, motor test, calibration, push, pull and BLE update, the pending update prompt, the remote-start lead-in, the WiFi page, GRIND_TIMEOUT and an injected error (HX711 unplugged). No OFF in GRIND_COMPLETE.
+5. Dim and off timing at several settings (for example 1 min dim, 10 min off), each "Never", and off earlier than dim.
+6. Persistence across reboot and factory reset (back to 5 / 60).
+7. A brightness or timeout change from the web panel while the screen is OFF does not light it.
+8. The web page in a phone or PC browser against the real firmware (host tests and the dev server cover the logic only).
+9. UI frame time and heap after the controller rewrite (UIRender heartbeat, `[HEAP]` lines).
+
+Also not verified: a second failed I2C touch poll during a long waking press (see the residual below).
+
+### Known residuals and leftovers
+
+- **One failed touch poll clears the swallow.** A single failed I2C read during a long press that started while OFF reports "not pressed" for one poll; the block clears and LVGL sees a press in the middle of the hold. An optional one-poll release debounce was not built (judged rare; add it if the bench shows it). A tap that starts and ends between two polls is lost, which is harmless.
+- **Stale code comments and a constant (not changed in the docs step, which touches docs only):** `USER_SCREEN_AUTO_DIM_TIMEOUT_MS` (300000, `src/config/user.h`) is no longer read by the firmware logic but is still printed by the BLE system info (`src/bluetooth/manager.cpp`); the comment at `src/hardware/circular_buffer_math/circular_buffer_math.h` (line 163) still names the 300 s dim window. Both should go in a code step.
 
 ## Reference moved from CLAUDE.md (chg014 housekeeping)
 

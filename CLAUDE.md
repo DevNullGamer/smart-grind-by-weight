@@ -43,6 +43,12 @@ python3 tools/grinder.py analyze
 
 **Periodic tasks (chg017):** periodic tasks never write or delete files; the file-IO health probe (`FileIOTask::validate_filesystem_access()`) is read-only. Details in `docs/DESIGN-NOTES.md`, "Filesystem health check (chg017)".
 
+**Screen off (chg018; details in `docs/DESIGN-NOTES.md`, "Screen off (chg018)"):**
+- Dim/off decisions are pure in `system/screen_power.*`; `ScreenTimeoutController` gathers the inputs and is the only code that applies them (OFF = brightness 0, no panel sleep).
+- Timeouts are cached (`reload_settings()`), never read per frame: the menu reloads via `SliderAfter::RELOAD_SCREEN_TIMEOUTS`, the web panel via `apply_to_screen`. Neither wakes nor darkens the screen.
+- While OFF, touch is blocked (`DisplayManager::set_input_blocked`) until the waking touch is released.
+- Never OFF while grinding, in a motor test, an update prompt or progress, a remote-start lead-in, on a screen other than READY/EDIT/MENU, on the WiFi page, or with a diagnostic other than `LOAD_CELL_NOT_CALIBRATED` / `LOAD_CELL_NOISY_SUSTAINED`.
+
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
 - Board is detected at runtime (signals and files: details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)"). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.

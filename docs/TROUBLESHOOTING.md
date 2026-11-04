@@ -2,8 +2,9 @@
 
 ## Table of Contents
 
-- [Motor Does Not Start](#motor-does-not-start)
+- [Screen Is Black (Screen Off)](#screen-is-black-screen-off)
 - [Board Not Recognised / Display Stays Black (Waveshare 1.64)](#board-not-recognised--display-stays-black-waveshare-164)
+- [Motor Does Not Start](#motor-does-not-start)
 - [HX711 Not Detected / Wrong Sample Rate](#hx711-not-detected--wrong-sample-rate)
 - [Unknown board ID 'esp32-s3-devkitc-1'](#unknown-board-id-esp32-s3-devkitc-1)
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
@@ -16,6 +17,29 @@
 
 ---
 
+## Screen Is Black (Screen Off)
+
+**Applies to:** the screen went dark after a while, but the grinder still works.
+
+### Symptoms
+- The screen is black after you left the grinder alone, while the grinder and its motor work normally.
+- The screen was dim (darker) before it went black.
+
+### Cause
+The **Screen off** timer in **Menu → Settings → Display** turned the screen off after the idle time (default 60 minutes without a touch or a weight change of at least 1 g). It is not a fault. Dim after (default 5 minutes) only makes the screen darker.
+
+### Resolution
+1. **Touch the screen.** The touch that wakes it is not passed on, so lift your finger and tap again if a button needs pressing.
+2. **Or put a cup on the scale** (a weight change of at least 2 g wakes a dark screen).
+3. To stop the screen from turning off, set **Menu → Settings → Display → Screen off** to **Never** (or a longer time). Dim after can be set to Never too.
+4. After an update the screen turns off after one idle hour for the first time, because the new default applies to units that never changed the setting.
+
+If the screen stays black after a touch and a cup on the scale, restart the grinder (the screen is on again after a restart) and set **Screen off** to **Never** until the cause is found. Report it with a diagnostic report.
+
+> A screen that is black straight after power-on or flashing is not Screen off. See the next section.
+
+---
+
 ## Board Not Recognised / Display Stays Black (Waveshare 1.64)
 
 **Applies to:** ESP32-S3-Touch-AMOLED-1.64 boards (V1 or V2). One firmware image supports both revisions and detects the board at boot, so there is no V1/V2 image to choose.
@@ -23,7 +47,7 @@
 ### Symptoms
 - A "SELECT BOARD" dialog appears at boot (tap V1 or V2), or the diagnostics page shows "Hardware board not recognised" / "Grinder output is off".
 - The grinder motor does not run even though everything else works (the motor is disabled until the board is confirmed).
-- The display stays black after flashing, but the device still boots, connects over BLE or produces a diagnostic report.
+- The display stays black after flashing, but the device still boots, connects over BLE or produces a diagnostic report. (If the screen went black only after a long idle time, see [Screen Is Black](#screen-is-black-screen-off).)
 
 ### How detection works
 At boot the firmware reads GPIO45 (held low on V2, floating on V1), confirms a V2 by watching the panel's TE signal, and checks GPIO18 as a hint (a conflicting level can veto to UNKNOWN/cached board). If the signals disagree it does not guess: the motor stays disabled and the on-screen picker is shown. While the board is unknown the display is driven on both V1 and V2 chip-select pins, so the picker is visible on either board. The last known board is remembered, but a remembered board alone never enables the motor.

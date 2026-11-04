@@ -30,6 +30,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
     - [Basic Operation](#basic-operation)
     - [Quick Scale View](#quick-scale-view)
     - [Display Modes](#display-modes)
+    - [Screen saver and screen off](#screen-saver-and-screen-off)
   - [🗺️ User Interface Navigation](#️-user-interface-navigation)
   - [⚡ Automated Grind Flow](#-automated-grind-flow)
   - [🔵 Bluetooth Connectivity](#-bluetooth-connectivity)
@@ -376,6 +377,26 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 - **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
 - **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
 
+### Screen saver and screen off
+Two timers in **Menu → Settings → Display** dim and then switch off the screen when nothing happens:
+
+- **Dim after** (default 5 min): the screen drops to the screensaver brightness. Choices: 1, 2, 5, 10, 15, 30, 60 min, or **Never**.
+- **Screen off** (default 60 min): the screen goes dark (brightness 0; the grinder keeps running). Choices: 10, 30, 60, 120, 240, 480 min, or **Never**. If it is set shorter than Dim after, the screen goes straight to off.
+
+"Nothing happens" means no touch and no weight change of at least 1 g. Weight is checked over a 30 s window, so the timers start up to 30 s after the last change (about 5½ min for the 5 min default).
+
+**Waking the screen**
+- **Touch** wakes a dimmed or dark screen. The touch that wakes a dark screen is not passed on, so it does not press the button under your finger; lift the finger and tap again.
+- **Weight** wakes a dimmed screen with a change of at least 1 g. A dark screen wakes only on a change of at least 2 g (for example a cup placed on the scale), so small drift does not wake it.
+
+**The screen stays fully on** (normal brightness, never dims or turns off) while you grind, run a motor test, see a firmware update prompt or progress screen, or during the remote-start countdown from the web panel.
+
+**The screen never turns off, but may dim,** on the grind complete and grind timeout screens, the calibration and Auto-Tune screens, the firmware update screens, dialogs, the WiFi page, and while any warning is active. The exception is the two calibration warnings, "Load cell not calibrated" and the sustained noise warning: they do not block the screen from turning off.
+
+**Upgrading:** existing grinders have no saved values, so they use the new defaults: the screen now turns off after one hour without use. To stop it from turning off, set **Screen off** to **Never**; the screen then still dims after **Dim after** (5 min by default).
+
+**Web panel:** the same two settings are in the panel's Settings (Display group). A change there takes effect at once but never wakes or darkens the screen by itself. See [PORTAL-API.md](PORTAL-API.md).
+
 ---
 
 ## 🗺️ User Interface Navigation
@@ -420,7 +441,9 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |
     |   +-- Display
     |   |   |-- Normal brightness slider
-    |   |   \-- Screensaver brightness slider
+    |   |   |-- Screensaver brightness slider
+    |   |   |-- Dim after slider (1 min to 1 h, or Never)
+    |   |   \-- Screen off slider (10 min to 8 h, or Never)
     |   |
     |   +-- Grind Settings
     |   |   |-- Swipe Gestures toggle (enable/disable vertical swipes)
