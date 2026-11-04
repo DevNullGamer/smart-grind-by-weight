@@ -202,7 +202,62 @@ static void test_a_failed_write_result_carries_the_error() {
     TEST_ASSERT_FALSE(result.device_name_changed);
 }
 
+static void test_screen_timeouts_reach_the_target_one_key_at_a_time() {
+    // Both keys: written in table order (dim, then off), both bits in the mask
+    FakeTarget both;
+    PortalApplyOutcome outcome =
+        portal_apply_patch(parse("{\"screen_off_min\":240,\"screen_dim_min\":10}"), portal_default_values(), both);
+    TEST_ASSERT_EQUAL(PortalError::NONE, outcome.error);
+    TEST_ASSERT_EQUAL_UINT32(2, both.calls.size());
+    TEST_ASSERT_EQUAL_UINT32(PF_SCREEN_DIM_MIN, both.calls[0].index);
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, both.calls[0].value);
+    TEST_ASSERT_EQUAL_UINT32(PF_SCREEN_OFF_MIN, both.calls[1].index);
+    TEST_ASSERT_EQUAL_FLOAT(240.0f, both.calls[1].value);
+    TEST_ASSERT_EQUAL_UINT32((1u << PF_SCREEN_DIM_MIN) | (1u << PF_SCREEN_OFF_MIN), outcome.written_mask);
+
+    // Only one key: the other is never written (and so never reloaded)
+    FakeTarget one;
+    outcome = portal_apply_patch(parse("{\"screen_off_min\":0}"), portal_default_values(), one);
+    TEST_ASSERT_EQUAL_UINT32(1, one.calls.size());
+    TEST_ASSERT_EQUAL_UINT32(PF_SCREEN_OFF_MIN, one.calls[0].index);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, one.calls[0].value);  // Never is written as 0
+    TEST_ASSERT_EQUAL_UINT32(1u << PF_SCREEN_OFF_MIN, outcome.written_mask);
+
+    FakeTarget dim_only;
+    outcome = portal_apply_patch(parse("{\"screen_dim_min\":0}"), portal_default_values(), dim_only);
+    TEST_ASSERT_EQUAL_UINT32(1, dim_only.calls.size());
+    TEST_ASSERT_EQUAL_UINT32(PF_SCREEN_DIM_MIN, dim_only.calls[0].index);
+    TEST_ASSERT_EQUAL_UINT32(1u << PF_SCREEN_DIM_MIN, outcome.written_mask);
+}
+
+static void test_screen_timeouts_equal_to_the_state_are_not_written() {
+    FakeTarget target;
+    const PortalApplyOutcome outcome =
+        portal_apply_patch(parse("{\"screen_dim_min\":5,\"screen_off_min\":60}"), portal_default_values(), target);
+    TEST_ASSERT_EQUAL_UINT32(0, target.calls.size());  // no write, so no reload either
+    TEST_ASSERT_EQUAL_UINT32(0, outcome.written_mask);
+    // The comparison is per key: Never against the state's 60 is a change
+    FakeTarget changed;
+    portal_apply_patch(parse("{\"screen_dim_min\":5,\"screen_off_min\":0}"), portal_default_values(), changed);
+    TEST_ASSERT_EQUAL_UINT32(1, changed.calls.size());
+    TEST_ASSERT_EQUAL_UINT32(PF_SCREEN_OFF_MIN, changed.calls[0].index);
+}
+
+static void test_a_failing_screen_write_reports_its_key_and_keeps_the_earlier_ones() {
+    FakeTarget target;
+    target.fail_at = 1;  // swipe ok, screen_dim_min fails
+    const PortalApplyOutcome outcome = portal_apply_patch(
+        parse("{\"swipe\":true,\"screen_dim_min\":10,\"screen_off_min\":240,\"single_weight_g\":10}"), portal_default_values(), target);
+    TEST_ASSERT_EQUAL(PortalError::STORE_FAILED, outcome.error);
+    TEST_ASSERT_EQUAL_INT(PF_SCREEN_DIM_MIN, outcome.failed_field);
+    TEST_ASSERT_EQUAL_UINT32(2, target.calls.size());
+    TEST_ASSERT_EQUAL_UINT32(1u << PF_SWIPE, outcome.written_mask);
+}
+
 void run_portal_apply_tests() {
+    RUN_TEST(test_screen_timeouts_reach_the_target_one_key_at_a_time);
+    RUN_TEST(test_screen_timeouts_equal_to_the_state_are_not_written);
+    RUN_TEST(test_a_failing_screen_write_reports_its_key_and_keeps_the_earlier_ones);
     RUN_TEST(test_the_address_flag_travels_from_outcome_to_reply);
     RUN_TEST(test_a_failed_write_result_carries_the_error);
     RUN_TEST(test_fields_are_written_in_index_order_and_the_name_last);

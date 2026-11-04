@@ -9,6 +9,7 @@
 #include "network/wifi_credentials.h"
 #include "system/menu_setting_models.h"
 #include "system/menu_setting_table.h"
+#include "system/screen_power.h"
 #include "system/ui_settings.h"
 
 //------------------------------------------------------------------------------
@@ -58,6 +59,8 @@ constexpr float kBrightnessNormalDefault = static_cast<float>(static_cast<int>(U
 constexpr float kBrightnessDimmedDefault = static_cast<float>(static_cast<int>(USER_SCREEN_BRIGHTNESS_DIMMED * 100.0f + 0.5f));
 constexpr float kFreshnessMin = 0.5f;   // first and last of kFreshnessStepsHours
 constexpr float kFreshnessMax = 48.0f;
+constexpr float kScreenDimMaxMin = 60.0f;   // largest listed step of kDimMinutesSteps (0 = Never is below it)
+constexpr float kScreenOffMaxMin = 480.0f;  // largest listed step of kOffMinutesSteps
 
 const PortalField kFields[PORTAL_FIELD_COUNT] = {
     {"ble_startup", PortalFieldType::BOOL, "", 0, 1, 0, 1, {nullptr, nullptr}, 0, false},
@@ -76,6 +79,10 @@ const PortalField kFields[PORTAL_FIELD_COUNT] = {
     {"freshness_hours", PortalFieldType::NUMBER, "h", kFreshnessMin, kFreshnessMax, 0, GRIND_FRESHNESS_DEFAULT_HOURS,
      {nullptr, nullptr}, 0, false},
     {"grind_mode", PortalFieldType::ENUM, "", 0, 1, 0, 0, {"weight", "time"}, 2, false},
+    {"screen_dim_min", PortalFieldType::INT, "min", 0, kScreenDimMaxMin, 0, USER_SCREEN_DIM_DEFAULT_MIN,
+     {nullptr, nullptr}, 0, false},
+    {"screen_off_min", PortalFieldType::INT, "min", 0, kScreenOffMaxMin, 0, USER_SCREEN_OFF_DEFAULT_MIN,
+     {nullptr, nullptr}, 0, false},
     {"single_weight_g", PortalFieldType::NUMBER, "g", USER_MIN_TARGET_WEIGHT_G, USER_MAX_TARGET_WEIGHT_G, 0,
      USER_SINGLE_ESPRESSO_WEIGHT_G, {nullptr, nullptr}, 0, true},
     {"single_time_s", PortalFieldType::NUMBER, "s", USER_MIN_TARGET_TIME_S, USER_MAX_TARGET_TIME_S, 0,
@@ -136,12 +143,18 @@ float normalise_freshness(double in) {
     return freshness_hours_from_index(best);
 }
 
+float normalise_screen_minutes(const int* steps, int count, double in) {
+    return static_cast<float>(screen_minutes_normalise_api(clamp_input(in), steps, count));
+}
+
 float normalise_number(size_t index, double in) {
     switch (index) {
         case PF_BRIGHTNESS_NORMAL: return normalise_brightness(SliderSetting::BRIGHTNESS_NORMAL, in);
         case PF_BRIGHTNESS_SCREENSAVER: return normalise_brightness(SliderSetting::BRIGHTNESS_SCREENSAVER, in);
         case PF_PURGE_AMOUNT_G: return normalise_purge_amount(in);
         case PF_FRESHNESS_HOURS: return normalise_freshness(in);
+        case PF_SCREEN_DIM_MIN: return normalise_screen_minutes(kDimMinutesSteps, kDimMinutesStepCount, in);
+        case PF_SCREEN_OFF_MIN: return normalise_screen_minutes(kOffMinutesSteps, kOffMinutesStepCount, in);
         default: return static_cast<float>(in);  // profile targets: range-checked by the caller, stored as given
     }
 }
@@ -648,6 +661,11 @@ void portal_load_settings(const UiSettings& s, PortalValues* values) {
     values->v[PF_PURGE_AMOUNT_G] = purge_amount_from_slider(purge_slider_from_amount(s.purge_amount_g()));
     values->v[PF_FRESHNESS_HOURS] = freshness_hours_from_index(freshness_index_from_hours(s.freshness_hours()));
     values->v[PF_GRIND_MODE] = static_cast<float>(grind_mode_radio_index(s.grind_mode_raw()));
+    // Unlisted stored values read as the default, like the menu slider
+    values->v[PF_SCREEN_DIM_MIN] = static_cast<float>(screen_minutes_normalise_storage(
+        s.screen_dim_minutes(), kDimMinutesSteps, kDimMinutesStepCount, USER_SCREEN_DIM_DEFAULT_MIN));
+    values->v[PF_SCREEN_OFF_MIN] = static_cast<float>(screen_minutes_normalise_storage(
+        s.screen_off_minutes(), kOffMinutesSteps, kOffMinutesStepCount, USER_SCREEN_OFF_DEFAULT_MIN));
 }
 
 bool portal_encode_error(PortalError error, char* out, size_t cap) {

@@ -13,6 +13,7 @@
 #include "../../system/menu_setting_models.h"
 #include "../../system/menu_setting_table.h"
 #include "../../system/nvs_settings_store.h"
+#include "../../system/screen_power.h"
 #include "../../system/statistics_manager.h"
 #include "../../system/update_guard.h"
 #include "../ui_manager.h"
@@ -48,12 +49,16 @@ PORTAL_ASSERT_WARNING(8, LOAD_CELL_NOT_CALIBRATED);
 
 namespace {
 
-// Brightness percent, purge slider units or freshness step of a normalised API value, as the slider handler
-// of the menu would hold them
+// Brightness percent, purge slider units, freshness step or screen timeout step of a normalised API value, as the
+// slider handler of the menu would hold them
 int slider_position(SliderSetting id, float value) {
     switch (id) {
         case SliderSetting::PURGE_AMOUNT: return purge_slider_from_amount(value);
         case SliderSetting::FRESHNESS: return freshness_index_from_hours(value);
+        case SliderSetting::SCREEN_DIM_TIMEOUT:
+            return screen_minutes_to_index(static_cast<int>(lroundf(value)), kDimMinutesSteps, kDimMinutesStepCount);
+        case SliderSetting::SCREEN_OFF_TIMEOUT:
+            return screen_minutes_to_index(static_cast<int>(lroundf(value)), kOffMinutesSteps, kOffMinutesStepCount);
         default: return static_cast<int>(lroundf(value));
     }
 }
@@ -63,6 +68,8 @@ SliderSetting slider_of_field(size_t index) {
         case PF_BRIGHTNESS_NORMAL: return SliderSetting::BRIGHTNESS_NORMAL;
         case PF_BRIGHTNESS_SCREENSAVER: return SliderSetting::BRIGHTNESS_SCREENSAVER;
         case PF_PURGE_AMOUNT_G: return SliderSetting::PURGE_AMOUNT;
+        case PF_SCREEN_DIM_MIN: return SliderSetting::SCREEN_DIM_TIMEOUT;
+        case PF_SCREEN_OFF_MIN: return SliderSetting::SCREEN_OFF_TIMEOUT;
         default: return SliderSetting::FRESHNESS;  // PF_FRESHNESS_HOURS
     }
 }
@@ -428,7 +435,9 @@ bool PortalUIController::write_field(size_t index, float value) {
         case PF_BRIGHTNESS_NORMAL:
         case PF_BRIGHTNESS_SCREENSAVER:
         case PF_PURGE_AMOUNT_G:
-        case PF_FRESHNESS_HOURS: {
+        case PF_FRESHNESS_HOURS:
+        case PF_SCREEN_DIM_MIN:
+        case PF_SCREEN_OFF_MIN: {
             const SliderSetting id = slider_of_field(index);
             return slider_setting_def(id).store(ui_settings, slider_position(id, value));
         }
@@ -461,6 +470,9 @@ void PortalUIController::apply_to_screen(uint32_t written_mask) {
 
     if (written_mask & (field_bit(PF_BRIGHTNESS_NORMAL) | field_bit(PF_BRIGHTNESS_SCREENSAVER))) {
         if (ui_manager_->screen_timeout_controller_) ui_manager_->screen_timeout_controller_->reapply_brightness();
+    }
+    if (written_mask & (field_bit(PF_SCREEN_DIM_MIN) | field_bit(PF_SCREEN_OFF_MIN))) {
+        ui_manager_->refresh_screen_timeout_settings();  // reload only: a web write never wakes or darkens the screen
     }
     if (written_mask & (field_bit(PF_AUTO_START) | field_bit(PF_AUTO_RETURN))) {
         ui_manager_->refresh_auto_action_settings();

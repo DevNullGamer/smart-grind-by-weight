@@ -6,12 +6,14 @@
 #include <string>
 #include <vector>
 #include "config/grind_control.h"
+#include "config/portal.h"
 #include "config/user.h"
 #include "network/portal_api.h"
 #include "network/wifi_credentials.h"
 #include "portal_vectors.h"
 #include "system/menu_setting_models.h"
 #include "system/menu_setting_table.h"
+#include "system/screen_power.h"
 #include "system/settings_store.h"
 #include "system/ui_settings.h"
 
@@ -866,7 +868,225 @@ static void test_encoded_sizes_fit_a_reasonable_buffer() {
     TEST_ASSERT_TRUE(strlen(buf) < 4096);
 }
 
+//------------------------------------------------------------------------------
+// Screen timeouts (chg018 step 4)
+//------------------------------------------------------------------------------
+namespace {
+// The slider position the portal UI controller stores for a normalised API value (slider_position() there)
+int screen_position(bool dim, float value) {
+    return dim ? screen_minutes_to_index(static_cast<int>(lroundf(value)), kDimMinutesSteps, kDimMinutesStepCount)
+               : screen_minutes_to_index(static_cast<int>(lroundf(value)), kOffMinutesSteps, kOffMinutesStepCount);
+}
+}  // namespace
+
+static void test_screen_timeout_fields_sit_after_grind_mode_and_move_the_rest() {
+    TEST_ASSERT_EQUAL_UINT32(13, PORTAL_SETTING_COUNT);
+    TEST_ASSERT_EQUAL_UINT32(20, PORTAL_FIELD_COUNT);
+    TEST_ASSERT_EQUAL_UINT32(10, PF_GRIND_MODE);
+    TEST_ASSERT_EQUAL_UINT32(11, PF_SCREEN_DIM_MIN);
+    TEST_ASSERT_EQUAL_UINT32(12, PF_SCREEN_OFF_MIN);
+    TEST_ASSERT_EQUAL_UINT32(13, PF_SINGLE_WEIGHT_G);
+    TEST_ASSERT_EQUAL_UINT32(18, PF_CUSTOM_TIME_S);
+    TEST_ASSERT_EQUAL_UINT32(19, PF_DEVICE_NAME);
+    // Every key finds its own index (no stale literal index anywhere in the table)
+    for (size_t i = 0; i < PORTAL_FIELD_COUNT; i++) {
+        const char* key = portal_field(i).key;
+        TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(i), portal_field_find(key, strlen(key)), key);
+    }
+    const char* profile_keys[] = {"single_weight_g", "single_time_s", "double_weight_g",
+                                  "double_time_s",   "custom_weight_g", "custom_time_s"};
+    for (size_t i = 0; i < 6; i++) TEST_ASSERT_EQUAL_STRING(profile_keys[i], portal_field(PF_SINGLE_WEIGHT_G + i).key);
+    TEST_ASSERT_EQUAL_STRING("screen_dim_min", portal_field(PF_SCREEN_DIM_MIN).key);
+    TEST_ASSERT_EQUAL_STRING("screen_off_min", portal_field(PF_SCREEN_OFF_MIN).key);
+    TEST_ASSERT_EQUAL_STRING("device_name", portal_field(PF_DEVICE_NAME).key);
+    TEST_ASSERT_EQUAL_STRING("settings", portal_field_group(PF_SCREEN_OFF_MIN));
+    TEST_ASSERT_EQUAL_STRING("profile", portal_field_group(PF_SINGLE_WEIGHT_G));
+    TEST_ASSERT_EQUAL_STRING("device", portal_field_group(PF_DEVICE_NAME));
+    TEST_ASSERT_EQUAL_INT(-1, portal_field_find("screen_dim", 10));
+    TEST_ASSERT_EQUAL_INT(-1, portal_field_find("screen_on_min", 13));
+}
+
+static void test_screen_timeouts_default_to_5_and_60() {
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, portal_default_values().v[PF_SCREEN_DIM_MIN]);
+    TEST_ASSERT_EQUAL_FLOAT(60.0f, portal_default_values().v[PF_SCREEN_OFF_MIN]);
+    MapStore store;
+    UiSettings settings(store);
+    PortalValues v = portal_default_values();
+    v.v[PF_SCREEN_DIM_MIN] = v.v[PF_SCREEN_OFF_MIN] = -1.0f;
+    portal_load_settings(settings, &v);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, v.v[PF_SCREEN_DIM_MIN]);
+    TEST_ASSERT_EQUAL_FLOAT(60.0f, v.v[PF_SCREEN_OFF_MIN]);
+}
+
+static void test_load_settings_screen_timeouts_unlisted_read_as_default_never_as_zero() {
+    MapStore store;
+    UiSettings settings(store);
+    PortalValues v = portal_default_values();
+    // Unlisted stored values (7 min is on neither list) read back as the default step, like the menu slider
+    store.ints["screen/dim_min"] = 7;
+    store.ints["screen/off_min"] = 7;
+    portal_load_settings(settings, &v);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, v.v[PF_SCREEN_DIM_MIN]);
+    TEST_ASSERT_EQUAL_FLOAT(60.0f, v.v[PF_SCREEN_OFF_MIN]);
+    const int unlisted[] = {-4, -1, 3, 45, 61, 90, 479, 481, 100000};
+    for (int stored : unlisted) {
+        store.ints["screen/dim_min"] = stored;
+        store.ints["screen/off_min"] = stored;
+        portal_load_settings(settings, &v);
+        char msg[32];
+        snprintf(msg, sizeof(msg), "stored %d", stored);
+        TEST_ASSERT_EQUAL_FLOAT_MESSAGE(5.0f, v.v[PF_SCREEN_DIM_MIN], msg);
+        TEST_ASSERT_EQUAL_FLOAT_MESSAGE(60.0f, v.v[PF_SCREEN_OFF_MIN], msg);
+    }
+    // Never (0) reads back as 0 for both
+    store.ints["screen/dim_min"] = 0;
+    store.ints["screen/off_min"] = 0;
+    portal_load_settings(settings, &v);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, v.v[PF_SCREEN_DIM_MIN]);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, v.v[PF_SCREEN_OFF_MIN]);
+    // Every listed step reads back as itself; the two keys are independent
+    for (int i = 0; i < kDimMinutesStepCount; i++) {
+        for (int j = 0; j < kOffMinutesStepCount; j++) {
+            store.ints["screen/dim_min"] = kDimMinutesSteps[i];
+            store.ints["screen/off_min"] = kOffMinutesSteps[j];
+            portal_load_settings(settings, &v);
+            TEST_ASSERT_EQUAL_FLOAT(static_cast<float>(kDimMinutesSteps[i]), v.v[PF_SCREEN_DIM_MIN]);
+            TEST_ASSERT_EQUAL_FLOAT(static_cast<float>(kOffMinutesSteps[j]), v.v[PF_SCREEN_OFF_MIN]);
+        }
+    }
+    // The other settings are untouched by the screen values
+    TEST_ASSERT_EQUAL_FLOAT(portal_default_values().v[PF_FRESHNESS_HOURS], v.v[PF_FRESHNESS_HOURS]);
+    TEST_ASSERT_EQUAL_FLOAT(portal_default_values().v[PF_GRIND_MODE], v.v[PF_GRIND_MODE]);
+}
+
+static void test_a_patched_screen_timeout_is_stored_through_the_slider_and_reads_back() {
+    // PATCH value -> normalised -> slider position -> slider store (what write_field does) -> load: the same step
+    for (int dim = 0; dim < 2; dim++) {
+        const int count = dim ? kDimMinutesStepCount : kOffMinutesStepCount;
+        const int* steps = dim ? kDimMinutesSteps : kOffMinutesSteps;
+        const size_t field = dim ? PF_SCREEN_DIM_MIN : PF_SCREEN_OFF_MIN;
+        const SliderSetting id = dim ? SliderSetting::SCREEN_DIM_TIMEOUT : SliderSetting::SCREEN_OFF_TIMEOUT;
+        const char* other_key = dim ? "screen/off_min" : "screen/dim_min";
+        const char* own_key = dim ? "screen/dim_min" : "screen/off_min";
+        for (int i = 0; i < count; i++) {
+            MapStore store;
+            UiSettings settings(store);
+            char body[64];
+            snprintf(body, sizeof(body), "{\"%s\":%d}", portal_field(field).key, steps[i]);
+            PortalPatch patch;
+            TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_parse_patch(body, strlen(body), &patch)));
+            TEST_ASSERT_EQUAL_FLOAT_MESSAGE(static_cast<float>(steps[i]), patch.v[field], body);
+            TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, patch.adjusted, body);
+            const int pos = screen_position(dim, patch.v[field]);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(i, pos, body);
+            TEST_ASSERT_TRUE(slider_setting_def(id).store(settings, pos));
+            // exactly one integer written, nothing else; the other key is untouched
+            TEST_ASSERT_EQUAL_UINT32(1, store.ints.size());
+            TEST_ASSERT_EQUAL_UINT32(0, store.floats.size() + store.bools.size());
+            TEST_ASSERT_TRUE(store.ints.count(own_key) == 1);
+            TEST_ASSERT_EQUAL_INT(steps[i], store.ints[own_key]);
+            TEST_ASSERT_TRUE(store.ints.count(other_key) == 0);
+            PortalValues v = portal_default_values();
+            portal_load_settings(settings, &v);
+            TEST_ASSERT_EQUAL_FLOAT_MESSAGE(static_cast<float>(steps[i]), v.v[field], body);
+            // the sibling still reads its default
+            TEST_ASSERT_EQUAL_FLOAT(dim ? 60.0f : 5.0f, v.v[dim ? PF_SCREEN_OFF_MIN : PF_SCREEN_DIM_MIN]);
+        }
+    }
+}
+
+static void test_any_patched_screen_value_stores_on_a_listed_step() {
+    // Whatever the input (fractions, negatives, huge) the position the controller stores is in range and is the very
+    // step the reply reports (no second snap on the way to the store)
+    const double inputs[] = {-1e30, -100, -5, -0.5, 0, 0.1, 0.4, 0.5, 0.6, 1, 1.5, 2.5, 3, 4.4, 4.6, 5, 7, 8,
+                             9.99, 10, 15.5, 20, 25, 45, 59.4, 60, 61, 100, 119, 481, 99999, 1e30};
+    for (int dim = 0; dim < 2; dim++) {
+        const size_t field = dim ? PF_SCREEN_DIM_MIN : PF_SCREEN_OFF_MIN;
+        const int* steps = dim ? kDimMinutesSteps : kOffMinutesSteps;
+        const int count = dim ? kDimMinutesStepCount : kOffMinutesStepCount;
+        for (double in : inputs) {
+            char body[96];
+            snprintf(body, sizeof(body), "{\"%s\":%g}", portal_field(field).key, in);
+            PortalPatch patch;
+            TEST_ASSERT_EQUAL_MESSAGE(static_cast<int>(PortalError::NONE), static_cast<int>(portal_parse_patch(body, strlen(body), &patch)), body);
+            const int minutes = static_cast<int>(lroundf(patch.v[field]));
+            const int pos = screen_position(dim, patch.v[field]);
+            TEST_ASSERT_TRUE_MESSAGE(pos >= 0 && pos < count, body);
+            TEST_ASSERT_EQUAL_INT_MESSAGE(minutes, steps[pos], body);
+        }
+    }
+}
+
+static void test_values_text_has_the_screen_timeouts_as_integers_in_table_order() {
+    char buf[PORTAL_VALUES_JSON_MAX];
+    PortalValues values = portal_default_values();
+    TEST_ASSERT_TRUE(portal_encode_values(values, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"grind_mode\":\"weight\",\"screen_dim_min\":5,\"screen_off_min\":60,\"single_weight_g\":9.0"));
+    values.v[PF_SCREEN_DIM_MIN] = 0.0f;
+    values.v[PF_SCREEN_OFF_MIN] = 480.0f;
+    TEST_ASSERT_TRUE(portal_encode_values(values, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"screen_dim_min\":0,\"screen_off_min\":480,"));
+    PJson j = portal_json_parse(buf);
+    TEST_ASSERT_EQUAL(static_cast<int>(PJson::NUM), static_cast<int>(j.at("values").at("screen_dim_min").kind));
+}
+
+static void test_schema_describes_the_screen_timeouts() {
+    static char buf[PORTAL_SCHEMA_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_schema(buf, sizeof(buf)));
+    PJson j = portal_json_parse(buf);
+    const PJson& fields = j.at("fields");
+    TEST_ASSERT_EQUAL_STRING("screen_dim_min", fields.a[11].at("key").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("screen_off_min", fields.a[12].at("key").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("int", fields.a[11].at("type").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("min", fields.a[12].at("unit").s.c_str());
+    TEST_ASSERT_EQUAL_INT(0, static_cast<int>(fields.a[11].at("min").n));
+    TEST_ASSERT_EQUAL_INT(60, static_cast<int>(fields.a[11].at("max").n));
+    TEST_ASSERT_EQUAL_INT(480, static_cast<int>(fields.a[12].at("max").n));
+    TEST_ASSERT_EQUAL_INT(5, static_cast<int>(fields.a[11].at("default").n));
+    TEST_ASSERT_EQUAL_INT(60, static_cast<int>(fields.a[12].at("default").n));
+    // The profile entries still point at the profile keys after the shift
+    const PJson& profiles = j.at("profiles");
+    TEST_ASSERT_EQUAL_STRING("single_weight_g", profiles.a[0].at("weight_key").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("single_time_s", profiles.a[0].at("time_key").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("custom_weight_g", profiles.a[2].at("weight_key").s.c_str());
+}
+
+static void test_values_patch_reply_and_schema_keep_a_margin_in_their_buffers() {
+    static char buf[PORTAL_SCHEMA_JSON_MAX];
+    PortalValues values = portal_default_values();
+    values.v[PF_SINGLE_WEIGHT_G] = values.v[PF_DOUBLE_WEIGHT_G] = values.v[PF_CUSTOM_WEIGHT_G] = 1000.0f;
+    values.v[PF_SCREEN_OFF_MIN] = 480.0f;
+    strcpy(values.device_name, "abcdefghijklmnopqrstuvwx");  // 24 characters
+    TEST_ASSERT_TRUE(portal_encode_values(values, buf, PORTAL_VALUES_JSON_MAX));
+    TEST_ASSERT_TRUE_MESSAGE(strlen(buf) + 300 < PORTAL_VALUES_JSON_MAX, "values reply margin");
+    TEST_ASSERT_TRUE(portal_encode_patch_reply(values, (1u << PORTAL_FIELD_COUNT) - 1, buf, PORTAL_VALUES_JSON_MAX, true));
+    TEST_ASSERT_TRUE_MESSAGE(strlen(buf) + 100 < PORTAL_VALUES_JSON_MAX, "patch reply margin");
+    TEST_ASSERT_TRUE(portal_encode_schema(buf, PORTAL_SCHEMA_JSON_MAX));
+    TEST_ASSERT_TRUE_MESSAGE(strlen(buf) + 500 < PORTAL_SCHEMA_JSON_MAX, "schema margin");
+}
+
+static void test_screen_patch_bits_do_not_collide_with_profile_or_name_bits() {
+    PortalPatch patch;
+    const char* body = "{\"device_name\":\"x\",\"single_weight_g\":10,\"screen_off_min\":30,\"custom_time_s\":4}";
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_parse_patch(body, strlen(body), &patch)));
+    TEST_ASSERT_EQUAL_UINT32((1u << PF_DEVICE_NAME) | (1u << PF_SINGLE_WEIGHT_G) | (1u << PF_SCREEN_OFF_MIN) | (1u << PF_CUSTOM_TIME_S), patch.present);
+    TEST_ASSERT_FALSE(patch.has(PF_SCREEN_DIM_MIN));
+    TEST_ASSERT_EQUAL_FLOAT(10.0f, patch.v[PF_SINGLE_WEIGHT_G]);
+    TEST_ASSERT_EQUAL_FLOAT(30.0f, patch.v[PF_SCREEN_OFF_MIN]);
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, patch.v[PF_CUSTOM_TIME_S]);
+    TEST_ASSERT_EQUAL_STRING("x", patch.device_name);
+}
+
 void run_portal_api_tests() {
+    RUN_TEST(test_screen_timeout_fields_sit_after_grind_mode_and_move_the_rest);
+    RUN_TEST(test_screen_timeouts_default_to_5_and_60);
+    RUN_TEST(test_load_settings_screen_timeouts_unlisted_read_as_default_never_as_zero);
+    RUN_TEST(test_a_patched_screen_timeout_is_stored_through_the_slider_and_reads_back);
+    RUN_TEST(test_any_patched_screen_value_stores_on_a_listed_step);
+    RUN_TEST(test_values_text_has_the_screen_timeouts_as_integers_in_table_order);
+    RUN_TEST(test_schema_describes_the_screen_timeouts);
+    RUN_TEST(test_values_patch_reply_and_schema_keep_a_margin_in_their_buffers);
+    RUN_TEST(test_screen_patch_bits_do_not_collide_with_profile_or_name_bits);
     RUN_TEST(test_error_table_matches_vectors);
     RUN_TEST(test_field_table_matches_vectors);
     RUN_TEST(test_field_find);

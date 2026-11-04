@@ -23,6 +23,9 @@ BRIGHTNESS_MIN = 15
 BRIGHTNESS_MAX = 100
 PURGE_MIN_G, PURGE_MAX_G = 0.1, 2.5
 FRESHNESS_STEPS_H = (0.5, 1.0, 2.0, 3.0, 4.0, 8.0, 12.0, 24.0, 48.0)
+# Screen timeout steps in minutes, 0 = Never (last); kDimMinutesSteps / kOffMinutesSteps in system/screen_power.cpp
+SCREEN_DIM_STEPS_MIN = (1, 2, 5, 10, 15, 30, 60, 0)
+SCREEN_OFF_STEPS_MIN = (10, 30, 60, 120, 240, 480, 0)
 PROFILE_NAMES = ("SINGLE", "DOUBLE", "CUSTOM")
 COMMANDS = ("stop", "tare", "start", "motor_test")
 # Status warning codes in priority order (kWarningNames in portal_api.cpp)
@@ -100,6 +103,8 @@ FIELDS = [
     _f("purge_amount_g", "number", "settings", unit="g", min=0.1, max=2.5, step=0.1, default=1.0),
     _f("freshness_hours", "number", "settings", unit="h", min=0.5, max=48.0, default=8.0),
     _f("grind_mode", "enum", "settings", choices=["weight", "time"], default="weight"),
+    _f("screen_dim_min", "int", "settings", unit="min", min=0, max=60, default=5),
+    _f("screen_off_min", "int", "settings", unit="min", min=0, max=480, default=60),
     _f("single_weight_g", "number", "profile", unit="g", min=5.0, max=1000.0, default=9.0),
     _f("single_time_s", "number", "profile", unit="s", min=0.5, max=25.0, default=5.0),
     _f("double_weight_g", "number", "profile", unit="g", min=5.0, max=1000.0, default=18.0),
@@ -115,9 +120,10 @@ FIELD_INDEX = {f["key"]: i for i, f in enumerate(FIELDS)}
 def schema():
     """The GET /api/schema document."""
     profiles = []
+    first = FIELD_INDEX["single_weight_g"]
     for p, name in enumerate(PROFILE_NAMES):
-        profiles.append({"index": p, "name": name, "weight_key": FIELDS[11 + 2 * p]["key"],
-                         "time_key": FIELDS[12 + 2 * p]["key"]})
+        profiles.append({"index": p, "name": name, "weight_key": FIELDS[first + 2 * p]["key"],
+                         "time_key": FIELDS[first + 1 + 2 * p]["key"]})
     return {"fields": [dict(f) for f in FIELDS], "profiles": profiles}
 
 
@@ -435,6 +441,27 @@ def normalise_freshness(x):
     return best
 
 
+def normalise_screen_minutes(x, steps):
+    """screen_minutes_normalise_api: <= 0 is Never (0); otherwise the nearest listed non-Never step (a tie keeps the
+    lower step), above the largest step it is the largest step. `x` is already clamped to +-INPUT_LIMIT."""
+    if x <= 0:
+        return 0
+    largest = max(steps)
+    if x >= largest:
+        return largest
+    whole = math.floor(x + 0.5)
+    if whole <= 0:
+        return 0
+    best, best_dist = 0, 0
+    for step in steps:
+        if step <= 0:
+            continue
+        dist = abs(step - whole)
+        if best == 0 or dist < best_dist:  # strict: a tie keeps the lower step
+            best, best_dist = step, dist
+    return best
+
+
 def device_name_valid(name):
     if not (1 <= len(name) <= STRING_MAX_LEN):
         return False
@@ -483,6 +510,10 @@ def _check_setting(field, value):
         result = normalise_brightness(value)
     elif key == "purge_amount_g":
         result = normalise_purge_amount(value)
+    elif key == "screen_dim_min":
+        result = normalise_screen_minutes(_clamp_input(value), SCREEN_DIM_STEPS_MIN)
+    elif key == "screen_off_min":
+        result = normalise_screen_minutes(_clamp_input(value), SCREEN_OFF_STEPS_MIN)
     else:
         result = normalise_freshness(value)
     return result, abs(result - value) > 1.0e-4

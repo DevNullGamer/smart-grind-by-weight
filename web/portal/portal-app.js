@@ -391,7 +391,7 @@
         for (var i = 0; i < input.options.length; i++) if (input.options[i].value === wanted) have = true;
         if (!have) {
           while (input.firstChild) input.removeChild(input.firstChild);
-          V.freshnessOptions(entry).forEach(function (o) {
+          V.selectOptions(key, entry).forEach(function (o) {
             var option = el('option', '', o.label);
             option.value = String(o.value);
             input.appendChild(option);

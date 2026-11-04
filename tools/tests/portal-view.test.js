@@ -447,24 +447,24 @@ const FIELDS = schemaFields();
 const VALUES = {
     ble_startup: true, logging: false, swipe: false, auto_start: false, auto_return: false,
     brightness_normal: 100, brightness_screensaver: 35, purge_mode: 'remove', purge_amount_g: 1.0,
-    freshness_hours: 8.0, grind_mode: 'weight', single_weight_g: 9.0, single_time_s: 5.0, double_weight_g: 18.0,
+    freshness_hours: 8.0, screen_dim_min: 5, screen_off_min: 60, grind_mode: 'weight', single_weight_g: 9.0, single_time_s: 5.0, double_weight_g: 18.0,
     double_time_s: 10.0, custom_weight_g: 21.5, custom_time_s: 12.0, device_name: 'grindbyweight'
 };
 
-test('the schema model has the 18 keys and the key table references each exactly once', () => {
-    assert.equal(FIELDS.length, 18);
+test('the schema model has the 20 keys and the key table references each exactly once', () => {
+    assert.equal(FIELDS.length, 20);
     assert.deepEqual(FIELDS.map((f) => f.key).sort(), Object.keys(VALUES).sort());
     const grouped = PV.groupedKeys();
     assert.deepEqual(grouped.slice().sort(), FIELDS.map((f) => f.key).sort());
     assert.equal(new Set(grouped).size, grouped.length);
 });
 
-test('settingsGroups: all 18 keys exactly once, no Other for a known schema, order Profiles to Device', () => {
+test('settingsGroups: all 20 keys exactly once, no Other for a known schema, order Profiles to Device', () => {
     const groups = PV.settingsGroups(FIELDS);
     assert.deepEqual(groups.map((g) => g.title), ['Profiles', 'Display', 'Grinding', 'Device']);
     const keys = [].concat(...groups.map((g) => g.fields.map((f) => f.key)));
-    assert.equal(keys.length, 18);
-    assert.equal(new Set(keys).size, 18);
+    assert.equal(keys.length, 20);
+    assert.equal(new Set(keys).size, 20);
 });
 
 test('settingsGroups: an unknown key lands in Other, an empty group is left out', () => {
@@ -488,6 +488,8 @@ test('fieldView: widget per key and type', () => {
     assert.equal(kinds.brightness_normal, 'slider');
     assert.equal(kinds.purge_amount_g, 'slider');
     assert.equal(kinds.freshness_hours, 'select');
+    assert.equal(kinds.screen_dim_min, 'select');
+    assert.equal(kinds.screen_off_min, 'select');
     assert.equal(kinds.single_weight_g, 'stepper');
     assert.equal(kinds.device_name, 'text');
     const mode = PV.settingsGroups(FIELDS)[2].fields[1];
@@ -496,12 +498,30 @@ test('fieldView: widget per key and type', () => {
     assert.equal(PV.rangeText(FIELDS.find((f) => f.key === 'single_time_s')), '0.5 to 25 s');
 });
 
-test('freshnessOptions: the nine steps, plus a stored off-step value', () => {
-    assert.deepEqual(PV.freshnessOptions(8).map((o) => o.value), [0.5, 1, 2, 3, 4, 8, 12, 24, 48]);
-    assert.equal(PV.freshnessOptions(8)[0].label, '30 minutes');
-    assert.equal(PV.freshnessOptions(8)[1].label, '1 hour');
-    assert.equal(PV.freshnessOptions(8)[5].label, '8 hours');
-    assert.deepEqual(PV.freshnessOptions(6).map((o) => o.value), [0.5, 1, 2, 3, 4, 6, 8, 12, 24, 48]);
+test('selectOptions: the steps per key, plus a stored off-step value', () => {
+    const fr = (v) => PV.selectOptions('freshness_hours', v);
+    assert.deepEqual(fr(8).map((o) => o.value), [0.5, 1, 2, 3, 4, 8, 12, 24, 48]);
+    assert.equal(fr(8)[0].label, '30 minutes');
+    assert.equal(fr(8)[1].label, '1 hour');
+    assert.equal(fr(8)[5].label, '8 hours');
+    assert.deepEqual(fr(6).map((o) => o.value), [0.5, 1, 2, 3, 4, 6, 8, 12, 24, 48]);
+    const dim = PV.selectOptions('screen_dim_min', 5);
+    assert.deepEqual(dim.map((o) => o.value), [1, 2, 5, 10, 15, 30, 60, 0]);
+    assert.deepEqual(dim.map((o) => o.label), ['1 minute', '2 minutes', '5 minutes', '10 minutes', '15 minutes', '30 minutes', '1 hour', 'Never']);
+    const off = PV.selectOptions('screen_off_min', 60);
+    assert.deepEqual(off.map((o) => o.label), ['10 minutes', '30 minutes', '1 hour', '2 hours', '4 hours', '8 hours', 'Never']);
+    assert.deepEqual(PV.selectOptions('screen_off_min', 90).map((o) => o.value), [10, 30, 60, 90, 120, 240, 480, 0]);
+    assert.equal(PV.selectOptions('screen_off_min', 90)[3].label, '1.5 hours');
+    assert.deepEqual(PV.selectOptions('screen_dim_min', 7).map((o) => o.value), [1, 2, 5, 7, 10, 15, 30, 60, 0]);
+    assert.equal(PV.selectOptions('screen_dim_min', 7)[3].label, '7 minutes');
+});
+
+test('adjustedNotes: screen timeouts read Never for 0 and minutes otherwise', () => {
+    const notes = PV.adjustedNotes(['screen_dim_min', 'screen_off_min'], { screen_dim_min: 0, screen_off_min: 30 }, FIELDS);
+    assert.equal(notes.screen_dim_min, 'The grinder adjusted this to Never.');
+    assert.equal(notes.screen_off_min, 'The grinder adjusted this to 30 minutes.');
+    const c = PC.describeAdjusted(['screen_dim_min'], { screen_dim_min: 0 }, FIELDS);
+    assert.equal(c[0], 'Dim screen after was adjusted by the grinder to Never.');
 });
 
 test('formPatch: nothing changed gives an empty patch, only changed keys are sent, in their own types', () => {
@@ -1523,4 +1543,20 @@ test('the recent-grinds list is wired in the page: a named list, a hidden chart,
     // each result badge has an icon of its own shape, not only a colour
     assert.match(css, /\.h-badge\.ok \.icon-ok/);
     assert.match(css, /\.h-badge\.error \.icon-error/);
+});
+
+test('screen keys sit in Display after the brightness sliders; Never sorts last; freshness labels unchanged', () => {
+    const display = PV.settingsGroups(FIELDS).find((g) => g.title === 'Display');
+    assert.deepEqual(display.fields.map((f) => f.key), ['brightness_normal', 'brightness_screensaver', 'screen_dim_min', 'screen_off_min']);
+    ['screen_dim_min', 'screen_off_min'].forEach((k) => {
+        PV.STEP_OPTIONS[k].forEach((v) => {
+            const o = PV.selectOptions(k, v);
+            assert.equal(o[o.length - 1].label, 'Never');
+            assert.equal(o[o.length - 1].value, 0);
+        });
+        assert.equal(PV.selectOptions(k, 3).slice(-1)[0].value, 0);
+    });
+    assert.deepEqual(PV.selectOptions('freshness_hours', 8).map((o) => o.label),
+        ['30 minutes', '1 hour', '2 hours', '3 hours', '4 hours', '8 hours', '12 hours', '24 hours', '48 hours']);
+    assert.equal(PV.selectOptions('screen_dim_min', 120).slice(-2)[0].label, '2 hours');
 });

@@ -32,6 +32,8 @@ SETTING_GETTER = {
     "purge_amount_g": "purge_amount_g",
     "freshness_hours": "freshness_hours",
     "grind_mode": "grind_mode_raw",
+    "screen_dim_min": "screen_dim_minutes",
+    "screen_off_min": "screen_off_minutes",
 }
 # Portal setting key -> menu table entry (ToggleSetting / SliderSetting / RadioSetting enumerator)
 SETTING_MENU_ENTRY = {
@@ -46,10 +48,9 @@ SETTING_MENU_ENTRY = {
     "freshness_hours": "FRESHNESS",
     "purge_mode": "PURGE_MODE",
     "grind_mode": "GRIND_MODE",
+    "screen_dim_min": "SCREEN_DIM_TIMEOUT",
+    "screen_off_min": "SCREEN_OFF_TIMEOUT",
 }
-# Menu settings of chg018 step 2 that the web API gets in step 4 (remove these two sets then)
-NOT_EXPOSED_YET_GETTERS = {"screen_dim_minutes", "screen_off_minutes"}
-NOT_EXPOSED_YET_SLIDERS = {"SCREEN_DIM_TIMEOUT", "SCREEN_OFF_TIMEOUT"}
 # Radio groups of the menu that the web API deliberately does not expose
 RADIO_NOT_EXPOSED = {"BOARD_OVERRIDE"}
 PROFILE_KEYS = [f"{p}_{k}" for p in ("single", "double", "custom") for k in ("weight_g", "time_s")]
@@ -78,21 +79,23 @@ def enum_members(text: str, enum_name: str) -> list[str]:
 
 # ---- keys ----------------------------------------------------------------------------------------------
 
-def test_setting_keys_are_exactly_the_eleven_menu_settings():
+def test_setting_keys_are_exactly_the_thirteen_menu_settings():
     settings = [f["key"] for f in VECTORS["fields"] if f["group"] == "settings"]
-    assert len(settings) == 11
+    assert len(settings) == 13
     assert sorted(settings) == sorted(SETTING_GETTER)
     assert [f["key"] for f in VECTORS["fields"] if f["group"] == "profile"] == PROFILE_KEYS
     assert [f["key"] for f in VECTORS["fields"] if f["group"] == "device"] == ["device_name"]
-    assert len(set(FIELDS)) == len(VECTORS["fields"]) == 18
-    assert VECTORS["fields"][-1]["key"] == "device_name"  # last: keeps the other indices stable
+    assert len(set(FIELDS)) == len(VECTORS["fields"]) == 20
+    assert VECTORS["fields"][-1]["key"] == "device_name"  # last: keeps the profile indices stable
+    # settings first, then the six profile targets, then the device name (the order of PortalFieldIndex)
+    keys = [f["key"] for f in VECTORS["fields"]]
+    assert keys[:13] == settings and keys[13:19] == PROFILE_KEYS
 
 
 def test_ui_settings_getters_equal_the_portal_settings():
     header = read("src/system/ui_settings.h")
     klass = header[header.index("class UiSettings"):]
     getters = set(re.findall(r"^\s*(?:bool|int|float)\s+([a-z_0-9]+)\(\) const;", klass, re.M))
-    getters -= NOT_EXPOSED_YET_GETTERS
     assert getters == set(SETTING_GETTER.values()), "a UiSettings setting is missing in (or extra to) the web API"
 
 
@@ -102,7 +105,7 @@ def test_menu_tables_equal_the_portal_settings():
     toggles = enum_members(table_h, "ToggleSetting")
     sliders = enum_members(table_h, "SliderSetting")
     radios = enum_members(table_h, "RadioSetting")
-    menu = {m for m in toggles + sliders + radios if m != "COUNT"} - RADIO_NOT_EXPOSED - NOT_EXPOSED_YET_SLIDERS
+    menu = {m for m in toggles + sliders + radios if m != "COUNT"} - RADIO_NOT_EXPOSED
     assert menu == set(SETTING_MENU_ENTRY.values())
     # The toggle rows read the same UiSettings getters the portal maps
     row_getters = set(re.findall(r"&UiSettings::([a-z_0-9]+),\s*&UiSettings::set_", table_cpp))
@@ -197,6 +200,38 @@ def test_setting_limits_and_defaults_equal_the_firmware_constants():
     assert '{{"Weight", "Time", nullptr}' in table and '{{"Keep", "Remove", nullptr}' in table
 
 
+def test_screen_timeout_fields_equal_the_firmware():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    power = read("src/system/screen_power.cpp")
+    user = read("src/config/user.h")
+    api = read("src/network/portal_api.cpp")
+    for name, key, vector_key, mirror, default_macro, max_const in (
+            ("kDimMinutesSteps", "screen_dim_min", "screen_dim_steps_min", portal_model.SCREEN_DIM_STEPS_MIN,
+             "USER_SCREEN_DIM_DEFAULT_MIN", "kScreenDimMaxMin"),
+            ("kOffMinutesSteps", "screen_off_min", "screen_off_steps_min", portal_model.SCREEN_OFF_STEPS_MIN,
+             "USER_SCREEN_OFF_DEFAULT_MIN", "kScreenOffMaxMin")):
+        body = re.search(rf"const int {name}\[\w+\]\s*=\s*\{{([^}}]*)\}}", power).group(1)
+        steps = [int(s) for s in body.split(",")]
+        assert steps == LIMITS[vector_key] == list(mirror), f"{name}: firmware, vectors and Python mirror differ"
+        assert steps[-1] == 0, "Never (0) is the last step"
+        field = FIELDS[key]
+        # the API range is 0 (Never) .. the largest listed step; the default is the menu's default
+        assert field["type"] == "int" and field["unit"] == "min" and field["min"] == 0 and field["max"] == max(steps)
+        assert field["default"] == macro(user, default_macro) and field["default"] in steps
+        assert float(re.search(rf"constexpr float {max_const} = (\d+)\.0f;", api).group(1)) == field["max"]
+        assert f"normalise_screen_minutes({name}," in api, f"{key} must use the shared normaliser"
+        mirror_field = portal_model.FIELD_BY_KEY[key]
+        assert all(mirror_field[k] == field[k] for k in ("type", "group", "unit", "min", "max", "default"))
+    assert "screen_minutes_normalise_api(clamp_input(in), steps, count)" in api
+    # Stored values come back through the storage normaliser, like the menu slider
+    assert api.count("screen_minutes_normalise_storage(") == 2
+    # The edge of the normaliser the vectors rely on: Never below one minute, ties go to the lower step
+    norm = portal_model.normalise_screen_minutes
+    assert norm(0.4, portal_model.SCREEN_DIM_STEPS_MIN) == 0 and norm(45, portal_model.SCREEN_DIM_STEPS_MIN) == 30
+    assert norm(1e6, portal_model.SCREEN_OFF_STEPS_MIN) == 480 and norm(20, portal_model.SCREEN_OFF_STEPS_MIN) == 10
+
+
 def test_toggle_defaults_equal_ui_settings():
     cpp = read("src/system/ui_settings.cpp")
     defaults = dict(re.findall(r"bool UiSettings::(\w+)\(\) const \{ return store_\.get_bool\(\w+,\s*\w+,\s*(true|false)\)", cpp))
@@ -289,7 +324,8 @@ def test_vectors_cover_the_required_refusals():
     assert any(len(c["body"]) == LIMITS["body_max"] + 1 for c in VECTORS["patch_cases"])
     # Settings clamp, profiles refuse: both directions of every limit are covered
     adjusted_keys = {k for c in VECTORS["patch_cases"] for k in c.get("adjusted", [])}
-    assert {"brightness_normal", "brightness_screensaver", "purge_amount_g", "freshness_hours"} <= adjusted_keys
+    assert {"brightness_normal", "brightness_screensaver", "purge_amount_g", "freshness_hours", "screen_dim_min",
+            "screen_off_min"} <= adjusted_keys
     refused_profiles = " ".join(c["body"] for c in VECTORS["patch_cases"] if c["error"] == "out_of_range")
     for key in PROFILE_KEYS:
         assert key in refused_profiles, key
@@ -467,6 +503,28 @@ def test_http_task_code_stays_off_the_ui_side():
             assert token not in text, f"{module} (HTTP task) mentions {token}"
 
 
+def test_screen_timeout_fields_reach_their_own_slider_and_reload_once():
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    # field -> slider (a swap would write the dim value into the off setting)
+    assert "case PF_SCREEN_DIM_MIN: return SliderSetting::SCREEN_DIM_TIMEOUT;" in controller
+    assert "case PF_SCREEN_OFF_MIN: return SliderSetting::SCREEN_OFF_TIMEOUT;" in controller
+    # normalised minutes -> slider position through the matching step table
+    assert re.search(r"SCREEN_DIM_TIMEOUT:\s*return screen_minutes_to_index\([^;]*kDimMinutesSteps, kDimMinutesStepCount\)",
+                     controller)
+    assert re.search(r"SCREEN_OFF_TIMEOUT:\s*return screen_minutes_to_index\([^;]*kOffMinutesSteps, kOffMinutesStepCount\)",
+                     controller)
+    # both fields are stored through the slider hook, and exactly one reload covers them
+    write_field = controller[controller.index("bool PortalUIController::write_field"):]
+    assert "case PF_SCREEN_DIM_MIN:" in write_field and "case PF_SCREEN_OFF_MIN:" in write_field
+    assert "slider_setting_def(id).store(ui_settings" in write_field
+    assert controller.count("refresh_screen_timeout_settings()") == 1
+    assert "field_bit(PF_SCREEN_DIM_MIN) | field_bit(PF_SCREEN_OFF_MIN)" in controller
+    # a web write never wakes or darkens the screen: no brightness or wake call in that branch
+    branch = controller[controller.index("field_bit(PF_SCREEN_DIM_MIN)"):]
+    branch = branch[:branch.index("}")]
+    assert "reapply_brightness" not in branch and "wake(" not in branch
+
+
 def test_ui_task_wiring():
     controller = read("src/ui/controllers/portal_ui_controller.cpp")
     # every write goes through the shared apply logic and the touchscreen's own handlers
@@ -474,6 +532,7 @@ def test_ui_task_wiring():
     assert "wifi_manager.set_device_name(" in controller and "set_grind_mode(" in controller
     assert "slider_setting_def(" in controller and "toggle_setting_def(" in controller
     assert "reapply_brightness()" in controller and "refresh_auto_action_settings()" in controller
+    assert "refresh_screen_timeout_settings()" in controller  # a web write reloads the cached timeouts like the menu
     # the field order and the grind phase order are pinned at compile time
     assert controller.count("static_assert") >= 6
     # the controller is polled on the UI task, before the update screens can consume the frame

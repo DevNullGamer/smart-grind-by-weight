@@ -84,6 +84,8 @@
         purge_mode: 'Purge mode (keep = prime, remove = purge)',
         purge_amount_g: 'Purge amount',
         freshness_hours: 'Freshness window',
+        screen_dim_min: 'Dim screen after',
+        screen_off_min: 'Turn screen off after',
         grind_mode: 'Grind mode',
         single_weight_g: 'Single, weight',
         single_time_s: 'Single, time',
@@ -147,6 +149,7 @@
             var shown = typeof value === 'number' ? formatNumber(value) : String(value);
             if (typeof value === 'number' && Math.floor(value) === value && units[key] === '%') shown = String(value);
             var unit = units[key] ? ' ' + units[key] : '';
+            if (value === 0 && key.indexOf('screen_') === 0) { shown = 'Never'; unit = ''; }
             return fieldLabel(key) + ' was adjusted by the grinder to ' + shown + unit + '.';
         });
     }
