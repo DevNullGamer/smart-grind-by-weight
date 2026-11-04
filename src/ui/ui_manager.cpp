@@ -527,6 +527,10 @@ void UIManager::refresh_auto_action_settings() {
     auto_actions_.last_auto_return_ms = now;
 }
 
+void UIManager::refresh_screen_timeout_settings() {
+    if (screen_timeout_controller_) screen_timeout_controller_->reload_settings();
+}
+
 void UIManager::update_auto_actions() {
     if ((!auto_actions_.auto_start_enabled && !auto_actions_.auto_return_enabled) ||
         !hardware_manager || !state_machine) {

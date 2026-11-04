@@ -8,7 +8,7 @@
 
 namespace {
 
-// In-memory store that logs every put as "float <ns>/<key>" (the sliders only use float keys).
+// In-memory store that logs every put as "float <ns>/<key>" or "int <ns>/<key>".
 class FloatStore : public SettingsStore {
 public:
     struct FloatSlot {
@@ -16,12 +16,23 @@ public:
         float value;
     };
     std::vector<FloatSlot> floats;
+    std::vector<FloatSlot> ints;  // value holds the int
     std::vector<std::string> puts;
 
     bool get_bool(const char*, const char*, bool d) override { return d; }
     bool put_bool(const char*, const char*, bool) override { puts.push_back("bool"); return false; }
-    int32_t get_int(const char*, const char*, int32_t d) override { return d; }
-    bool put_int(const char*, const char*, int32_t) override { puts.push_back("int"); return false; }
+    int32_t get_int(const char* ns, const char* key, int32_t d) override {
+        for (auto& s : ints) if (s.ns == ns && s.key == key) return static_cast<int32_t>(s.value);
+        return d;
+    }
+    bool put_int(const char* ns, const char* key, int32_t v) override {
+        puts.push_back(std::string("int ") + ns + "/" + key);
+        for (auto& s : ints) {
+            if (s.ns == ns && s.key == key) { s.value = static_cast<float>(v); return true; }
+        }
+        ints.push_back({ns, key, static_cast<float>(v)});
+        return true;
+    }
     float get_float(const char* ns, const char* key, float d) override {
         for (auto& s : floats) if (s.ns == ns && s.key == key) return s.value;
         return d;
@@ -42,7 +53,7 @@ struct Golden {
     const char* row_label;
     uint32_t color;
     int min, max;
-    const char* put;  // "float <ns>/<key>"
+    const char* put;  // "float <ns>/<key>" or "int <ns>/<key>"
     SliderAfter after;
     bool live;
 };
@@ -55,6 +66,10 @@ const Golden kGolden[] = {
      SliderAfter::NONE, false},
     {SliderSetting::FRESHNESS, "Freshness", 0x00AAFF, 0, 8, "float grinder/freshness_hrs",
      SliderAfter::NONE, false},
+    {SliderSetting::SCREEN_DIM_TIMEOUT, "Dim after", 0x00AAFF, 0, 7, "int screen/dim_min",
+     SliderAfter::RELOAD_SCREEN_TIMEOUTS, false},
+    {SliderSetting::SCREEN_OFF_TIMEOUT, "Screen off", 0x00AAFF, 0, 6, "int screen/off_min",
+     SliderAfter::RELOAD_SCREEN_TIMEOUTS, false},
 };
 const size_t kRows = sizeof(kGolden) / sizeof(kGolden[0]);
 
@@ -78,6 +93,14 @@ const Point kPoints[] = {
     {SliderSetting::FRESHNESS, 0, "Freshness: 0.5h", 0.5f},
     {SliderSetting::FRESHNESS, 3, "Freshness: 3h", 3.0f},
     {SliderSetting::FRESHNESS, 8, "Freshness: 48h", 48.0f},
+    {SliderSetting::SCREEN_DIM_TIMEOUT, 0, "Dim after: 1 min", 1.0f},
+    {SliderSetting::SCREEN_DIM_TIMEOUT, 2, "Dim after: 5 min", 5.0f},
+    {SliderSetting::SCREEN_DIM_TIMEOUT, 6, "Dim after: 1 h", 60.0f},
+    {SliderSetting::SCREEN_DIM_TIMEOUT, 7, "Dim after: Never", 0.0f},
+    {SliderSetting::SCREEN_OFF_TIMEOUT, 0, "Screen off: 10 min", 10.0f},
+    {SliderSetting::SCREEN_OFF_TIMEOUT, 2, "Screen off: 1 h", 60.0f},
+    {SliderSetting::SCREEN_OFF_TIMEOUT, 4, "Screen off: 4 h", 240.0f},
+    {SliderSetting::SCREEN_OFF_TIMEOUT, 6, "Screen off: Never", 0.0f},
 };
 
 }  // namespace
@@ -122,7 +145,7 @@ static void test_label_text_at_each_position() {
     }
 }
 
-static void test_store_writes_one_float_put_of_the_legacy_value() {
+static void test_store_writes_one_put_of_the_legacy_value() {
     for (const Point& p : kPoints) {
         FloatStore store;
         UiSettings s(store);
@@ -134,8 +157,11 @@ static void test_store_writes_one_float_put_of_the_legacy_value() {
         }
         TEST_ASSERT_EQUAL_UINT(1, store.puts.size());
         TEST_ASSERT_EQUAL_STRING(expect_put, store.puts[0].c_str());
-        TEST_ASSERT_EQUAL_UINT(1, store.floats.size());
-        TEST_ASSERT_EQUAL_FLOAT(p.stored, store.floats[0].value);
+        // exactly one entry, in the typed list the golden row names
+        const bool is_int = strncmp(expect_put, "int ", 4) == 0;
+        TEST_ASSERT_EQUAL_UINT(is_int ? 0 : 1, store.floats.size());
+        TEST_ASSERT_EQUAL_UINT(is_int ? 1 : 0, store.ints.size());
+        TEST_ASSERT_EQUAL_FLOAT(p.stored, is_int ? store.ints[0].value : store.floats[0].value);
     }
 }
 
@@ -146,6 +172,38 @@ static void test_load_pos_defaults() {
     TEST_ASSERT_EQUAL_INT(35, slider_setting_def(SliderSetting::BRIGHTNESS_SCREENSAVER).load_pos(s));
     TEST_ASSERT_EQUAL_INT(10, slider_setting_def(SliderSetting::PURGE_AMOUNT).load_pos(s));
     TEST_ASSERT_EQUAL_INT(5, slider_setting_def(SliderSetting::FRESHNESS).load_pos(s));
+    TEST_ASSERT_EQUAL_INT(2, slider_setting_def(SliderSetting::SCREEN_DIM_TIMEOUT).load_pos(s));  // 5 min
+    TEST_ASSERT_EQUAL_INT(2, slider_setting_def(SliderSetting::SCREEN_OFF_TIMEOUT).load_pos(s));  // 60 min
+}
+
+// A stored value that is not on the step list shows the default step (label and behaviour agree)
+static void test_load_pos_unlisted_stored_value_falls_back_to_default() {
+    FloatStore store;
+    UiSettings s(store);
+    s.set_screen_dim_minutes(7);
+    s.set_screen_off_minutes(-4);
+    TEST_ASSERT_EQUAL_INT(2, slider_setting_def(SliderSetting::SCREEN_DIM_TIMEOUT).load_pos(s));
+    TEST_ASSERT_EQUAL_INT(2, slider_setting_def(SliderSetting::SCREEN_OFF_TIMEOUT).load_pos(s));
+}
+
+// Never (0) is stored as 0 and loads as the last step
+static void test_never_loads_as_last_step() {
+    FloatStore store;
+    UiSettings s(store);
+    s.set_screen_dim_minutes(0);
+    s.set_screen_off_minutes(0);
+    TEST_ASSERT_EQUAL_INT(7, slider_setting_def(SliderSetting::SCREEN_DIM_TIMEOUT).load_pos(s));
+    TEST_ASSERT_EQUAL_INT(6, slider_setting_def(SliderSetting::SCREEN_OFF_TIMEOUT).load_pos(s));
+}
+
+// "after" is set only on the two screen timeout rows
+static void test_reload_after_only_on_screen_timeout_rows() {
+    for (size_t i = 0; i < SLIDER_SETTING_COUNT; i++) {
+        const bool timeout_row = i == static_cast<size_t>(SliderSetting::SCREEN_DIM_TIMEOUT) ||
+                                 i == static_cast<size_t>(SliderSetting::SCREEN_OFF_TIMEOUT);
+        TEST_ASSERT_EQUAL(timeout_row, slider_setting_def(static_cast<SliderSetting>(i)).after ==
+                                           SliderAfter::RELOAD_SCREEN_TIMEOUTS);
+    }
 }
 
 static void test_store_then_load_round_trips() {
@@ -166,6 +224,10 @@ static void test_clamp_pos() {
     TEST_ASSERT_EQUAL_INT(25, slider_setting_def(SliderSetting::PURGE_AMOUNT).clamp_pos(40));
     TEST_ASSERT_EQUAL_INT(0, slider_setting_def(SliderSetting::FRESHNESS).clamp_pos(-3));
     TEST_ASSERT_EQUAL_INT(8, slider_setting_def(SliderSetting::FRESHNESS).clamp_pos(12));
+    TEST_ASSERT_EQUAL_INT(0, slider_setting_def(SliderSetting::SCREEN_DIM_TIMEOUT).clamp_pos(-1));
+    TEST_ASSERT_EQUAL_INT(7, slider_setting_def(SliderSetting::SCREEN_DIM_TIMEOUT).clamp_pos(99));
+    TEST_ASSERT_EQUAL_INT(0, slider_setting_def(SliderSetting::SCREEN_OFF_TIMEOUT).clamp_pos(-1));
+    TEST_ASSERT_EQUAL_INT(6, slider_setting_def(SliderSetting::SCREEN_OFF_TIMEOUT).clamp_pos(7));
 }
 
 static void test_live_brightness_is_clamped_fraction() {
@@ -180,8 +242,11 @@ void run_menu_setting_sliders_tests() {
     RUN_TEST(test_hook_table_is_complete);
     RUN_TEST(test_row_label_color_and_range);
     RUN_TEST(test_label_text_at_each_position);
-    RUN_TEST(test_store_writes_one_float_put_of_the_legacy_value);
+    RUN_TEST(test_store_writes_one_put_of_the_legacy_value);
     RUN_TEST(test_load_pos_defaults);
+    RUN_TEST(test_load_pos_unlisted_stored_value_falls_back_to_default);
+    RUN_TEST(test_never_loads_as_last_step);
+    RUN_TEST(test_reload_after_only_on_screen_timeout_rows);
     RUN_TEST(test_store_then_load_round_trips);
     RUN_TEST(test_clamp_pos);
     RUN_TEST(test_live_brightness_is_clamped_fraction);

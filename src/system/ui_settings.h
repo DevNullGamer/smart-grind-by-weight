@@ -27,6 +27,11 @@ constexpr const char* kBrightnessNs = "brightness";
 constexpr const char* kBrightnessNormal = "normal";
 constexpr const char* kBrightnessScreensaver = "screensaver";
 
+// Screen dim / off timeouts (whole minutes, 0 = Never)
+constexpr const char* kScreenNs = "screen";
+constexpr const char* kScreenDimMin = "dim_min";
+constexpr const char* kScreenOffMin = "off_min";
+
 // Shared grinder namespace (the firmware store routes it through the shared Preferences handle)
 constexpr const char* kGrinderNs = "grinder";
 constexpr const char* kGrindMode = "grind_mode";
@@ -64,6 +69,13 @@ public:
 
     float brightness_screensaver() const;
     bool set_brightness_screensaver(float fraction);
+
+    // Raw stored minutes (0 = Never); unlisted values are normalised by the caller (system/screen_power.h)
+    int screen_dim_minutes() const;
+    bool set_screen_dim_minutes(int minutes);
+
+    int screen_off_minutes() const;
+    bool set_screen_off_minutes(int minutes);
 
     // Stored GrindMode value; read-only here (ProfileController owns writes)
     int grind_mode_raw() const;

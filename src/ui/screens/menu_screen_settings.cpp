@@ -50,6 +50,8 @@ static const EventBridgeLVGL::EventType kSettingSliderEvents[SLIDER_SETTING_COUN
     {EventBridgeLVGL::EventType::BRIGHTNESS_SCREENSAVER_SLIDER, EventBridgeLVGL::EventType::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED},
     {EventBridgeLVGL::EventType::GRINDER_PURGE_AMOUNT_SLIDER, EventBridgeLVGL::EventType::GRINDER_PURGE_AMOUNT_SLIDER_RELEASED},
     {EventBridgeLVGL::EventType::GRIND_FRESHNESS_HOURS_SLIDER, EventBridgeLVGL::EventType::GRIND_FRESHNESS_HOURS_SLIDER_RELEASED},
+    {EventBridgeLVGL::EventType::SCREEN_DIM_TIMEOUT_SLIDER, EventBridgeLVGL::EventType::SCREEN_DIM_TIMEOUT_SLIDER_RELEASED},
+    {EventBridgeLVGL::EventType::SCREEN_OFF_TIMEOUT_SLIDER, EventBridgeLVGL::EventType::SCREEN_OFF_TIMEOUT_SLIDER_RELEASED},
 };
 
 EventBridgeLVGL::EventType MenuScreen::setting_slider_event(SliderSetting id, bool released) {

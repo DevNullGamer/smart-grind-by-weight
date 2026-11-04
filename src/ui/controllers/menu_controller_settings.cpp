@@ -68,6 +68,10 @@ void MenuUIController::handle_setting_slider(SliderSetting id, bool released) {
     }
     ui_manager_->menu_screen.set_setting_slider_label(id, pos);
 
+    if (released && def.after == SliderAfter::RELOAD_SCREEN_TIMEOUTS) {
+        ui_manager_->refresh_screen_timeout_settings();
+    }
+
     if (def.live_brightness && !released) {
         const float brightness = def.live_brightness(pos);
         ui_manager_->get_hardware_manager()->get_display()->set_brightness(brightness);

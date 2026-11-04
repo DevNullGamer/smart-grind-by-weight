@@ -3,6 +3,8 @@
 #include "../../config/constants.h"
 #include "../../hardware/display_manager.h"
 #include "../../hardware/hardware_manager.h"
+#include "../../system/nvs_settings_store.h"
+#include "../../system/screen_power.h"
 #include "../ui_manager.h"
 
 ScreenTimeoutController::ScreenTimeoutController(UIManager* manager)
@@ -77,6 +79,13 @@ void ScreenTimeoutController::update() {
         display->set_brightness(normal);
         screen_dimmed_ = false;
     }
+}
+
+void ScreenTimeoutController::reload_settings() {
+    dim_after_ms_ = screen_minutes_to_ms(screen_minutes_normalise_storage(
+        ui_settings.screen_dim_minutes(), kDimMinutesSteps, kDimMinutesStepCount, USER_SCREEN_DIM_DEFAULT_MIN));
+    off_after_ms_ = screen_minutes_to_ms(screen_minutes_normalise_storage(
+        ui_settings.screen_off_minutes(), kOffMinutesSteps, kOffMinutesStepCount, USER_SCREEN_OFF_DEFAULT_MIN));
 }
 
 void ScreenTimeoutController::reapply_brightness() {

@@ -47,6 +47,9 @@ SETTING_MENU_ENTRY = {
     "purge_mode": "PURGE_MODE",
     "grind_mode": "GRIND_MODE",
 }
+# Menu settings of chg018 step 2 that the web API gets in step 4 (remove these two sets then)
+NOT_EXPOSED_YET_GETTERS = {"screen_dim_minutes", "screen_off_minutes"}
+NOT_EXPOSED_YET_SLIDERS = {"SCREEN_DIM_TIMEOUT", "SCREEN_OFF_TIMEOUT"}
 # Radio groups of the menu that the web API deliberately does not expose
 RADIO_NOT_EXPOSED = {"BOARD_OVERRIDE"}
 PROFILE_KEYS = [f"{p}_{k}" for p in ("single", "double", "custom") for k in ("weight_g", "time_s")]
@@ -89,6 +92,7 @@ def test_ui_settings_getters_equal_the_portal_settings():
     header = read("src/system/ui_settings.h")
     klass = header[header.index("class UiSettings"):]
     getters = set(re.findall(r"^\s*(?:bool|int|float)\s+([a-z_0-9]+)\(\) const;", klass, re.M))
+    getters -= NOT_EXPOSED_YET_GETTERS
     assert getters == set(SETTING_GETTER.values()), "a UiSettings setting is missing in (or extra to) the web API"
 
 
@@ -98,7 +102,7 @@ def test_menu_tables_equal_the_portal_settings():
     toggles = enum_members(table_h, "ToggleSetting")
     sliders = enum_members(table_h, "SliderSetting")
     radios = enum_members(table_h, "RadioSetting")
-    menu = {m for m in toggles + sliders + radios if m != "COUNT"} - RADIO_NOT_EXPOSED
+    menu = {m for m in toggles + sliders + radios if m != "COUNT"} - RADIO_NOT_EXPOSED - NOT_EXPOSED_YET_SLIDERS
     assert menu == set(SETTING_MENU_ENTRY.values())
     # The toggle rows read the same UiSettings getters the portal maps
     row_getters = set(re.findall(r"&UiSettings::([a-z_0-9]+),\s*&UiSettings::set_", table_cpp))

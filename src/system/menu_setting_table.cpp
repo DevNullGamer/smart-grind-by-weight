@@ -1,6 +1,8 @@
 #include "system/menu_setting_table.h"
 #include "config/theme.h"
+#include "config/user.h"
 #include "system/menu_setting_models.h"
+#include "system/screen_power.h"
 
 namespace {
 
@@ -30,6 +32,14 @@ int clamp_freshness_pos(int pos) {
     const int max = kFreshnessStepCount - 1;
     return pos < 0 ? 0 : (pos > max ? max : pos);
 }
+int clamp_dim_pos(int pos) {
+    const int max = kDimMinutesStepCount - 1;
+    return pos < 0 ? 0 : (pos > max ? max : pos);
+}
+int clamp_off_pos(int pos) {
+    const int max = kOffMinutesStepCount - 1;
+    return pos < 0 ? 0 : (pos > max ? max : pos);
+}
 
 int load_brightness_normal(const UiSettings& s) { return brightness_percent_from_fraction(s.brightness_normal()); }
 int load_brightness_screensaver(const UiSettings& s) {
@@ -37,12 +47,28 @@ int load_brightness_screensaver(const UiSettings& s) {
 }
 int load_purge(const UiSettings& s) { return purge_slider_from_amount(s.purge_amount_g()); }
 int load_freshness(const UiSettings& s) { return freshness_index_from_hours(s.freshness_hours()); }
+int load_screen_dim(const UiSettings& s) {
+    const int minutes = screen_minutes_normalise_storage(s.screen_dim_minutes(), kDimMinutesSteps,
+                                                         kDimMinutesStepCount, USER_SCREEN_DIM_DEFAULT_MIN);
+    return screen_minutes_to_index(minutes, kDimMinutesSteps, kDimMinutesStepCount);
+}
+int load_screen_off(const UiSettings& s) {
+    const int minutes = screen_minutes_normalise_storage(s.screen_off_minutes(), kOffMinutesSteps,
+                                                         kOffMinutesStepCount, USER_SCREEN_OFF_DEFAULT_MIN);
+    return screen_minutes_to_index(minutes, kOffMinutesSteps, kOffMinutesStepCount);
+}
 
 const char* label_brightness_normal(char* out, size_t len, int pos) { return brightness_label(out, len, pos, false); }
 const char* label_brightness_screensaver(char* out, size_t len, int pos) { return brightness_label(out, len, pos, true); }
 const char* label_purge(char* out, size_t len, int pos) { return purge_label(out, len, purge_amount_from_slider(pos)); }
 const char* label_freshness(char* out, size_t len, int pos) {
     return freshness_label(out, len, freshness_hours_from_index(pos));
+}
+const char* label_screen_dim(char* out, size_t len, int pos) {
+    return screen_dim_label(out, len, screen_minutes_from_index(pos, kDimMinutesSteps, kDimMinutesStepCount));
+}
+const char* label_screen_off(char* out, size_t len, int pos) {
+    return screen_off_label(out, len, screen_minutes_from_index(pos, kOffMinutesSteps, kOffMinutesStepCount));
 }
 
 bool store_brightness_normal(UiSettings& s, int pos) {
@@ -53,6 +79,12 @@ bool store_brightness_screensaver(UiSettings& s, int pos) {
 }
 bool store_purge(UiSettings& s, int pos) { return s.set_purge_amount_g(purge_amount_from_slider(pos)); }
 bool store_freshness(UiSettings& s, int pos) { return s.set_freshness_hours(freshness_hours_from_index(pos)); }
+bool store_screen_dim(UiSettings& s, int pos) {
+    return s.set_screen_dim_minutes(screen_minutes_from_index(pos, kDimMinutesSteps, kDimMinutesStepCount));
+}
+bool store_screen_off(UiSettings& s, int pos) {
+    return s.set_screen_off_minutes(screen_minutes_from_index(pos, kOffMinutesSteps, kOffMinutesStepCount));
+}
 
 float live_brightness(int pos) { return brightness_fraction_from_percent(pos); }
 
@@ -68,6 +100,12 @@ const SliderSettingDef kSliderDefs[SLIDER_SETTING_COUNT] = {
      label_purge, store_purge, nullptr, SliderAfter::NONE, "Grinder purge amount set to"},
     {"Freshness", THEME_COLOR_ACCENT, 0, kFreshnessStepCount - 1, load_freshness, clamp_freshness_pos,
      label_freshness, store_freshness, nullptr, SliderAfter::NONE, "Grind freshness hours set to"},
+    {"Dim after", THEME_COLOR_ACCENT, 0, kDimMinutesStepCount - 1, load_screen_dim, clamp_dim_pos,
+     label_screen_dim, store_screen_dim, nullptr, SliderAfter::RELOAD_SCREEN_TIMEOUTS,
+     "Screen dim timeout set to"},
+    {"Screen off", THEME_COLOR_ACCENT, 0, kOffMinutesStepCount - 1, load_screen_off, clamp_off_pos,
+     label_screen_off, store_screen_off, nullptr, SliderAfter::RELOAD_SCREEN_TIMEOUTS,
+     "Screen off timeout set to"},
 };
 
 // Indexed by RadioSetting; the order is the enum order

@@ -34,6 +34,12 @@ bool UiSettings::set_brightness_screensaver(float fraction) {
     return store_.put_float(kBrightnessNs, kBrightnessScreensaver, fraction);
 }
 
+int UiSettings::screen_dim_minutes() const { return store_.get_int(kScreenNs, kScreenDimMin, USER_SCREEN_DIM_DEFAULT_MIN); }
+bool UiSettings::set_screen_dim_minutes(int minutes) { return store_.put_int(kScreenNs, kScreenDimMin, minutes); }
+
+int UiSettings::screen_off_minutes() const { return store_.get_int(kScreenNs, kScreenOffMin, USER_SCREEN_OFF_DEFAULT_MIN); }
+bool UiSettings::set_screen_off_minutes(int minutes) { return store_.put_int(kScreenNs, kScreenOffMin, minutes); }
+
 int UiSettings::grind_mode_raw() const {
     return store_.get_int(kGrinderNs, kGrindMode, static_cast<int>(GrindMode::WEIGHT));
 }

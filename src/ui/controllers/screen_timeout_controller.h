@@ -25,7 +25,13 @@ public:
     // saver is on). For a brightness setting changed from outside the menu (web panel); a dimmed screen stays dim.
     void reapply_brightness();
 
+    // Re-reads "Dim after" and "Screen off" from the settings and caches them in milliseconds (0 = never).
+    // UI task only. Nothing consumes the cached values yet.
+    void reload_settings();
+
 private:
+    uint32_t dim_after_ms_ = 0;
+    uint32_t off_after_ms_ = 0;
     UIManager* ui_manager_;
     bool screen_dimmed_;
     // The 300 s weight-range check walks the whole sample ring under the buffer lock, so it runs at
