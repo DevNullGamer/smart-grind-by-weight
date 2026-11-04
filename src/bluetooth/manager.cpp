@@ -1407,7 +1407,7 @@ void BluetoothManager::generate_diagnostic_report() {
     // Section 6: User.h Compile Constants (Part 2 - Screen & Auto)
     snprintf(buf, sizeof(buf),
         "[COMPILE-TIME PARAMETERS - USER.H PART 2]\n"
-        "  USER_SCREEN_AUTO_DIM_TIMEOUT_MS: %lu\n"
+        "  USER_SCREEN_AUTO_DIM_TIMEOUT_MS (default dim time): %lu\n"
         "  USER_SCREEN_BRIGHTNESS_NORMAL: %.2f\n"
         "  USER_SCREEN_BRIGHTNESS_DIMMED: %.2f\n"
         "  USER_WEIGHT_ACTIVITY_THRESHOLD_G: %.1f\n"
