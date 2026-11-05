@@ -52,6 +52,48 @@
 #define BLE_SYSINFO_MAX_PAYLOAD_BYTES 512                                       // Maximum payload size for system info
 
 //------------------------------------------------------------------------------
+// GLINK (Grinder Link v1) SERVICE: constants only, frozen by docs/GLINK-PROTOCOL.md
+//------------------------------------------------------------------------------
+// Scheme (analogue of the Bookoo Motto80 UUIDs): 53474257 = ASCII "SGBW", tail 4752494e4421 = ASCII "GRIND!".
+// The two middle groups (4632, 901b) were drawn at random, in the shape of a version-4 UUID with the RFC variant bits.
+// Collision check (step 1 of chg020): none of the UUIDs above equals one of these, and none shares the 53474257 prefix.
+// tools/tests/test_glink_contract.py keeps this block, the spec tables and tools/tests/glink_vectors.json equal.
+#define GLINK_SERVICE_UUID "53474257-0001-4632-901b-4752494e4421"              // Primary service
+#define GLINK_RX_CHAR_UUID "53474257-0002-4632-901b-4752494e4421"              // RX (client -> device): Write, Write Without Response
+#define GLINK_TX_CHAR_UUID "53474257-0003-4632-901b-4752494e4421"              // TX (device -> client): Notify
+
+#define GLINK_PROTO_VERSION 1                                                  // "proto" in baseInfo
+#define GLINK_FRAME_MAGIC 0xA5                                                 // Fragment frame v1: first byte
+#define GLINK_FRAME_VERSION 0x01                                               // Fragment frame v1: second byte
+#define GLINK_FRAME_HEADER_BYTES 8                                             // magic, version, sequence, totalLength, offset
+#define GLINK_DEFAULT_PACKET_BYTES 20                                          // Packet size when the ATT MTU is unknown (MTU 23)
+#define GLINK_MAX_PACKET_BYTES 512                                             // Packet size is at most min(ATT MTU - 3, this)
+#define GLINK_MAX_MESSAGE_BYTES 4096                                           // totalLength above this is a bad frame (Motto80 limit)
+#define GLINK_MAX_REQUEST_BYTES 512                                            // Larger requests: PAYLOAD_TOO_LARGE
+#define GLINK_MAX_REPLY_BYTES 1024                                             // Largest response or broadcast
+#define GLINK_REASSEMBLY_TIMEOUT_MS 2000                                       // Gap between fragments after which a message is dropped
+#define GLINK_HANDSHAKE_TIMEOUT_MS 10000                                       // No appHello within this long after connect: disconnect
+#define GLINK_BAD_FRAME_LIMIT 10                                               // Bad fragments within the window that disconnect a client
+#define GLINK_BAD_FRAME_WINDOW_MS 10000                                        // Window for GLINK_BAD_FRAME_LIMIT
+#define GLINK_JSON_MAX_DEPTH 4                                                 // Object nesting in a request (the top-level object is depth 1)
+#define GLINK_JSON_KEY_MAX_LEN 32                                              // Longest key (charset A-Za-z0-9_)
+#define GLINK_JSON_STRING_MAX_LEN 32                                           // Longest string value, in bytes
+#define GLINK_JSON_NUMBER_MAX_LEN 15                                           // Longest number token, in characters
+#define GLINK_PROFILE_COUNT_MAX 4                                              // Profile indices 0..3
+#define GLINK_PROFILE_WRITABLE_INDEX 3                                         // The only profile writable over BLE (Profile Dose)
+#define GLINK_DOSE_MIN_G 5.0f                                                  // Dose range for writes and BLE starts
+#define GLINK_DOSE_MAX_G 60.0f
+#define GLINK_GRIND_SIZE_MAX 999.9f                                            // grindSize range is 0.0 .. this (display only)
+#define GLINK_GRIND_UNIT_MAX_LEN 6                                             // grindUnit length after trimming
+#define GLINK_START_LEAD_IN_MS 3000                                            // Touch-to-cancel lead-in of every BLE start
+#define GLINK_WRITE_MIN_INTERVAL_MS 1000                                       // Minimum time between two stored changes (RATE_LIMITED)
+#define GLINK_UI_REPLY_TIMEOUT_MS 1000                                         // UI task must answer within this, else UI_BUSY
+#define GLINK_PERIOD_HEARTBEAT_MS 2000                                         // periodInfo when nothing changed
+#define GLINK_PERIOD_GRINDING_FAST_MS 250                                      // periodInfo while GRINDING, ATT MTU >= GLINK_FAST_MTU_MIN
+#define GLINK_PERIOD_GRINDING_SLOW_MS 1000                                     // periodInfo while GRINDING, ATT MTU below that
+#define GLINK_FAST_MTU_MIN 100                                                 // ATT MTU from which the fast grinding cadence is used
+
+//------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS
 //------------------------------------------------------------------------------
 #define BLE_AUTO_DISABLE_TIMEOUT_MS (30 * 60 * 1000)                          // Auto-disable BLE after inactivity
