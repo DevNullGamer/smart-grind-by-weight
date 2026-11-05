@@ -760,6 +760,13 @@ bool GrindController::check_safety(const GrindLoopData& loop_data) {
                          (unsigned long)phase_elapsed_ms);
                 return raise_safety(SAFETY_REASON_PREDICTIVE_FLOW, "Err: no flow", "NO FLOW IN PREDICTIVE", detail, loop_data);
             }
+            // Flow started but stopped (empty hopper, bridge, grinder off): no new high for the window
+            if (grind_stall_update(stall_tracker_, (uint32_t)loop_data.now, loop_data.current_weight, grinder->is_grinding(),
+                                   GRIND_STALL_MIN_GAIN_G, GRIND_STALL_WINDOW_MS)) {
+                snprintf(detail, sizeof(detail), "no rise %.2fg for %lums", GRIND_STALL_MIN_GAIN_G,
+                         (unsigned long)GRIND_STALL_WINDOW_MS);
+                return raise_safety(SAFETY_REASON_STALL, "Err: stalled", "FLOW STOPPED IN PREDICTIVE", detail, loop_data);
+            }
             break;
         }
 
@@ -875,6 +882,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         // Baseline for the no-flow check: read directly, continue_from_purge() passes no loop_data
         predictive_min_weight_ = weight_sensor->get_weight_low_latency();
         predictive_peak_gain_g_ = 0.0f;
+        // Stall check starts from the live reading, also after the PURGE_CONFIRM pause
+        grind_stall_reset(stall_tracker_, (uint32_t)now, weight_sensor->get_weight_low_latency());
     }
 
     // Update phase state

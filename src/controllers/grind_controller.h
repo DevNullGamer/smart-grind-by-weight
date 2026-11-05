@@ -5,6 +5,7 @@
 #include "../logging/grind_logging.h"
 #include "grind_mode.h"
 #include "grind_start_check.h"
+#include "grind_safety.h"
 #include "grind_session.h"
 #include "grind_strategy.h"
 #include "weight_grind_strategy.h"
@@ -181,11 +182,13 @@ private:
     static constexpr uint8_t SAFETY_REASON_TARE = 1 << 1;
     static constexpr uint8_t SAFETY_REASON_PRIME_FLOW = 1 << 2;
     static constexpr uint8_t SAFETY_REASON_PREDICTIVE_FLOW = 1 << 3;
+    static constexpr uint8_t SAFETY_REASON_STALL = 1 << 4;
     uint32_t max_sample_age_ms_ = 0;          // Oldest newest-sample age seen during this grind (session log)
     uint8_t safety_logged_mask_ = 0;          // Log-only mode: each reason is reported once per grind
     unsigned long tare_settle_start_ms_ = 0;  // When the tare finished in TARE_CONFIRM (0 = not yet)
     float predictive_min_weight_ = 0.0f;      // Lowest weight seen since PREDICTIVE entry (gain baseline)
     float predictive_peak_gain_g_ = 0.0f;     // Highest gain over that baseline in PREDICTIVE
+    GrindStallTracker stall_tracker_ = {};    // Mid-grind stall check: highest weight and when it last rose (PREDICTIVE)
 
     // Motor response latency - runtime configurable
     float motor_response_latency_ms;

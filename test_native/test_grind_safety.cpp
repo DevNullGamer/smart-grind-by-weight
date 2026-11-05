@@ -108,6 +108,205 @@ static void test_pulse_wait_limit_huge_clamped() {
     TEST_ASSERT_EQUAL_UINT32(3600000u, grind_pulse_wait_limit_ms(3600000.0f, 0));
 }
 
+// ---- Stall tracker (chg019) ----
+static const float STALL_GAIN = GRIND_STALL_MIN_GAIN_G;
+static const uint32_t STALL_WIN = GRIND_STALL_WINDOW_MS;
+
+static bool stall_upd(GrindStallTracker& t, uint32_t now, float w, bool motor = true) {
+    return grind_stall_update(t, now, w, motor, STALL_GAIN, STALL_WIN);
+}
+
+static void test_stall_constants() {
+    TEST_ASSERT_EQUAL_UINT32(5000, GRIND_STALL_WINDOW_MS);
+    TEST_ASSERT_EQUAL_FLOAT(0.3f, GRIND_STALL_MIN_GAIN_G);
+}
+
+static void test_stall_window_boundary() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 1000, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 1000, 5.0f));
+    TEST_ASSERT_FALSE(stall_upd(t, 1000 + 4999, 5.0f));
+    TEST_ASSERT_TRUE(stall_upd(t, 1000 + 5000, 5.0f));
+    TEST_ASSERT_TRUE(stall_upd(t, 1000 + 9000, 5.0f));
+}
+
+static void test_stall_gain_exact_resets() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    const float exact = 5.0f + GRIND_STALL_MIN_GAIN_G;
+    TEST_ASSERT_FALSE(stall_upd(t, 4000, exact));  // gain of exactly the threshold
+    TEST_ASSERT_EQUAL_FLOAT(exact, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(4000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 4000 + 4999, exact));  // window restarted at 4000
+    TEST_ASSERT_TRUE(stall_upd(t, 4000 + 5000, exact));
+}
+
+static void test_stall_gain_just_below_does_not_reset() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    const float below = 5.0f + 0.29f;
+    TEST_ASSERT_FALSE(stall_upd(t, 4000, below));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(0, t.last_gain_ms);
+    TEST_ASSERT_TRUE(stall_upd(t, 5000, below));
+}
+
+static void test_stall_reference_moves_up_only() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 1000, 6.0f));  // reference -> 6.0, window at 1000
+    TEST_ASSERT_FALSE(stall_upd(t, 2000, 4.0f));  // dip: reference stays
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, t.reference_g);
+    TEST_ASSERT_FALSE(stall_upd(t, 3000, 6.0f));  // back at old level: no reset
+    TEST_ASSERT_EQUAL_UINT32(1000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 1000 + 4999, 6.0f));
+    TEST_ASSERT_TRUE(stall_upd(t, 1000 + 5000, 6.0f));
+}
+
+static void test_stall_bump_resets_once() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    const float bump = 6.0f + GRIND_STALL_MIN_GAIN_G;
+    TEST_ASSERT_FALSE(stall_upd(t, 3000, 6.0f));
+    TEST_ASSERT_FALSE(stall_upd(t, 4000, bump));  // above reference + gain: reset
+    TEST_ASSERT_EQUAL_UINT32(4000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 4500, 5.0f));  // knocked down again: no further reset
+    TEST_ASSERT_EQUAL_UINT32(4000, t.last_gain_ms);
+    TEST_ASSERT_TRUE(stall_upd(t, 4000 + 5000, bump - 1.0f));
+}
+
+static void test_stall_motor_off_rebaselines() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 10000, 5.0f, false));  // motor off, would be long stalled
+    TEST_ASSERT_EQUAL_UINT32(10000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 10001, 5.0f, true));   // no instant abort
+    TEST_ASSERT_FALSE(stall_upd(t, 10000 + 4999, 5.0f, true));
+    TEST_ASSERT_TRUE(stall_upd(t, 10000 + 5000, 5.0f, true));
+}
+
+static void test_stall_motor_off_rebaselines_weight() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 100, 9.0f, false));
+    TEST_ASSERT_EQUAL_FLOAT(9.0f, t.reference_g);
+    stall_upd(t, 200, 8.0f, false);  // motor-off may lower the reference (re-baseline)
+    TEST_ASSERT_EQUAL_FLOAT(8.0f, t.reference_g);
+}
+
+static void test_stall_non_finite_ignored() {
+    const float nan_v = std::numeric_limits<float>::quiet_NaN();
+    const float inf_v = std::numeric_limits<float>::infinity();
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 6000, nan_v));  // window passed, but reading ignored
+    TEST_ASSERT_FALSE(stall_upd(t, 6000, inf_v));
+    TEST_ASSERT_FALSE(stall_upd(t, 6000, -inf_v));
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(0, t.last_gain_ms);
+    TEST_ASSERT_TRUE(stall_upd(t, 6000, 5.0f));  // finite reading still sees the stall
+}
+
+static void test_stall_now_before_last_gain() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 10000, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 9000, 5.0f));
+    TEST_ASSERT_FALSE(stall_upd(t, 0, 5.0f));
+    TEST_ASSERT_FALSE(stall_upd(t, 10000 - 1, 5.0f));
+}
+
+static void test_stall_wrap() {
+    const uint32_t start = 0xFFFFFFFFu - 1000u;
+    GrindStallTracker t;
+    grind_stall_reset(t, start, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, start + 4999u, 5.0f));  // wraps past 0
+    TEST_ASSERT_TRUE(stall_upd(t, start + 5000u, 5.0f));
+    // gain across the wrap restarts the window
+    TEST_ASSERT_FALSE(stall_upd(t, start + 3000u, 5.0f + GRIND_STALL_MIN_GAIN_G));
+    TEST_ASSERT_FALSE(stall_upd(t, start + 3000u + 4999u, 5.0f + GRIND_STALL_MIN_GAIN_G));
+    TEST_ASSERT_TRUE(stall_upd(t, start + 3000u + 5000u, 5.0f + GRIND_STALL_MIN_GAIN_G));
+}
+
+static void test_stall_window_zero() {
+    GrindStallTracker t;
+    grind_stall_reset(t, 500, 5.0f);
+    TEST_ASSERT_TRUE(grind_stall_update(t, 500, 5.0f, true, STALL_GAIN, 0));
+}
+
+static void test_stall_slow_rise_aborts() {
+    // 0.2 g per 5 s stays under the 0.3 g threshold against the fixed reference
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    bool stalled = false;
+    for (uint32_t ms = 500; ms <= 5000 && !stalled; ms += 500)
+        stalled = stall_upd(t, ms, 5.0f + 0.2f * (float)ms / 5000.0f);
+    TEST_ASSERT_TRUE(stalled);
+}
+
+static void test_stall_fast_rise_does_not_abort() {
+    // 0.4 g per 5 s = 0.04 g per 500 ms; the reference only moves once 0.3 g accumulated
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    for (uint32_t ms = 500; ms <= 60000; ms += 500)
+        TEST_ASSERT_FALSE(stall_upd(t, ms, 5.0f + 0.4f * (float)ms / 5000.0f));
+}
+
+static void test_stall_nan_at_reset_then_rising() {
+    const float nan_v = std::numeric_limits<float>::quiet_NaN();
+    const float inf_v = std::numeric_limits<float>::infinity();
+    GrindStallTracker t;
+    grind_stall_reset(t, 100, nan_v);
+    TEST_ASSERT_FALSE(t.has_reference);
+    TEST_ASSERT_FALSE(stall_upd(t, 200, nan_v));  // still no reference
+    TEST_ASSERT_FALSE(t.has_reference);
+    // first finite reading becomes the reference far past the window: no false abort
+    TEST_ASSERT_FALSE(stall_upd(t, 9000, 3.0f));
+    TEST_ASSERT_TRUE(t.has_reference);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(9000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 9000 + 4999, 3.0f));
+    TEST_ASSERT_TRUE(stall_upd(t, 9000 + 5000, 3.0f));
+    // infinity at reset behaves the same
+    grind_stall_reset(t, 0, inf_v);
+    TEST_ASSERT_FALSE(t.has_reference);
+    TEST_ASSERT_FALSE(stall_upd(t, 20000, 7.0f));
+    TEST_ASSERT_EQUAL_FLOAT(7.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(20000, t.last_gain_ms);
+    // rising weight after a NaN reset: no abort
+    grind_stall_reset(t, 0, nan_v);
+    TEST_ASSERT_FALSE(stall_upd(t, 7000, 1.0f));
+    TEST_ASSERT_FALSE(stall_upd(t, 7500, 1.0f + GRIND_STALL_MIN_GAIN_G));
+    TEST_ASSERT_FALSE(stall_upd(t, 7500 + 4999, 1.0f + GRIND_STALL_MIN_GAIN_G));
+}
+
+static void test_stall_motor_off_non_finite_then_on() {
+    const float nan_v = std::numeric_limits<float>::quiet_NaN();
+    GrindStallTracker t;
+    grind_stall_reset(t, 0, 5.0f);
+    TEST_ASSERT_FALSE(stall_upd(t, 10000, nan_v, false));  // goes through reset
+    TEST_ASSERT_FALSE(t.has_reference);
+    TEST_ASSERT_FALSE(stall_upd(t, 20000, 4.0f, true));    // first finite becomes reference
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(20000, t.last_gain_ms);
+    TEST_ASSERT_FALSE(stall_upd(t, 24999, 4.0f));
+    TEST_ASSERT_TRUE(stall_upd(t, 25000, 4.0f));
+}
+
+static void test_stall_default_initialised() {
+    GrindStallTracker t;
+    TEST_ASSERT_FALSE(t.has_reference);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(0, t.last_gain_ms);
+    // Motor on without reset: first finite reading is the reference, never an abort
+    TEST_ASSERT_FALSE(stall_upd(t, 1000000, 12.0f));
+    TEST_ASSERT_TRUE(t.has_reference);
+    TEST_ASSERT_EQUAL_FLOAT(12.0f, t.reference_g);
+    TEST_ASSERT_EQUAL_UINT32(1000000, t.last_gain_ms);
+    GrindStallTracker u;
+    TEST_ASSERT_FALSE(stall_upd(u, 1000000, std::numeric_limits<float>::quiet_NaN()));
+    TEST_ASSERT_FALSE(u.has_reference);
+}
+
 void run_grind_safety_tests() {
     RUN_TEST(test_timed_out_normal);
     RUN_TEST(test_timed_out_boundary);
@@ -125,4 +324,21 @@ void run_grind_safety_tests() {
     RUN_TEST(test_pulse_wait_limit_normal);
     RUN_TEST(test_pulse_wait_limit_invalid_inputs);
     RUN_TEST(test_pulse_wait_limit_huge_clamped);
+    RUN_TEST(test_stall_constants);
+    RUN_TEST(test_stall_window_boundary);
+    RUN_TEST(test_stall_gain_exact_resets);
+    RUN_TEST(test_stall_gain_just_below_does_not_reset);
+    RUN_TEST(test_stall_reference_moves_up_only);
+    RUN_TEST(test_stall_bump_resets_once);
+    RUN_TEST(test_stall_motor_off_rebaselines);
+    RUN_TEST(test_stall_motor_off_rebaselines_weight);
+    RUN_TEST(test_stall_non_finite_ignored);
+    RUN_TEST(test_stall_now_before_last_gain);
+    RUN_TEST(test_stall_wrap);
+    RUN_TEST(test_stall_window_zero);
+    RUN_TEST(test_stall_slow_rise_aborts);
+    RUN_TEST(test_stall_fast_rise_does_not_abort);
+    RUN_TEST(test_stall_nan_at_reset_then_rising);
+    RUN_TEST(test_stall_motor_off_non_finite_then_on);
+    RUN_TEST(test_stall_default_initialised);
 }

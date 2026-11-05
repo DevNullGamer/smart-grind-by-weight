@@ -243,19 +243,21 @@ Check **Menu → Diagnostics → "Noise Floor"** section (see [Diagnostics Syste
 
 ## Grind Stopped With an Err: Message
 
-**Applies to:** Grinds that the firmware stops on its own and shows on the timeout screen (the motor is always stopped first). `Err: sensor`, `Err: tare` and `Err: no flow` are weight mode only; `Err: motor` also applies in time mode. These checks have not yet been run on hardware with a load cell.
+**Applies to:** Grinds that the firmware stops on its own and shows on the timeout screen (the motor is always stopped first). `Err: sensor`, `Err: tare`, `Err: no flow` and `Err: stalled` are weight mode only; `Err: motor` also applies in time mode. These checks have not yet been run on hardware with a load cell.
 
 | Message | Meaning | What to do |
 |---|---|---|
 | `Err: sensor` | The load cell stopped delivering samples (newest sample older than 0.5 s) during a grind. | Check the load cell cable and connectors, then restart the scale. Look for the "HX711 sensor sends no data" warning in Menu -> Diagnostics. |
 | `Err: tare` | The scale delivered samples too slowly to finish the tare within 5 s after the tare started (the tare needs 18 samples). Cause inferred from the code. | Check the load cell cable, the HX711 board and its RATE pin, then restart. |
 | `Err: no flow` | Almost no coffee arrived: during the purge/prime run less than half of the purge amount, or during the main grind less than 0.3 g in the first 4 seconds. | Check that there are beans in the hopper, the grinder is switched on and powered, the cup stands on the scale and the chute is not blocked. If the load cell cable is loose or disconnected this can show up as `Err: no flow` too. |
+| `Err: stalled` | The grinder was running in the main grind, but the scale showed no rise of 0.3 g above its highest weight for 5 seconds, so the grind was stopped. The firmware cannot tell the causes apart: the hopper ran empty, a bean bridge or clog in the chute, the grinder switched off or unpowered, or the cup lifted off the scale (a lifted cup may show `Err: neg wt` instead). Thresholds are not field-tuned. | Check that there are beans in the hopper, clear any bridge or clog in the chute, check the grinder is switched on and powered, and that the cup stands on the scale. Then grind again. If it stops while the hopper has beans, report it with a diagnostic report. |
 | `Err: motor` | The motor output was cut off by the hardware safety timer (typically a run over 62 seconds, or the output could not be stopped normally). A "Motor output was cut off" warning stays until the next restart. | Check the grinder and restart the scale. If it repeats, report it with a diagnostic report. |
 
 Notes:
 - Weight mode only: after the tare, the scale continues after 10 seconds even if it has not settled, and the final and pulse settling steps continue after 4 seconds with the current reading. The purge settling step keeps its older 10 second limit. Time mode still has no such fallback. Untested on hardware.
 - The reason and measured values are printed as `[SAFETY]` lines on the USB serial monitor (best effort, not in the session log).
-- Maintainers: `GRIND_SAFETY_ABORTS_ENABLED` in `src/config/grind_control.h` (default 1) turns the sensor, tare and no-flow aborts into log-only lines if one proves to be a false positive.
+- `Err: stalled` is not raised during the small correction pulses at the end of a grind. An empty hopper there ends as a normal completion with result MAX PULSES after the 10 correction pulses, short of target, with no stall message. The motor runs at most about 3.0 s in that phase at the 50 ms default latency, and about 5.5 s at the 300 ms auto-tune maximum.
+- Maintainers: `GRIND_SAFETY_ABORTS_ENABLED` in `src/config/grind_control.h` (default 1) turns the sensor, tare, no-flow and stall aborts into log-only lines if one proves to be a false positive.
 
 ---
 
