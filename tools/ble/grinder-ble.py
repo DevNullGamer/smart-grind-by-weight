@@ -19,6 +19,7 @@ Usage:
     ./grinder-ble info                         # Get comprehensive device information
     ./grinder-ble wifi-set SSID                # Store WiFi credentials + a new update token on the grinder
     ./grinder-ble wifi-clear                   # Remove the stored WiFi credentials
+    ./grinder-ble glink-info|glink-profile|glink-start|glink-stop   # GLink (GaggiMate link); --sim = no hardware
 """
 
 import argparse
@@ -43,6 +44,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from firmware_variants import FIRMWARE_ENV, LEGACY_V2_ENV, DEPRECATED_VARIANT_CHOICES, VARIANT_DEPRECATED_MSG
 import wifi_provision
+import glink_client  # GLink client (GaggiMate link); imports bleak only when it connects
 
 def ensure_venv_requirements():
     """Ensure all required packages are installed in the project venv"""
@@ -1574,6 +1576,24 @@ async def main():
     password_group.add_argument('--open', action='store_true', help='Open network (no password)')
     wifi_clear_parser = subparsers.add_parser('wifi-clear', help='Remove the stored WiFi credentials (first setup state, or while Menu -> WiFi is open)')
 
+    glink_info_parser = subparsers.add_parser('glink-info', help='GLink: show the grinder state, profiles and last result')
+    glink_profile_parser = subparsers.add_parser('glink-profile', help='GLink: list the profiles, select one, or update profile 3')
+    glink_profile_parser.add_argument('--select', type=int, metavar='N', help='Select profile N (0 to 3)')
+    glink_profile_parser.add_argument('--dose', type=float, help='Set the Profile Dose of profile 3 in g (5.0 to 60.0)')
+    glink_profile_parser.add_argument('--grind-size', type=float, help='Display-only grind size of profile 3 (0 to 999.9)')
+    glink_profile_parser.add_argument('--grind-unit', help='Label of the grind size (up to 6 characters)')
+    glink_profile_parser.add_argument('--clear-grind-size', action='store_true', help='Remove the grind size and unit')
+    glink_start_parser = subparsers.add_parser('glink-start', help='GLink: start a weight grind of a profile (3 s lead-in; anyone in range can do this)')
+    glink_start_parser.add_argument('profile', type=int, help='Profile index 0 to 3')
+    glink_start_parser.add_argument('--expect-dose', type=float, help='Refuse unless the stored dose equals this (g)')
+    glink_start_parser.add_argument('--no-wait', action='store_true', help='Do not wait for the grind result')
+    glink_start_parser.add_argument('--timeout', type=int, default=120, help='Seconds to wait for the result (default 120)')
+    glink_stop_parser = subparsers.add_parser('glink-stop', help='GLink: stop a running grind or cancel a lead-in')
+    for p in [glink_info_parser, glink_profile_parser, glink_start_parser, glink_stop_parser]:
+        p.add_argument('--device', default=DEVICE_NAME, help='Device name to connect to')
+        p.add_argument('--address', help='Device address (skips the scan by name)')
+        p.add_argument('--sim', action='store_true', help='Use the built-in simulated grinder instead of Bluetooth')
+
     for p in [upload_parser, export_parser, analyse_parser, connect_parser, debug_parser, sysinfo_parser, board_parser, diagnostics_parser, wifi_set_parser, wifi_clear_parser]:
         p.add_argument('--device', default=DEVICE_NAME, help='Device name to connect to')
 
@@ -1582,6 +1602,10 @@ async def main():
     exit_code = 0
 
     try:
+        if args.command.startswith('glink-'):
+            # GLink has its own service; it does not use the legacy connection of GrinderBLETool
+            return await glink_client.run_command(args, tool.safe_print)
+
         if args.command == 'scan':
             await tool.scan_devices()
         

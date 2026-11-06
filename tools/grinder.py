@@ -474,6 +474,37 @@ class GrinderTool:
 
         return await self.run_async_command(cmd)
 
+    async def cmd_glink(self, args: argparse.Namespace) -> int:
+        """GLink commands (glink-info, glink-profile, glink-start, glink-stop): pass the options on to the BLE tool."""
+        self.print_header("GLink (GaggiMate link)")
+
+        if not self.check_venv():
+            return 1
+
+        cmd = [str(self.venv_python), str(self.ble_tool), args.command]
+        if args.command == 'glink-start':
+            cmd.append(str(args.profile))
+            if args.expect_dose is not None:
+                cmd.extend(["--expect-dose", str(args.expect_dose)])
+            if args.no_wait:
+                cmd.append("--no-wait")
+            cmd.extend(["--timeout", str(args.timeout)])
+        elif args.command == 'glink-profile':
+            for flag, value in (("--select", args.select), ("--dose", args.dose), ("--grind-size", args.grind_size),
+                                ("--grind-unit", args.grind_unit)):
+                if value is not None:
+                    cmd.extend([flag, str(value)])
+            if args.clear_grind_size:
+                cmd.append("--clear-grind-size")
+        if getattr(args, 'device', None):
+            cmd.extend(["--device", args.device])
+        if getattr(args, 'address', None):
+            cmd.extend(["--address", args.address])
+        if getattr(args, 'sim', False):
+            cmd.append("--sim")
+
+        return await self.run_async_command(cmd)
+
     async def cmd_diagnostics(self, args: argparse.Namespace) -> int:
         """Get comprehensive diagnostic report."""
         self.print_header("Diagnostic Report")
@@ -636,6 +667,24 @@ def create_parser() -> argparse.ArgumentParser:
     wifi_clear_parser = subparsers.add_parser('wifi-clear', help='Remove the stored WiFi credentials over BLE (first setup state, or while Menu -> WiFi is open)')
     wifi_clear_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
 
+    glink_info_parser = subparsers.add_parser('glink-info', help='GLink: show the grinder state, profiles and last result')
+    glink_profile_parser = subparsers.add_parser('glink-profile', help='GLink: list the profiles, select one, or update profile 3')
+    glink_profile_parser.add_argument('--select', type=int, metavar='N', help='Select profile N (0 to 3)')
+    glink_profile_parser.add_argument('--dose', type=float, help='Set the Profile Dose of profile 3 in g (5.0 to 60.0)')
+    glink_profile_parser.add_argument('--grind-size', type=float, help='Display-only grind size of profile 3 (0 to 999.9)')
+    glink_profile_parser.add_argument('--grind-unit', help='Label of the grind size (up to 6 characters)')
+    glink_profile_parser.add_argument('--clear-grind-size', action='store_true', help='Remove the grind size and unit')
+    glink_start_parser = subparsers.add_parser('glink-start', help='GLink: start a weight grind of a profile (3 s lead-in; anyone in range can do this)')
+    glink_start_parser.add_argument('profile', type=int, help='Profile index 0 to 3')
+    glink_start_parser.add_argument('--expect-dose', type=float, help='Refuse unless the stored dose equals this (g)')
+    glink_start_parser.add_argument('--no-wait', action='store_true', help='Do not wait for the grind result')
+    glink_start_parser.add_argument('--timeout', type=int, default=120, help='Seconds to wait for the result (default 120)')
+    glink_stop_parser = subparsers.add_parser('glink-stop', help='GLink: stop a running grind or cancel a lead-in')
+    for glink_parser in (glink_info_parser, glink_profile_parser, glink_start_parser, glink_stop_parser):
+        glink_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
+        glink_parser.add_argument('--address', help='Device address (skips the scan by name)')
+        glink_parser.add_argument('--sim', action='store_true', help='Use the built-in simulated grinder instead of Bluetooth')
+
     diagnostics_parser = subparsers.add_parser('diagnostics', help='Get comprehensive diagnostic report for GitHub issues')
     diagnostics_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     diagnostics_parser.add_argument('--save', metavar='FILE', help='Save report to file (default: print to console)')
@@ -690,6 +739,8 @@ async def main():
             return await tool.cmd_wifi_set(args)
         elif args.command == 'wifi-clear':
             return await tool.cmd_wifi_clear(args)
+        elif args.command in ['glink-info', 'glink-profile', 'glink-start', 'glink-stop']:
+            return await tool.cmd_glink(args)
         elif args.command == 'diagnostics':
             return await tool.cmd_diagnostics(args)
         elif args.command == 'install':
