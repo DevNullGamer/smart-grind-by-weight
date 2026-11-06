@@ -178,6 +178,8 @@ private:
     DiagnosticsController* diagnostics_controller_ = nullptr;
 
     // Safety monitoring (weight mode)
+    // Same values as GRIND_SAFETY_REASON_* in grind_safety.h (the pure abort-reason mapping); grind_controller.cpp
+    // static_asserts it
     static constexpr uint8_t SAFETY_REASON_SENSOR = 1 << 0;
     static constexpr uint8_t SAFETY_REASON_TARE = 1 << 1;
     static constexpr uint8_t SAFETY_REASON_PRIME_FLOW = 1 << 2;
@@ -207,9 +209,56 @@ public:
         ERROR
     };
 
+    // Authoritative record of one finished grind (a normal end, an abort or a stop). A session keeps its first result,
+    // except that a real outcome replaces a stop that raced it (grind_result_may_replace()); a skipped publish does not
+    // move result_count(). Consumer rules (GLink):
+    //  - key on a change of result_count() plus session_id; retry on the next tick while read_last_result() is false;
+    //  - the phase becomes COMPLETED/TIMEOUT slightly before the result is published (same control cycle);
+    //  - a stop in the ~20 ms before the phase leaves IDLE publishes nothing: never wait forever for a result;
+    //  - a GLink start forces WEIGHT mode for its session; the consumer must restore UIManager::current_mode and the
+    //    grinding screen's mode when the screen returns to READY (STOPPED/COMPLETED/TIMEOUT events).
+    // A stop (stop_grind()) is reported as outcome UNKNOWN with stopped = true, never as ERROR. An ERROR outcome
+    // always has an abort_reason other than NONE.
+    struct GrindResult {
+        uint32_t session_id = 0;          // 1-based count of grinds since boot (RAM only; 0 = none yet)
+        GrindSessionResult outcome = GrindSessionResult::UNKNOWN;
+        GrindAbortReason abort_reason = GrindAbortReason::NONE;
+        float final_weight_g = 0.0f;      // settled weight for SUCCESS/OVERSHOOT/MAX_PULSES, else the last live reading
+        uint8_t pulses = 0;               // pulse corrections (saturates at 255)
+        uint32_t total_time_ms = 0;       // start to end, including a purge-confirm wait
+        uint32_t motor_time_ms = 0;       // motor-on time seen at control-cycle resolution
+        bool motor_ran = false;           // the motor was seen running at least once (coffee may be in the cup)
+        bool stopped = false;             // ended by stop_grind() (touch, web or BLE stop; never a timeout)
+    };
+
 private:
     GrindSessionResult last_session_result_ = GrindSessionResult::UNKNOWN;
+    GrindAbortReason abort_reason_ = GrindAbortReason::NONE;  // set with every ERROR result (control task only)
     std::atomic<bool> stop_requested_{false};  // set by request_stop() from any task, consumed by update()
+
+    // Result slot: a seqlock. Writers (control task at COMPLETED/TIMEOUT, any task in stop_grind()) make result_seq_
+    // odd, store the fields (relaxed) and make it even again with a release store; the count of finished publishes is
+    // result_seq_ / 2. Readers (UI task) load result_seq_ with acquire, read the fields (relaxed) and accept them only
+    // if result_seq_ is unchanged and even after an acquire fence. Not volatile: every shared field is a std::atomic.
+    struct ResultSlot {
+        std::atomic<uint32_t> session_id{0};
+        std::atomic<uint32_t> total_time_ms{0};
+        std::atomic<uint32_t> motor_time_ms{0};
+        std::atomic<uint32_t> final_weight_bits{0};  // float bit pattern
+        std::atomic<uint8_t> outcome{0};
+        std::atomic<uint8_t> abort_reason{0};
+        std::atomic<uint8_t> pulses{0};
+        std::atomic<bool> motor_ran{false};
+        std::atomic<bool> stopped{false};
+    };
+    ResultSlot result_slot_;
+    std::atomic<uint32_t> result_seq_{0};
+    std::atomic<uint32_t> session_counter_{0};   // incremented by start_grind() (UI task), copied into the result
+    // Motor-on time of the running grind; written by the control task, read by stop_grind() on the UI task
+    std::atomic<uint32_t> motor_time_ms_{0};
+    std::atomic<bool> motor_ran_{false};
+    bool motor_sample_on_ = false;               // control task only
+    unsigned long motor_sample_ms_ = 0;          // control task only
 
 public:
     void init(WeightSensor* lc, Grinder* gr, Preferences* prefs);
@@ -234,6 +283,12 @@ public:
     // UI event system
     void set_ui_event_callback(void (*callback)(const GrindEventData&));
     GrindSessionResult get_last_session_result() const { return last_session_result_; }
+    // Number of grind results published since boot (a stop counts). Acquire load: when it differs from the value seen
+    // before, read_last_result() returns that result or a newer one. Defined while idle (0 before the first grind).
+    uint32_t result_count() const { return result_seq_.load(std::memory_order_acquire) / 2; }
+    // Copies the newest published result. False (and *out untouched) before the first grind or if a writer kept the
+    // slot busy for every retry; try again on the next UI tick. Any task; never blocks.
+    bool read_last_result(GrindResult* out) const;
     void ui_acknowledge_phase_transition(); // Called by UI to confirm phase transition
     void process_queued_ui_events(); // Core 1: Process events from Core 0 queue
     QueueHandle_t get_ui_event_queue() const { return ui_event_queue; }
@@ -295,8 +350,11 @@ private:
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
     void monitor_mechanical_instability(const GrindLoopData& loop_data);
-    void abort_grind(GrindSessionResult result, const char* ui_text, const char* log_text,
+    void abort_grind(GrindSessionResult result, GrindAbortReason reason, const char* ui_text, const char* log_text,
                      const GrindLoopData& loop_data);
+    void track_motor_time(const GrindLoopData& loop_data);
+    // Publishes the end of the session (see GrindResult). weight_g = final or last live weight.
+    void publish_result(GrindSessionResult outcome, GrindAbortReason reason, float weight_g, bool stopped);
 
     bool check_safety(const GrindLoopData& loop_data);  // True when the grind was aborted this cycle
     bool raise_safety(uint8_t reason_bit, const char* ui_text, const char* log_text,

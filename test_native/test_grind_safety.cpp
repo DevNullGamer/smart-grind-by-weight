@@ -2,6 +2,11 @@
 #include <limits>
 #include "controllers/grind_safety.h"
 #include "config/grind_control.h"
+#include "bluetooth/glink_results.h"
+#include "bluetooth/glink_session_map.h"
+#include <fstream>
+#include <string>
+#include <vector>
 
 static void test_timed_out_normal() {
     TEST_ASSERT_FALSE(grind_phase_timed_out(1500, 1000, 1000));
@@ -307,6 +312,139 @@ static void test_stall_default_initialised() {
     TEST_ASSERT_FALSE(u.has_reference);
 }
 
+// Abort reason of every safety bit (chg020 step 3): one bit, one reason; anything else is NONE
+static void test_abort_reason_every_safety_bit() {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::SENSOR, (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_SENSOR));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::TARE, (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_TARE));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::PRIME_FLOW, (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_PRIME_FLOW));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::PREDICTIVE_FLOW, (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_PREDICTIVE_FLOW));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::STALL, (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_STALL));
+}
+
+static void test_abort_reason_safety_bits_are_distinct_single_bits() {
+    const uint8_t bits[] = {GRIND_SAFETY_REASON_SENSOR, GRIND_SAFETY_REASON_TARE, GRIND_SAFETY_REASON_PRIME_FLOW,
+                            GRIND_SAFETY_REASON_PREDICTIVE_FLOW, GRIND_SAFETY_REASON_STALL};
+    uint8_t seen = 0;
+    for (uint8_t b : bits) {
+        TEST_ASSERT_NOT_EQUAL(0, b);
+        TEST_ASSERT_EQUAL_UINT8(0, b & (b - 1));  // exactly one bit
+        TEST_ASSERT_EQUAL_UINT8(0, seen & b);
+        seen |= b;
+        TEST_ASSERT_NOT_EQUAL((uint8_t)GrindAbortReason::NONE, (uint8_t)grind_abort_reason_from_safety_bit(b));
+    }
+}
+
+static void test_abort_reason_unknown_or_combined_bits_are_none() {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::NONE, (uint8_t)grind_abort_reason_from_safety_bit(0));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::NONE,
+                            (uint8_t)grind_abort_reason_from_safety_bit(GRIND_SAFETY_REASON_SENSOR | GRIND_SAFETY_REASON_TARE));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::NONE, (uint8_t)grind_abort_reason_from_safety_bit(1 << 5));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GrindAbortReason::NONE, (uint8_t)grind_abort_reason_from_safety_bit(0x80));
+}
+
+// GrindAbortReason maps value for value onto the GLink mirror enum
+static void test_abort_reason_maps_to_glink_mirror() {
+    const GrindAbortReason all[] = {GrindAbortReason::NONE,       GrindAbortReason::SENSOR,
+                                    GrindAbortReason::TARE,       GrindAbortReason::PRIME_FLOW,
+                                    GrindAbortReason::PREDICTIVE_FLOW, GrindAbortReason::STALL,
+                                    GrindAbortReason::MOTOR_FAULT, GrindAbortReason::NEG_WEIGHT,
+                                    GrindAbortReason::UPDATE};
+    for (GrindAbortReason r : all) {
+        TEST_ASSERT_EQUAL_UINT8((uint8_t)r, (uint8_t)glink_abort_reason_from_grind(r));
+    }
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkAbortReason::NONE, (uint8_t)glink_abort_reason_from_grind((GrindAbortReason)200));
+}
+
+// Outcome values are GrindController::GrindSessionResult in declaration order
+static void test_outcome_maps_to_glink_mirror() {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::UNKNOWN, (uint8_t)glink_outcome_from_grind(0));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::SUCCESS, (uint8_t)glink_outcome_from_grind(1));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::OVERSHOOT, (uint8_t)glink_outcome_from_grind(2));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::MAX_PULSES, (uint8_t)glink_outcome_from_grind(3));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::TIMEOUT, (uint8_t)glink_outcome_from_grind(4));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::ERROR, (uint8_t)glink_outcome_from_grind(5));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkOutcome::UNKNOWN, (uint8_t)glink_outcome_from_grind(77));
+}
+
+static GlinkResultCode code_for_safety_bit(uint8_t bit) {
+    return glink_result_code(GlinkOutcome::ERROR,
+                             glink_abort_reason_from_grind(grind_abort_reason_from_safety_bit(bit)), false);
+}
+
+// Every safety bit, as an ERROR, maps to its GLink result (PRIME_FLOW and PREDICTIVE_FLOW both give ERR_NO_FLOW)
+static void test_abort_reason_every_safety_bit_gives_the_matching_result() {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::ERR_SENSOR, (uint8_t)code_for_safety_bit(GRIND_SAFETY_REASON_SENSOR));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::ERR_TARE, (uint8_t)code_for_safety_bit(GRIND_SAFETY_REASON_TARE));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::ERR_NO_FLOW, (uint8_t)code_for_safety_bit(GRIND_SAFETY_REASON_PRIME_FLOW));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::ERR_NO_FLOW, (uint8_t)code_for_safety_bit(GRIND_SAFETY_REASON_PREDICTIVE_FLOW));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::ERR_STALLED, (uint8_t)code_for_safety_bit(GRIND_SAFETY_REASON_STALL));
+}
+
+// A genuine timeout (stopped = false) stays TIMEOUT; only a real stop request reads as STOPPED
+static void test_timeout_stays_timeout_unless_stopped() {
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::TIMEOUT,
+                            (uint8_t)glink_result_code(glink_outcome_from_grind(4), GlinkAbortReason::NONE, false));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlinkResultCode::STOPPED,
+                            (uint8_t)glink_result_code(glink_outcome_from_grind(0), GlinkAbortReason::NONE, true));
+}
+
+// Source text guard (reads src/controllers/grind_controller.cpp): every ERROR or variable assignment of
+// last_session_result_ has an abort_reason_ assignment within the 3 lines before it or the line after
+static std::vector<std::string> read_controller_lines() {
+    const char* paths[] = {"src/controllers/grind_controller.cpp", "../src/controllers/grind_controller.cpp",
+                           "../../src/controllers/grind_controller.cpp"};
+    std::vector<std::string> lines;
+    for (const char* p : paths) {
+        std::ifstream f(p);
+        if (!f) continue;
+        std::string line;
+        while (std::getline(f, line)) lines.push_back(line);
+        break;
+    }
+    return lines;
+}
+
+static void test_every_last_session_result_assignment_has_a_reason() {
+    const std::vector<std::string> lines = read_controller_lines();
+    TEST_ASSERT_TRUE_MESSAGE(!lines.empty(), "grind_controller.cpp not found");
+    int checked = 0;
+    for (size_t i = 0; i < lines.size(); i++) {
+        const std::string& l = lines[i];
+        const size_t pos = l.find("last_session_result_");
+        if (pos == std::string::npos) continue;
+        // an assignment is "last_session_result_ =" followed by anything but another '=' (excludes ==)
+        const size_t eq = l.find_first_not_of(' ', pos + std::string("last_session_result_").size());
+        if (eq == std::string::npos || l[eq] != '=' || (eq + 1 < l.size() && l[eq + 1] == '=')) continue;
+        checked++;
+        if (l.find("GrindSessionResult::UNKNOWN") != std::string::npos ||
+            l.find("GrindSessionResult::TIMEOUT") != std::string::npos) {
+            continue;  // reset and timeout carry no reason
+        }
+        const bool is_error = l.find("GrindSessionResult::ERROR") != std::string::npos;
+        const bool is_variable = l.find("= result;") != std::string::npos || l.find("= session_result;") != std::string::npos;
+        TEST_ASSERT_TRUE_MESSAGE(is_error || is_variable, l.c_str());
+        bool found = false;
+        for (size_t k = (i >= 3 ? i - 3 : 0); k <= i + 1 && k < lines.size(); k++) {
+            const size_t a = lines[k].find("abort_reason_ = ");
+            if (a == std::string::npos) continue;
+            // a real reason: not NONE (abort_reason_ == is not matched because of the trailing "= ")
+            if (is_error && lines[k].find("GrindAbortReason::NONE", a) != std::string::npos) continue;
+            found = true;
+        }
+        TEST_ASSERT_TRUE_MESSAGE(found, l.c_str());
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(7, checked);
+}
+
+static void test_result_may_replace() {
+    TEST_ASSERT_TRUE(grind_result_may_replace(false, false, false));
+    TEST_ASSERT_TRUE(grind_result_may_replace(false, true, true));   // first result of the session
+    TEST_ASSERT_TRUE(grind_result_may_replace(true, true, false));   // a real outcome replaces a raced stop
+    TEST_ASSERT_FALSE(grind_result_may_replace(true, false, true));  // a stop never replaces a real outcome
+    TEST_ASSERT_FALSE(grind_result_may_replace(true, false, false)); // one real result per session
+    TEST_ASSERT_FALSE(grind_result_may_replace(true, true, true));   // second stop
+}
+
 void run_grind_safety_tests() {
     RUN_TEST(test_timed_out_normal);
     RUN_TEST(test_timed_out_boundary);
@@ -341,4 +479,13 @@ void run_grind_safety_tests() {
     RUN_TEST(test_stall_nan_at_reset_then_rising);
     RUN_TEST(test_stall_motor_off_non_finite_then_on);
     RUN_TEST(test_stall_default_initialised);
+    RUN_TEST(test_abort_reason_every_safety_bit);
+    RUN_TEST(test_abort_reason_safety_bits_are_distinct_single_bits);
+    RUN_TEST(test_abort_reason_unknown_or_combined_bits_are_none);
+    RUN_TEST(test_abort_reason_maps_to_glink_mirror);
+    RUN_TEST(test_outcome_maps_to_glink_mirror);
+    RUN_TEST(test_abort_reason_every_safety_bit_gives_the_matching_result);
+    RUN_TEST(test_timeout_stays_timeout_unless_stopped);
+    RUN_TEST(test_every_last_session_result_assignment_has_a_reason);
+    RUN_TEST(test_result_may_replace);
 }

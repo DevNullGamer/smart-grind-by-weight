@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include "../../controllers/grind_mode.h"
 #include "../../controllers/grind_start_check.h"
 
 class UIManager;
@@ -21,6 +22,10 @@ public:
     void handle_grind_button();
     // Starts a grind with the stored target of `profile` (0-2) in the current mode; NONE when it started
     GrindStartBlock start_profile_grind(int profile);
+    // Starts a weight-mode grind of the stored weight of `profile` (GLink start, 0..3). Same start path as
+    // start_profile_grind(): no selected profile or setting is read or changed, nothing is written to NVS. A profile
+    // outside 0..3 or a weight outside GLINK_DOSE_MIN/MAX_G is refused with MOTOR_DISABLED (generic).
+    GrindStartBlock start_glink_grind(int profile);
     void handle_pulse_button();
     void handle_layout_toggle();
     void handle_purge_confirm_continue();
@@ -34,6 +39,8 @@ public:
     static void dispatch_event(const GrindEventData& event_data);
 
 private:
+    // Shared start body of start_profile_grind() and start_glink_grind()
+    GrindStartBlock begin_grind(uint8_t profile_id, float target_weight, uint32_t target_time_ms, GrindMode mode);
     const char* session_profile_name() const;
     void enter_ready_state();
     void enter_edit_state();

@@ -4,6 +4,7 @@
 #include "../config/constants.h"
 #include "../hardware/sensor_health.h"
 #include "grind_safety.h"
+#include "../bluetooth/glink_results.h"
 #include "../system/diagnostics_controller.h"
 #include "../system/statistics_manager.h"
 #include <Arduino.h>
@@ -22,6 +23,15 @@
 // Flash operation queue size
 #define FLASH_OP_QUEUE_SIZE 5
 
+// bluetooth/glink_session_map.* converts GrindSessionResult by value
+static_assert(static_cast<uint8_t>(GrindController::GrindSessionResult::UNKNOWN) == static_cast<uint8_t>(GlinkOutcome::UNKNOWN) &&
+              static_cast<uint8_t>(GrindController::GrindSessionResult::SUCCESS) == static_cast<uint8_t>(GlinkOutcome::SUCCESS) &&
+              static_cast<uint8_t>(GrindController::GrindSessionResult::OVERSHOOT) == static_cast<uint8_t>(GlinkOutcome::OVERSHOOT) &&
+              static_cast<uint8_t>(GrindController::GrindSessionResult::MAX_PULSES) == static_cast<uint8_t>(GlinkOutcome::MAX_PULSES) &&
+              static_cast<uint8_t>(GrindController::GrindSessionResult::TIMEOUT) == static_cast<uint8_t>(GlinkOutcome::TIMEOUT) &&
+              static_cast<uint8_t>(GrindController::GrindSessionResult::ERROR) == static_cast<uint8_t>(GlinkOutcome::ERROR),
+              "GrindSessionResult must match GlinkOutcome (glink_session_map)");
+
 static constexpr float NO_WEIGHT_DELIVERED_THRESHOLD_G = 0.2f;
 
 void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
@@ -39,6 +49,7 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
     last_error_message[0] = '\0';
     last_session_result_ = GrindSessionResult::UNKNOWN;
+    abort_reason_ = GrindAbortReason::NONE;
     control_loop_paused_ = false;
 
     mechanical_anomaly_count_ = 0;
@@ -156,6 +167,12 @@ GrindStartBlock GrindController::start_grind(float target, uint32_t time_ms, Gri
     timeout_pause_start = 0;
     timeout_offset_ms = 0;
     last_session_result_ = GrindSessionResult::UNKNOWN;
+    abort_reason_ = GrindAbortReason::NONE;
+    session_counter_.fetch_add(1, std::memory_order_relaxed);
+    motor_time_ms_.store(0, std::memory_order_relaxed);
+    motor_ran_.store(false, std::memory_order_relaxed);
+    motor_sample_on_ = false;
+    motor_sample_ms_ = start_time;
     grinder->consume_deadman_trip();  // Drop a stale trip from before this grind
     // Load cell now runs at constant high speed - no mode switching needed
     
@@ -259,8 +276,20 @@ void GrindController::return_to_idle() {
 
 void GrindController::stop_grind() {
     if (!grinder) return;
-    
+
+    // A running grind that is stopped has no outcome of its own: published as UNKNOWN (never ERROR), with the last
+    // live weight. Nothing is published for a stop in IDLE or after the grind already ended (its result exists).
+    const bool was_running = is_grind_running();
+    // A stop right after grinder->start() can come before the control task saw the motor on
+    if (was_running && grinder->is_grinding()) {
+        motor_ran_.store(true, std::memory_order_relaxed);
+    }
+
     grinder->stop();
+    if (was_running) {
+        publish_result(GrindSessionResult::UNKNOWN, GrindAbortReason::NONE,
+                       weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f, true);
+    }
     
     // Cancelled grinds just discard PSRAM data and go to IDLE
     grind_logger.discard_current_session();
@@ -336,8 +365,11 @@ void GrindController::update() {
     loop_data.flow_rate = weight_sensor ? weight_sensor->get_flow_rate() : 0.0f;
     loop_data.weight_delta = loop_data.current_weight - last_logged_weight;
 
+    track_motor_time(loop_data);
+
     if (motor_deadman_tripped && phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT) {
-        abort_grind(GrindSessionResult::ERROR, "Err: motor", "MOTOR DEADMAN TRIPPED", loop_data);
+        abort_grind(GrindSessionResult::ERROR, GrindAbortReason::MOTOR_FAULT, "Err: motor", "MOTOR DEADMAN TRIPPED",
+                    loop_data);
         return;
     }
     if (motor_deadman_tripped) {
@@ -626,6 +658,7 @@ void GrindController::update() {
         loop_data.current_weight < -1.0f) {
         timeout_phase = phase;
         grinder->stop();
+        abort_reason_ = GrindAbortReason::NEG_WEIGHT;
         last_session_result_ = GrindSessionResult::ERROR;
 
         queue_log_message("--- NEGATIVE WEIGHT FAILSAFE TRIGGERED: %.2fg in phase %s ---\n",
@@ -657,10 +690,11 @@ void GrindController::update() {
 
 // OLD predictive_grind method removed - logic now inline in update()
 
-void GrindController::abort_grind(GrindSessionResult result, const char* ui_text, const char* log_text,
-                                  const GrindLoopData& loop_data) {
+void GrindController::abort_grind(GrindSessionResult result, GrindAbortReason reason, const char* ui_text,
+                                  const char* log_text, const GrindLoopData& loop_data) {
     timeout_phase = phase;
     grinder->stop();
+    abort_reason_ = reason;
     last_session_result_ = result;
 
     queue_log_message("--- %s in phase %s ---\n", log_text, get_phase_name(timeout_phase));
@@ -670,10 +704,15 @@ void GrindController::abort_grind(GrindSessionResult result, const char* ui_text
 
 bool GrindController::raise_safety(uint8_t reason_bit, const char* ui_text, const char* log_text,
                                    const char* detail, const GrindLoopData& loop_data) {
+    static_assert((SAFETY_REASON_SENSOR == GRIND_SAFETY_REASON_SENSOR) && (SAFETY_REASON_TARE == GRIND_SAFETY_REASON_TARE) &&
+                  (SAFETY_REASON_PRIME_FLOW == GRIND_SAFETY_REASON_PRIME_FLOW) &&
+                  (SAFETY_REASON_PREDICTIVE_FLOW == GRIND_SAFETY_REASON_PREDICTIVE_FLOW) &&
+                  (SAFETY_REASON_STALL == GRIND_SAFETY_REASON_STALL),
+                  "safety reason bits must match grind_safety.h (abort-reason mapping)");
 #if GRIND_SAFETY_ABORTS_ENABLED
-    (void)reason_bit;
     queue_log_message("[SAFETY] %s: %s\n", log_text, detail);
-    abort_grind(GrindSessionResult::ERROR, ui_text, log_text, loop_data);
+    abort_grind(GrindSessionResult::ERROR, grind_abort_reason_from_safety_bit(reason_bit), ui_text, log_text,
+                loop_data);
     return true;
 #else
     (void)ui_text;
@@ -684,6 +723,87 @@ bool GrindController::raise_safety(uint8_t reason_bit, const char* ui_text, cons
     }
     return false;
 #endif
+}
+
+void GrindController::track_motor_time(const GrindLoopData& loop_data) {
+    // Control task only. The interval since the previous cycle counts as motor time if the motor was on then.
+    if (motor_sample_on_ && loop_data.now >= motor_sample_ms_) {
+        motor_time_ms_.fetch_add(static_cast<uint32_t>(loop_data.now - motor_sample_ms_), std::memory_order_relaxed);
+    }
+    motor_sample_on_ = loop_data.motor_is_on != 0;
+    motor_sample_ms_ = loop_data.now;
+    if (motor_sample_on_) {
+        motor_ran_.store(true, std::memory_order_relaxed);
+    }
+}
+
+void GrindController::publish_result(GrindSessionResult outcome, GrindAbortReason reason, float weight_g,
+                                     bool stopped) {
+    // An ERROR always carries a reason; the callers set one, NONE here would be a bug (safety net, reported as sensor)
+    if (outcome == GrindSessionResult::ERROR && reason == GrindAbortReason::NONE) {
+        reason = GrindAbortReason::SENSOR;
+    }
+    uint32_t weight_bits;
+    static_assert(sizeof(weight_bits) == sizeof(weight_g), "float must be 32 bit");
+    memcpy(&weight_bits, &weight_g, sizeof(weight_bits));
+
+    // Writers can overlap (control task on Core 0 vs. a touch stop on the UI task on Core 1): take the slot by making
+    // the sequence odd. Spinning on an odd value is safe only because the two writers run on different cores; with
+    // preemption on one core it would hang.
+    uint32_t seq = result_seq_.load(std::memory_order_relaxed);
+    for (;;) {
+        if ((seq & 1u) == 0 &&
+            result_seq_.compare_exchange_weak(seq, seq + 1, std::memory_order_acquire, std::memory_order_relaxed)) {
+            break;
+        }
+        if (seq & 1u) {
+            seq = result_seq_.load(std::memory_order_relaxed);
+        }
+    }
+    // Exclusive now: keep the first result of this session (a stop never overwrites a real outcome)
+    const bool had_result = result_slot_.session_id.load(std::memory_order_relaxed) ==
+                            session_counter_.load(std::memory_order_relaxed);
+    if (!grind_result_may_replace(had_result, result_slot_.stopped.load(std::memory_order_relaxed), stopped)) {
+        result_seq_.store(seq, std::memory_order_release);  // back to the old even value: result_count() unchanged
+        return;
+    }
+    std::atomic_thread_fence(std::memory_order_release);  // the odd value is visible before any field store
+    result_slot_.session_id.store(session_counter_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    result_slot_.outcome.store(static_cast<uint8_t>(outcome), std::memory_order_relaxed);
+    result_slot_.abort_reason.store(static_cast<uint8_t>(reason), std::memory_order_relaxed);
+    result_slot_.final_weight_bits.store(weight_bits, std::memory_order_relaxed);
+    result_slot_.pulses.store(static_cast<uint8_t>(std::clamp(pulse_attempts, 0, 255)), std::memory_order_relaxed);
+    result_slot_.total_time_ms.store(static_cast<uint32_t>(millis() - start_time), std::memory_order_relaxed);
+    result_slot_.motor_time_ms.store(motor_time_ms_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    result_slot_.motor_ran.store(motor_ran_.load(std::memory_order_relaxed), std::memory_order_relaxed);
+    result_slot_.stopped.store(stopped, std::memory_order_relaxed);
+    result_seq_.store(seq + 2, std::memory_order_release);  // publishes the fields
+}
+
+bool GrindController::read_last_result(GrindResult* out) const {
+    if (!out) return false;
+    for (int attempt = 0; attempt < 8; attempt++) {
+        const uint32_t before = result_seq_.load(std::memory_order_acquire);
+        if (before == 0) return false;  // nothing published yet
+        if (before & 1u) continue;      // a writer is inside
+        GrindResult r;
+        r.session_id = result_slot_.session_id.load(std::memory_order_relaxed);
+        r.outcome = static_cast<GrindSessionResult>(result_slot_.outcome.load(std::memory_order_relaxed));
+        r.abort_reason = static_cast<GrindAbortReason>(result_slot_.abort_reason.load(std::memory_order_relaxed));
+        const uint32_t weight_bits = result_slot_.final_weight_bits.load(std::memory_order_relaxed);
+        memcpy(&r.final_weight_g, &weight_bits, sizeof(weight_bits));
+        r.pulses = result_slot_.pulses.load(std::memory_order_relaxed);
+        r.total_time_ms = result_slot_.total_time_ms.load(std::memory_order_relaxed);
+        r.motor_time_ms = result_slot_.motor_time_ms.load(std::memory_order_relaxed);
+        r.motor_ran = result_slot_.motor_ran.load(std::memory_order_relaxed);
+        r.stopped = result_slot_.stopped.load(std::memory_order_relaxed);
+        std::atomic_thread_fence(std::memory_order_acquire);  // the field loads happen before the re-check
+        if (result_seq_.load(std::memory_order_relaxed) == before) {
+            *out = r;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool GrindController::check_safety(const GrindLoopData& loop_data) {
@@ -815,6 +935,7 @@ void GrindController::final_measurement(const GrindLoopData& loop_data) {
     if (mode == GrindMode::WEIGHT && target_weight >= 1.0f && final_weight < NO_WEIGHT_DELIVERED_THRESHOLD_G) {
         timeout_phase = GrindPhase::FINAL_SETTLING;
         set_error_message("Err: no wt");
+        abort_reason_ = GrindAbortReason::PREDICTIVE_FLOW;  // nothing came out: reported like "no flow"
         last_session_result_ = GrindSessionResult::ERROR;
         switch_phase(GrindPhase::TIMEOUT, loop_data);
         return;
@@ -885,6 +1006,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         // Stall check starts from the live reading, also after the PURGE_CONFIRM pause
         grind_stall_reset(stall_tracker_, (uint32_t)now, weight_sensor->get_weight_low_latency());
     }
+
+    const GrindPhase phase_before = phase;
 
     // Update phase state
     // Order matters: the control task must never see the new phase with the old phase_start_time
@@ -957,6 +1080,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
             }
         }
         last_session_result_ = session_result;
+        abort_reason_ = GrindAbortReason::NONE;
 
         // Update grind freshness tracking
         grinder_purged_since_boot = true;
@@ -969,6 +1093,10 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         // Use final_weight if available (from final_measurement), otherwise use high latency weight
         event_data.final_weight = (final_weight > 0) ? final_weight : 
                                  (weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f);
+        // The additional time-mode pulse returns here after the result was already published
+        if (phase_before != GrindPhase::TIME_ADDITIONAL_PULSE) {
+            publish_result(session_result, GrindAbortReason::NONE, event_data.final_weight, false);
+        }
         
         // For time mode, also indicate pulse availability
         if (mode == GrindMode::TIME) {
@@ -988,6 +1116,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         // Use non-blocking high latency weight instead of precision settled weight
         event_data.error_weight = weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f;
         event_data.error_progress = get_progress_percent();
+        publish_result(last_session_result_, abort_reason_, event_data.error_weight, false);
     } else if (new_phase == GrindPhase::IDLE) {
         event_data.event = UIGrindEvent::STOPPED;
     }

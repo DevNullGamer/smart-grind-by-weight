@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "grind_session.h"
 
 // Pure decision helpers for grind safety timeouts and no-flow detection. No Arduino/ESP
 // dependencies so they can be unit tested on the host. GrindController supplies the measurements
@@ -41,3 +42,18 @@ bool grind_stall_update(GrindStallTracker& t, uint32_t now_ms, float weight_g, b
 // How long to wait for a pulse to report complete: pulse length plus margin (non-finite or
 // negative lengths count as 0).
 uint32_t grind_pulse_wait_limit_ms(float pulse_ms, uint32_t margin_ms);
+
+// Bits of GrindController's safety reasons (check_safety()/raise_safety()); one bit per check.
+constexpr uint8_t GRIND_SAFETY_REASON_SENSOR = 1 << 0;
+constexpr uint8_t GRIND_SAFETY_REASON_TARE = 1 << 1;
+constexpr uint8_t GRIND_SAFETY_REASON_PRIME_FLOW = 1 << 2;
+constexpr uint8_t GRIND_SAFETY_REASON_PREDICTIVE_FLOW = 1 << 3;
+constexpr uint8_t GRIND_SAFETY_REASON_STALL = 1 << 4;
+
+// May a result be published? had_result_this_session: the slot already holds a result of the running session;
+// existing_stopped: that result is a stop; new_stopped: the new one is a stop. A session keeps its first result, except
+// that a real outcome (completion, abort) replaces a stop that raced it. A stop never replaces anything.
+bool grind_result_may_replace(bool had_result_this_session, bool existing_stopped, bool new_stopped);
+
+// Abort reason of one safety bit. NONE for 0, several bits or an unknown bit (callers pass exactly one).
+GrindAbortReason grind_abort_reason_from_safety_bit(uint8_t reason_bit);

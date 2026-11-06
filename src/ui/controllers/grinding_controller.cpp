@@ -1,6 +1,7 @@
 #include "grinding_controller.h"
 
 #include <Arduino.h>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -10,6 +11,9 @@
 #include "../../logging/grind_logging.h"
 #include "../../system/nvs_settings_store.h"
 #include "../ui_manager.h"
+
+// Profile index recorded for a GLink start of the Profile Dose (index 3); the history clamps profiles to 0..2
+static constexpr uint8_t kCustomProfileId = 2;
 
 GrindingUIController* GrindingUIController::instance_ = nullptr;
 
@@ -227,18 +231,43 @@ GrindStartBlock GrindingUIController::start_profile_grind(int profile) {
         return GrindStartBlock::MOTOR_DISABLED;
     }
 
-    ui_manager_->grind_controller->set_grind_profile_id(static_cast<uint8_t>(profile));
+    const float target_weight = ui_manager_->profile_controller->get_profile_weight(profile);
+    const float target_time_seconds = ui_manager_->profile_controller->get_profile_time(profile);
+    const uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
+    return begin_grind(static_cast<uint8_t>(profile), target_weight, target_time_ms, ui_manager_->current_mode);
+}
+
+// GLink start: weight-mode grind of the stored weight of `profile` (0..3) through the same body. The grinder's grind
+// mode setting is not touched: the session runs in WEIGHT mode and the screen follows the controller's events
+// (restoring the user's mode on return to idle is the GLink controller's job). The history clamps the profile to 0..2,
+// so the Profile Dose (3) is recorded as CUSTOM.
+GrindStartBlock GrindingUIController::start_glink_grind(int profile) {
+    // Outside the profile range or the dose range (or no controllers) there is no matching GrindStartBlock:
+    // MOTOR_DISABLED is returned as the generic refusal. The caller checks the range first and must not show the
+    // motor dialog for it.
+    if (!ui_manager_ || !ui_manager_->grind_controller || !ui_manager_->profile_controller || profile < 0 ||
+        profile >= GLINK_PROFILE_COUNT_MAX) {
+        return GrindStartBlock::MOTOR_DISABLED;
+    }
+    const float grams = ui_manager_->profile_controller->get_profile_weight(profile);
+    if (!std::isfinite(grams) || grams < GLINK_DOSE_MIN_G || grams > GLINK_DOSE_MAX_G) {
+        return GrindStartBlock::MOTOR_DISABLED;
+    }
+    const uint8_t profile_id = profile < GLINK_PROFILE_WRITABLE_INDEX ? static_cast<uint8_t>(profile) : kCustomProfileId;
+    return begin_grind(profile_id, grams, 0, GrindMode::WEIGHT);
+}
+
+GrindStartBlock GrindingUIController::begin_grind(uint8_t profile_id, float target_weight, uint32_t target_time_ms,
+                                                  GrindMode mode) {
+    ui_manager_->grind_controller->set_grind_profile_id(profile_id);
 
     LOG_BLE("[%lums GRIND_START] About to call start_grind()\n", millis());
     error_message_[0] = '\0';
     error_grind_weight_ = 0.0f;
     error_grind_progress_ = 0;
 
-    const float target_weight = ui_manager_->profile_controller->get_profile_weight(profile);
-    const float target_time_seconds = ui_manager_->profile_controller->get_profile_time(profile);
-    const uint32_t target_time_ms = static_cast<uint32_t>((target_time_seconds * 1000.0f) + 0.5f);
     const GrindStartBlock start_block =
-        ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, ui_manager_->current_mode);
+        ui_manager_->grind_controller->start_grind(target_weight, target_time_ms, mode);
     LOG_BLE("[%lums GRIND_START] start_grind() returned\n", millis());
     return start_block;
 }

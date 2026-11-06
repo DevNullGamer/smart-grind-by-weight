@@ -49,3 +49,19 @@ uint32_t grind_pulse_wait_limit_ms(float pulse_ms, uint32_t margin_ms) {
     if (pulse_ms > max_pulse_ms) pulse_ms = max_pulse_ms;
     return (uint32_t)pulse_ms + margin_ms;
 }
+
+bool grind_result_may_replace(bool had_result_this_session, bool existing_stopped, bool new_stopped) {
+    if (!had_result_this_session) return true;
+    return existing_stopped && !new_stopped;
+}
+
+GrindAbortReason grind_abort_reason_from_safety_bit(uint8_t reason_bit) {
+    switch (reason_bit) {
+        case GRIND_SAFETY_REASON_SENSOR: return GrindAbortReason::SENSOR;
+        case GRIND_SAFETY_REASON_TARE: return GrindAbortReason::TARE;
+        case GRIND_SAFETY_REASON_PRIME_FLOW: return GrindAbortReason::PRIME_FLOW;
+        case GRIND_SAFETY_REASON_PREDICTIVE_FLOW: return GrindAbortReason::PREDICTIVE_FLOW;
+        case GRIND_SAFETY_REASON_STALL: return GrindAbortReason::STALL;
+        default: return GrindAbortReason::NONE;
+    }
+}
