@@ -98,6 +98,9 @@
 #define BLE_GLINK_TX_PACE_MS 20                                                // Pacing window of notifications (the Bluetooth task ticks every 20 ms)
 #define BLE_GLINK_TX_FRAGMENTS_PER_PACE 2                                      // Fragments sent per pacing window
 #define BLE_GLINK_BASE_INFO_SN_HEX_LEN 12                                      // snCode: 12 lower-case hex digits of the factory MAC
+#define BLE_GLINK_SNAPSHOT_PUBLISH_MS 100                                      // The UI task republishes the GLink snapshot at least this often while a client is linked
+#define BLE_GLINK_SNAPSHOT_STALE_MS 1000                                       // A snapshot older than this is not trusted (reads and periodInfo fall back, requests get UI_BUSY)
+#define BLE_GLINK_UI_RUN_TIMEOUT_MS 2000                                       // A request the UI task took but did not finish within this long is answered UI_BUSY
 
 //------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS

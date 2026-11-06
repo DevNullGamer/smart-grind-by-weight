@@ -22,6 +22,8 @@ public:
     bool update();
     // The progress screen (push or pull download) is up, including its connecting phase and a shown failure
     bool progress_shown() const { return progress_shown_; }
+    // The Accept dialog for a pending update request is up
+    bool prompt_shown() const { return dialog_shown_; }
 
 private:
     void update_prompt();

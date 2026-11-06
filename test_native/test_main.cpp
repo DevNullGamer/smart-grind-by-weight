@@ -43,6 +43,7 @@ void run_glink_json_tests();
 void run_glink_messages_tests();
 void run_glink_decide_tests();
 void run_glink_session_tests();
+void run_glink_gate_tests();
 void run_grind_size_tests();
 
 void setUp() {}
@@ -91,6 +92,7 @@ int main() {
     run_glink_messages_tests();
     run_glink_decide_tests();
     run_glink_session_tests();
+    run_glink_gate_tests();
     run_grind_size_tests();
     return UNITY_END();
 }

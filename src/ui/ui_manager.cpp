@@ -150,6 +150,11 @@ void UIManager::update() {
         portal_controller_->update();
     }
 
+    // GaggiMate link: serves the grindProfile mailbox and publishes the snapshot for the Bluetooth task
+    if (glink_controller_) {
+        glink_controller_->update();
+    }
+
     // WiFi update: Accept dialog and progress screen (consumes the frame while the progress screen is up)
     if (wifi_update_controller_ && wifi_update_controller_->update()) {
         return;
@@ -488,6 +493,7 @@ void UIManager::init_controllers() {
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
     wifi_update_controller_ = std::make_unique<WifiUpdateUIController>(this);
     portal_controller_ = std::make_unique<PortalUIController>(this);
+    glink_controller_ = std::make_unique<GlinkUIController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller

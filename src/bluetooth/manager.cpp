@@ -23,6 +23,7 @@
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
 #include "glink_decide.h"
+#include "glink_gate.h"
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -1291,17 +1292,6 @@ void BluetoothManager::glink_disconnect_client(const char* reason) {
     }
 }
 
-// PLACEHOLDER snapshot until step 6a (glink_gate + UI controller): fixed values, no UI or controller reads.
-static void glink_placeholder_period(GlinkPeriodInfo& info) {
-    info = GlinkPeriodInfo();
-    info.dev_state = GlinkDevState::UNKNOWN;
-    info.weight_valid = false;
-    info.select_profile = 0;
-    info.blocked = GlinkError::NONE;
-    info.result_seq = 0;
-    info.profile_rev = 0;
-}
-
 static GlinkPeriodKey glink_period_key(const GlinkPeriodInfo& info) {
     GlinkPeriodKey key;
     key.dev_state = info.dev_state;
@@ -1363,7 +1353,7 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
     size_t n = 0;
 
     if (!glink_parse_request(glink_rx.message(), glink_rx.message_length(), request, failure) ||
-        !glink_gate(glink_session.handshaken(), false, request, failure)) {
+        !glink_gate(glink_session.handshaken(), glink_pending_, request, failure)) {
         n = glink_encode_failure(out, cap, failure);
     } else if (request.object == GlinkObject::APP_HELLO) {
         // No direct response: baseInfo, then periodInfo, follow as broadcasts
@@ -1371,9 +1361,26 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
         log("GLink: client handshake\n");
     } else if (UpdateGuard::is_held() || ota_handler.is_ota_active()) {
         n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UPDATING, glink_msg::UPDATING, nullptr);
+    } else if (request.object == GlinkObject::GRIND_PROFILE && request.op == GlinkOp::GET) {
+        // Served from the snapshot the UI task publishes; a stale one means the UI task is not running
+        if (!glink_command_gate.read_snapshot(&glink_snapshot_)) {
+            n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
+        } else {
+            n = glink_serve_get(glink_snapshot_, request, out, cap, failure);
+            if (n == 0) n = glink_encode_failure(out, cap, failure);
+        }
+    } else if (request.object == GlinkObject::GRIND_PROFILE) {
+        // select and update: decided and applied on the UI task; the answer is polled on the next ticks
+        if (glink_command_gate.submit(request)) {
+            glink_pending_ = true;
+            glink_pending_object_ = static_cast<int>(request.object);
+            glink_pending_epoch_ = glink_epoch_seen;
+        } else {
+            n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
+        }
     } else {
-        // Step 6a/6b wire grindProfile, grindControl and grindResult through the UI task; until then they are
-        // refused (this includes stop, which has nothing to stop yet)
+        // Step 6b wires grindControl and grindResult; until then they are refused (this includes stop, which has
+        // nothing to stop yet)
         n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
     }
 
@@ -1385,6 +1392,54 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
         tx_failed = false;
         glink_tx.commit(n, glink_tx_sequence++);
     }
+}
+
+// The UI task's answer to the grindProfile request filed earlier. Polled only while the TX buffer is idle, so the answer
+// (which the poll consumes) always has room; an answer for a client that has gone meanwhile is dropped (7.4).
+void BluetoothManager::glink_poll_pending() {
+    if (!glink_pending_ || !glink_tx.idle()) return;
+    GlinkMailboxResult reply;
+    const GlinkMailboxWait wait = glink_command_gate.poll(&reply);
+    if (wait == GlinkMailboxWait::WAITING) return;
+    glink_pending_ = false;
+    if (glink_pending_epoch_ != glink_epoch_seen) return;
+
+    char* out = glink_tx.scratch();
+    const size_t cap = glink_tx.scratch_capacity();
+    size_t n = 0;
+    if (wait == GlinkMailboxWait::TIMEOUT) {
+        // An abandoned request answers UI_BUSY although the UI task may still apply the write; profileRev and the
+        // compare-first writes make the client's retry harmless
+        n = glink_encode_error(out, cap, glink_pending_object_, GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
+    } else if (reply.kind == GlinkReplyKind::PROFILE_UPDATE) {
+        n = glink_encode_profile_update(out, cap, reply.entry, reply.changed, reply.stored);
+    } else if (reply.kind == GlinkReplyKind::SELECT) {
+        n = glink_encode_select(out, cap, reply.select_profile);
+    } else {
+        n = glink_encode_failure(out, cap, reply.failure);
+    }
+    if (n != 0) {
+        tx_failed = false;
+        glink_tx.commit(n, glink_tx_sequence++);
+    }
+}
+
+// periodInfo from the UI task's snapshot. If the UI task stopped publishing, the heartbeat goes on with devState UNKNOWN
+// and no live values, so a client sees the link is alive but the grinder is not answering.
+void BluetoothManager::glink_fill_period(GlinkPeriodInfo& info) {
+    if (glink_command_gate.read_snapshot(&glink_snapshot_)) {
+        info = glink_snapshot_.period;
+        glink_last_period_ = info;
+        glink_have_period_ = true;
+        return;
+    }
+    info = glink_have_period_ ? glink_last_period_ : GlinkPeriodInfo();
+    info.dev_state = GlinkDevState::UNKNOWN;
+    info.weight_valid = false;
+    info.phase = GlinkPhase::NONE;
+    info.has_target = false;
+    info.has_lead_in = false;
+    info.blocked = glink_blocked(GlinkDevState::UNKNOWN, GlinkStartBlock::NONE);
 }
 
 void BluetoothManager::glink_pump_tx(uint32_t now_ms) {
@@ -1436,6 +1491,9 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
             glink_session.on_connect(link_connect_ms.load(), !full_enabled);
         }
     }
+    if (!device_connected) {
+        glink_poll_pending();  // settles a request filed for a client that has gone (the answer is dropped)
+    }
     if (!device_connected || !glink_session.connected() || glink_disconnect_sent) return;
 
     glink_session.set_subscribed(tx_subscribed.load());
@@ -1457,6 +1515,7 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
     }
 
     glink_pump_tx(now_ms);
+    glink_poll_pending();
     if (glink_tx.idle()) {
         glink_process_request(now_ms);
     }
@@ -1477,9 +1536,11 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
         glink_session.mark_base_info_sent();  // also when it did not fit: never loop on it
     } else if (glink_tx.idle()) {
         GlinkPeriodInfo info;
-        glink_placeholder_period(info);
+        glink_fill_period(info);
         const GlinkPeriodKey key = glink_period_key(info);
-        if (glink_session.period_due(now_ms, key, false)) {
+        const bool weight_changed = info.weight_valid != glink_sent_weight_valid_ ||
+                                    (info.weight_valid && info.weight_tenths != glink_sent_weight_tenths_);
+        if (glink_session.period_due(now_ms, key, weight_changed)) {
             char* out = glink_tx.scratch();
             const size_t n = glink_encode_period_info(out, glink_tx.scratch_capacity(), info);
             if (n != 0) {
@@ -1487,6 +1548,8 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
                 glink_tx.commit(n, glink_tx_sequence++);
             }
             glink_session.mark_period_sent(now_ms, key);
+            glink_sent_weight_valid_ = info.weight_valid;
+            glink_sent_weight_tenths_ = info.weight_tenths;
         }
     }
     glink_pump_tx(now_ms);

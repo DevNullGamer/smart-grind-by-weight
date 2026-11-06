@@ -14,6 +14,8 @@
 #include "ota_handler.h"
 #include "data_stream.h"
 #include "glink_session.h"
+#include "glink_mailbox.h"
+#include "glink_snapshot.h"
 
 // Forward declaration to avoid circular dependency
 class UIManager;
@@ -154,6 +156,16 @@ private:
     uint32_t glink_epoch_seen;
     bool glink_disconnect_sent;
     unsigned long last_sysinfo_update_ms;
+    // A grindProfile request is with the UI task (Bluetooth task only; the answer is polled from the gate)
+    bool glink_pending_ = false;
+    int glink_pending_object_ = -1;
+    uint32_t glink_pending_epoch_ = 0;
+    // periodInfo: the last snapshot value seen (sent as UNKNOWN when the UI task stopped publishing) and the weight last sent
+    GlinkPeriodInfo glink_last_period_;
+    bool glink_have_period_ = false;
+    GlinkSnapshot glink_snapshot_;  // scratch copy of the UI task's snapshot (about 250 bytes)
+    bool glink_sent_weight_valid_ = false;
+    int32_t glink_sent_weight_tenths_ = 0;
 
     // Private methods
     void create_stack();
@@ -164,6 +176,8 @@ private:
     void glink_service_tick(uint32_t now_ms);
     void glink_pump_tx(uint32_t now_ms);
     void glink_process_request(uint32_t now_ms);
+    void glink_poll_pending();
+    void glink_fill_period(GlinkPeriodInfo& info);
     void glink_send_error(int object, GlinkError code, const char* message);
     void glink_disconnect_client(const char* reason);
     void update_ui_status(const char* status);

@@ -42,6 +42,8 @@ public:
     ~PortalUIController();
 
     void update();
+    // A remote start (web panel) is in its touch-to-cancel lead-in; GLink reports it as STARTING / refuses writes
+    bool lead_in_active() const { return lead_in_.active; }
 
 private:
     // PortalApplyTarget: the writes of a PATCH, through the handlers of the touchscreen

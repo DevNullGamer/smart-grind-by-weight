@@ -43,6 +43,21 @@ bool glink_gate(bool handshaken, bool request_pending, const GlinkRequest& reque
 // 7.3: may a stored change be made now? have_last false = none since boot. Wrap-safe millisecond clock.
 bool glink_write_interval_ok(bool have_last, uint32_t last_store_ms, uint32_t now_ms);
 
+// The UI task's memory of the last stored change: wraps glink_write_interval_ok with the clock value, so the rule is one
+// object a host test can drive with a fake clock. note_store() on every flash write attempt (a failed one counts too).
+class GlinkWriteLimiter {
+public:
+    bool ok(uint32_t now_ms) const { return glink_write_interval_ok(have_last_, last_ms_, now_ms); }
+    void note_store(uint32_t now_ms) {
+        have_last_ = true;
+        last_ms_ = now_ms;
+    }
+
+private:
+    bool have_last_ = false;
+    uint32_t last_ms_ = 0;
+};
+
 //------------------------------------------------------------------------------
 // grindProfile update (5.4) and select
 //------------------------------------------------------------------------------

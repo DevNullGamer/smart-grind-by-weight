@@ -31,6 +31,7 @@
 #include "controllers/status_indicator_controller.h"
 #include "controllers/wifi_update_controller.h"
 #include "controllers/portal_ui_controller.h"
+#include "controllers/glink_controller.h"
 #include "../system/state_machine.h"
 #include "../system/diagnostics_controller.h"
 #include "../controllers/profile_controller.h"
@@ -68,6 +69,7 @@ class UIManager {
     friend class JogAdjustController;
     friend class WifiUpdateUIController;
     friend class PortalUIController;
+    friend class GlinkUIController;
 
 private:
     HardwareManager* hardware_manager = nullptr;
@@ -104,6 +106,7 @@ private:
     std::unique_ptr<JogAdjustController> jog_adjust_controller_;
     std::unique_ptr<WifiUpdateUIController> wifi_update_controller_;
     std::unique_ptr<PortalUIController> portal_controller_;
+    std::unique_ptr<GlinkUIController> glink_controller_;
     std::unique_ptr<DiagnosticsController> diagnostics_controller_;
 
 public:
