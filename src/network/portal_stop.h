@@ -1,7 +1,8 @@
 #pragma once
 
 /**
- * Stop path of the web panel (POST /api/command {"cmd":"stop"}), docs/PORTAL-API.md "Stop".
+ * Stop path of the web panel (POST /api/command {"cmd":"stop"}), docs/PORTAL-API.md "Stop". GLink's `grindControl stop`
+ * (docs/GLINK-PROTOCOL.md 5.5) calls it too, from the Bluetooth task.
  *
  * The one command that must not depend on the UI task (it may be busy in a blocking screen operation). It runs on
  * the HTTP task and touches only two things, both built for being called from any task:

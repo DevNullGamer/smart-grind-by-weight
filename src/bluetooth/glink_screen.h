@@ -35,13 +35,15 @@ struct GlinkPeriodInputs {
     float weight_g = 0.0f;
     uint8_t select_profile = 0;
     bool time_mode = false;         // the running grind is a time grind
-    float target = 0.0f;            // g (weight mode) or s (time mode) of the running grind
+    float target = 0.0f;            // g (weight mode) or s (time mode) of the running grind or of the pending start
+    bool lead_in_known = false;     // lead_in_ms is valid (a remote start is in its lead-in)
+    uint32_t lead_in_ms = 0;        // milliseconds until the lead-in ends
     uint32_t result_seq = 0;
     uint32_t profile_rev = 0;
 };
 
 // Weight and target are rounded half away from zero to tenths; a non-finite weight is "invalid". `phase` and `target`
-// are present only while GRINDING.
+// are present only while GRINDING; `leadInMs`, `target` and `mode` while STARTING (when lead_in_known).
 GlinkPeriodInfo glink_build_period(const GlinkPeriodInputs& inputs);
 
 // Value rounded half away from zero to tenths (the wire resolution of every number)

@@ -57,6 +57,13 @@ GlinkPeriodInfo glink_build_period(const GlinkPeriodInputs& in) {
         info.target_tenths = glink_tenths_from_float(in.target);
         info.mode = in.time_mode ? GlinkMode::TIME : GlinkMode::WEIGHT;
     }
+    if (info.dev_state == GlinkDevState::STARTING && in.lead_in_known) {
+        info.has_lead_in = true;
+        info.lead_in_ms = in.lead_in_ms;
+        info.has_target = true;
+        info.target_tenths = glink_tenths_from_float(in.target);
+        info.mode = in.time_mode ? GlinkMode::TIME : GlinkMode::WEIGHT;
+    }
     info.blocked = glink_blocked(info.dev_state, in.block);
     info.result_seq = in.result_seq;
     info.profile_rev = in.profile_rev;

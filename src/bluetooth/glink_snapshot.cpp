@@ -26,3 +26,15 @@ size_t glink_serve_get(const GlinkSnapshot& snapshot, const GlinkRequest& reques
     }
     return n;
 }
+
+size_t glink_serve_result_get(const GlinkSnapshot& snapshot, char* out, size_t cap, GlinkFailure& failure) {
+    const int object = static_cast<int>(GlinkObject::GRIND_RESULT);
+    if (!glink_state_check(snapshot.screen, GlinkOpClass::GET, object, failure)) return 0;
+    if (!snapshot.has_result) {
+        glink_set_failure(failure, GlinkError::NOT_FOUND, glink_msg::NO_RESULT, "", object);
+        return 0;
+    }
+    const size_t n = glink_encode_result_get(out, cap, snapshot.last_result);
+    if (n == 0) glink_set_failure(failure, GlinkError::UI_BUSY, glink_msg::UI_BUSY, "", object);
+    return n;
+}

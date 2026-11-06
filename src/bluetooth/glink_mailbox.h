@@ -16,8 +16,8 @@
 
 enum class GlinkMailboxState : uint8_t { IDLE, QUEUED, TAKEN, DONE };
 
-// What the UI task answers. 6b adds START and STOP replies.
-enum class GlinkReplyKind : uint8_t { FAILURE, PROFILE_UPDATE, SELECT };
+// What the UI task answers. START: accepted, the lead-in has begun (stop never goes through the mailbox).
+enum class GlinkReplyKind : uint8_t { FAILURE, PROFILE_UPDATE, SELECT, START };
 
 struct GlinkMailboxResult {
     GlinkReplyKind kind = GlinkReplyKind::FAILURE;
@@ -26,6 +26,7 @@ struct GlinkMailboxResult {
     bool changed = false;       // PROFILE_UPDATE
     bool stored = false;        // PROFILE_UPDATE
     uint8_t select_profile = 0; // SELECT
+    uint32_t lead_in_ms = 0;    // START
 };
 
 struct GlinkMailbox {

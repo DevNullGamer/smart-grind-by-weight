@@ -1,5 +1,6 @@
 """Text guard (chg020 step 6a): GLink code on the BLE side never touches LVGL, UI, controllers or Preferences,
-and grindControl / grindResult stay refused (UI_BUSY) until step 6b enables them."""
+and (since step 6b) grindControl / grindResult are dispatched: stop on the BLE task, start through the mailbox,
+result get from the snapshot."""
 import re
 from pathlib import Path
 
@@ -35,11 +36,11 @@ def test_manager_glink_code_has_no_ui_or_storage_access():
             assert not re.search(r"Preferences|grind_controller|GrindController", line), line
 
 
-def test_grind_control_and_result_still_answer_ui_busy():
-    code = (BT / "manager.cpp").read_text(encoding="utf-8")
-    m = re.search(r"\} else \{\s*//[^\n]*6b[^\n]*\n(?:\s*//[^\n]*\n)*\s*n = glink_encode_error\(([^;]*)\);", code)
-    assert m, "final else branch (grindControl/grindResult) not found"
-    assert "GlinkError::UI_BUSY" in m.group(1)
-    # nothing else dispatches grindControl / grindResult yet
-    assert "GlinkObject::GRIND_CONTROL" not in code
-    assert "GlinkObject::GRIND_RESULT" not in code
+def test_grind_control_and_result_are_dispatched_since_6b():
+    code = _code((BT / "manager.cpp").read_text(encoding="utf-8"))
+    # stop runs on this task (portal_stop_now only, nothing else of the grind side) ...
+    assert "GlinkObject::GRIND_CONTROL && request.op == GlinkOp::STOP" in code
+    assert code.count("portal_stop_now()") == 1
+    # ... grindResult get is served from the snapshot, start goes through the mailbox like select and update
+    assert "GlinkObject::GRIND_RESULT" in code and "glink_serve_result_get(" in code
+    assert code.count("glink_command_gate.submit(request)") == 1  # the final branch: profile select/update and start

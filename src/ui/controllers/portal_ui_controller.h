@@ -44,6 +44,11 @@ public:
     void update();
     // A remote start (web panel) is in its touch-to-cancel lead-in; GLink reports it as STARTING / refuses writes
     bool lead_in_active() const { return lead_in_.active; }
+    // For GLink's periodInfo while STARTING: the web panel's lead-in and the profile it will grind
+    const PortalLeadIn& lead_in_state() const { return lead_in_; }
+    int lead_in_profile() const { return lead_in_profile_; }
+    // Grind session of the last remote start the web panel made (0 = none); GLink reports origin WEB for its result
+    uint32_t web_session_id() const { return web_session_id_; }
 
 private:
     // PortalApplyTarget: the writes of a PATCH, through the handlers of the touchscreen
@@ -90,5 +95,6 @@ private:
     bool values_valid_ = false;
     PortalLeadIn lead_in_;           // remote start waiting for its touch-to-cancel window
     int lead_in_profile_ = 0;
+    uint32_t web_session_id_ = 0;
     uint32_t lead_in_shown_s_ = 0;   // seconds last written to the overlay text
 };

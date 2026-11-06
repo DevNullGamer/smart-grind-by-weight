@@ -8,6 +8,7 @@
 #include "../../config/constants.h"
 #include "../../controllers/grind_events.h"
 #include "../../controllers/grind_mode.h"
+#include "../../controllers/grind_mode_traits.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/nvs_settings_store.h"
 #include "../ui_manager.h"
@@ -250,7 +251,11 @@ GrindStartBlock GrindingUIController::start_glink_grind(int profile) {
     if (!std::isfinite(grams) || grams < GLINK_DOSE_MIN_G || grams > GLINK_DOSE_MAX_G) {
         return GrindStartBlock::MOTOR_DISABLED;
     }
-    return begin_grind(static_cast<uint8_t>(profile), grams, 0, GrindMode::WEIGHT);
+    const GrindStartBlock block = begin_grind(static_cast<uint8_t>(profile), grams, 0, GrindMode::WEIGHT);
+    // The session runs in WEIGHT mode whatever the user's grind mode is; the grind events move UIManager::current_mode
+    // and the grinding screen along, so enter_ready_state() puts the stored mode back
+    if (block == GrindStartBlock::NONE) forced_mode_.arm();
+    return block;
 }
 
 GrindStartBlock GrindingUIController::begin_grind(uint8_t profile_id, float target_weight, uint32_t target_time_ms,
@@ -585,6 +590,13 @@ void GrindingUIController::dispatch_event(const GrindEventData& event_data) {
 }
 
 void GrindingUIController::enter_ready_state() {
+    // After a GLink grind (STOPPED, COMPLETED or TIMEOUT all end here): the user's grind mode, not the forced WEIGHT one
+    GrindMode restored_mode;
+    if (ui_manager_->profile_controller && forced_mode_.on_ready(ui_manager_->profile_controller->get_grind_mode(), &restored_mode)) {
+        ui_manager_->current_mode = restored_mode;
+        ui_manager_->edit_target = get_current_profile_target(*ui_manager_->profile_controller, ui_manager_->current_mode);
+        if (ui_manager_->ready_controller_) ui_manager_->ready_controller_->refresh_profiles();
+    }
     if (!grind_button_) {
         return;
     }

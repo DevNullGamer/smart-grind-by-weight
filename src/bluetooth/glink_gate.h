@@ -29,6 +29,8 @@ public:
 
     // ---- UI task ----
     bool take(GlinkRequest* out);
+    // A request is filed and not yet taken (QUEUED); the UI task uses it to keep a pending stop for the lead-in it may start
+    bool request_queued();
     void complete(const GlinkMailboxResult& result);
     void publish(const GlinkSnapshot& snapshot);
     void attach_ui(bool attached);

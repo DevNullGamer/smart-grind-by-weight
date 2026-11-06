@@ -225,7 +225,8 @@ PortalDecisionInput PortalUIController::gather_decision() const {
     in.busy = grinder_busy();
     in.update_held = UpdateGuard::is_held();
     // The mailbox itself admits one request at a time; a remote start in its lead-in still counts as in flight
-    in.command_in_flight = lead_in_.active;
+    // (a GLink remote start in its lead-in counts too: one remote start in flight across web and BLE)
+    in.command_in_flight = lead_in_.active || (ui_manager_->glink_controller_ && ui_manager_->glink_controller_->lead_in_active());
     auto* grind = ui_manager_->grind_controller;
     in.start_block = grind ? grind->start_block() : GrindStartBlock::MOTOR_DISABLED;
     in.motor_test_block = ui_manager_->motor_pulse_block();
@@ -397,7 +398,11 @@ void PortalUIController::run_lead_in() {
     if (!ui_manager_->grinding_controller_) return;
     LOG_BLE("[PORTAL] remote start: starting grind, profile %d\n", lead_in_profile_);
     const GrindStartBlock block = ui_manager_->grinding_controller_->start_profile_grind(lead_in_profile_);
-    if (block != GrindStartBlock::NONE) ui_manager_->show_start_blocked_notice(block);
+    if (block != GrindStartBlock::NONE) {
+        ui_manager_->show_start_blocked_notice(block);
+    } else if (ui_manager_->grind_controller) {
+        web_session_id_ = ui_manager_->grind_controller->session_id();
+    }
 }
 
 void PortalUIController::handle_patch(const PortalPatch& patch) {

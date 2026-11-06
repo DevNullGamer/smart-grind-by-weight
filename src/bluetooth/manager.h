@@ -16,6 +16,7 @@
 #include "glink_session.h"
 #include "glink_mailbox.h"
 #include "glink_snapshot.h"
+#include "glink_results.h"
 
 // Forward declaration to avoid circular dependency
 class UIManager;
@@ -152,6 +153,7 @@ private:
     uint8_t glink_tx_buffer[GLINK_MAX_REPLY_BYTES];
     GlinkTx glink_tx;
     GlinkTxPacer glink_pacer;
+    GlinkResultFeed glink_result_feed;  // Bluetooth task only: when a grindResult is broadcast
     uint16_t glink_tx_sequence;
     uint32_t glink_epoch_seen;
     bool glink_disconnect_sent;
@@ -177,6 +179,7 @@ private:
     void glink_pump_tx(uint32_t now_ms);
     void glink_process_request(uint32_t now_ms);
     void glink_poll_pending();
+    bool glink_send_result_if_due();
     void glink_fill_period(GlinkPeriodInfo& info);
     void glink_send_error(int object, GlinkError code, const char* message);
     void glink_disconnect_client(const char* reason);

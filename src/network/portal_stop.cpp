@@ -7,6 +7,7 @@
 extern HardwareManager hardware_manager;
 extern GrindController grind_controller;
 
+// Also the stop of GLink (`grindControl stop`, called on the Bluetooth task): same two calls, same counter.
 void portal_stop_now() {
     // Order matters: the flag first, so a control cycle that runs between the two lines cannot find the motor
     // stopped and restart it without also seeing the stop request.

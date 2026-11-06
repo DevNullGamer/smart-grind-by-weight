@@ -283,6 +283,8 @@ public:
     // UI event system
     void set_ui_event_callback(void (*callback)(const GrindEventData&));
     GrindSessionResult get_last_session_result() const { return last_session_result_; }
+    // Id of the newest grind session started (1-based since boot, 0 before the first). Any task.
+    uint32_t session_id() const { return session_counter_.load(std::memory_order_relaxed); }
     // Number of grind results published since boot (a stop counts). Acquire load: when it differs from the value seen
     // before, read_last_result() returns that result or a newer one. Defined while idle (0 before the first grind).
     uint32_t result_count() const { return result_seq_.load(std::memory_order_acquire) / 2; }

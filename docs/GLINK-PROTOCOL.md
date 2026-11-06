@@ -503,7 +503,7 @@ since boot is `NOT_FOUND`.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `seq` | int | grind session counter, 1-based since boot |
+| `seq` | int | result counter, 1-based since boot (the value `periodInfo.resultSeq` shows) |
 | `code` | string | result code, see 6.3 |
 | `origin` | string | `BLE`, `TOUCH` or `WEB` |
 | `profile` | int | profile index 0 to 3 |
@@ -518,6 +518,8 @@ since boot is `NOT_FOUND`.
 ```json
 {"broadcast":{"grindResult":{"seq":5,"code":"OK","origin":"BLE","profile":3,"mode":"WEIGHT","target":18.0,"finalWeight":18.1,"weightSettled":true,"pulses":2,"durationMs":14230,"motorMs":11800}}}
 ```
+
+In a rare race a `STOPPED` result may be followed by the real outcome of the same grind with a higher `seq`; the latest `seq` wins.
 
 A client that reconnects, or missed the broadcast, compares `periodInfo.resultSeq` with the last `seq` it saw and
 fetches the result with `get` when it is newer.

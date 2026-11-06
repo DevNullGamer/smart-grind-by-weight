@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include "../../bluetooth/glink_start.h"
 #include "../../controllers/grind_mode.h"
 #include "../../controllers/grind_start_check.h"
 
@@ -59,6 +60,7 @@ private:
     static GrindingUIController* instance_;
 
     UIManager* ui_manager_;
+    GlinkForcedMode forced_mode_;  // a GLink grind runs in WEIGHT mode: the user's mode is put back on return to READY
     lv_obj_t* grind_button_ = nullptr;
     lv_obj_t* grind_icon_ = nullptr;
     lv_obj_t* pulse_button_ = nullptr;

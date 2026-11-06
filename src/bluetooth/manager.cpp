@@ -22,6 +22,7 @@
 #include "../network/wifi_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
+#include "../network/portal_stop.h"
 #include "glink_decide.h"
 #include "glink_gate.h"
 
@@ -1358,7 +1359,15 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
     } else if (request.object == GlinkObject::APP_HELLO) {
         // No direct response: baseInfo, then periodInfo, follow as broadcasts
         glink_session.on_handshake();
+        glink_result_feed.on_handshake();
         log("GLink: client handshake\n");
+    } else if (request.object == GlinkObject::GRIND_CONTROL && request.op == GlinkOp::STOP) {
+        // Never queued, never refused: cuts the motor and the grind on this task (the same call as the web panel's stop),
+        // and bumps the counter the UI task watches to cancel a lead-in or an autotune run. Also before the handshake and
+        // during an update. Answers at once, also when nothing was running.
+        portal_stop_now();
+        log("GLink: stop\n");
+        n = glink_encode_stop(out, cap);
     } else if (UpdateGuard::is_held() || ota_handler.is_ota_active()) {
         n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UPDATING, glink_msg::UPDATING, nullptr);
     } else if (request.object == GlinkObject::GRIND_PROFILE && request.op == GlinkOp::GET) {
@@ -1369,8 +1378,17 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
             n = glink_serve_get(glink_snapshot_, request, out, cap, failure);
             if (n == 0) n = glink_encode_failure(out, cap, failure);
         }
-    } else if (request.object == GlinkObject::GRIND_PROFILE) {
-        // select and update: decided and applied on the UI task; the answer is polled on the next ticks
+    } else if (request.object == GlinkObject::GRIND_RESULT) {
+        // grindResult get: the last result is part of the snapshot the UI task publishes
+        if (!glink_command_gate.read_snapshot(&glink_snapshot_)) {
+            n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
+        } else {
+            n = glink_serve_result_get(glink_snapshot_, out, cap, failure);
+            if (n == 0) n = glink_encode_failure(out, cap, failure);
+        }
+    } else {
+        // grindProfile select and update, grindControl start: decided and applied on the UI task; the answer is polled on
+        // the next ticks
         if (glink_command_gate.submit(request)) {
             glink_pending_ = true;
             glink_pending_object_ = static_cast<int>(request.object);
@@ -1378,10 +1396,6 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
         } else {
             n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
         }
-    } else {
-        // Step 6b wires grindControl and grindResult; until then they are refused (this includes stop, which has
-        // nothing to stop yet)
-        n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
     }
 
     portENTER_CRITICAL(&glink_rx_mux);
@@ -1394,7 +1408,7 @@ void BluetoothManager::glink_process_request(uint32_t now_ms) {
     }
 }
 
-// The UI task's answer to the grindProfile request filed earlier. Polled only while the TX buffer is idle, so the answer
+// The UI task's answer to the grindProfile / grindControl request filed earlier. Polled only while the TX buffer is idle, so the answer
 // (which the poll consumes) always has room; an answer for a client that has gone meanwhile is dropped (7.4).
 void BluetoothManager::glink_poll_pending() {
     if (!glink_pending_ || !glink_tx.idle()) return;
@@ -1415,6 +1429,8 @@ void BluetoothManager::glink_poll_pending() {
         n = glink_encode_profile_update(out, cap, reply.entry, reply.changed, reply.stored);
     } else if (reply.kind == GlinkReplyKind::SELECT) {
         n = glink_encode_select(out, cap, reply.select_profile);
+    } else if (reply.kind == GlinkReplyKind::START) {
+        n = glink_encode_start(out, cap, reply.lead_in_ms);
     } else {
         n = glink_encode_failure(out, cap, reply.failure);
     }
@@ -1440,6 +1456,23 @@ void BluetoothManager::glink_fill_period(GlinkPeriodInfo& info) {
     info.has_target = false;
     info.has_lead_in = false;
     info.blocked = glink_blocked(GlinkDevState::UNKNOWN, GlinkStartBlock::NONE);
+}
+
+// grindResult broadcast (5.6): once per finished grind, to the handshaken client, from the snapshot the UI task publishes.
+// Not sent while the snapshot is stale. A notification that fails drops the message; the client falls back to `get`.
+bool BluetoothManager::glink_send_result_if_due() {
+    if (!glink_command_gate.read_snapshot(&glink_snapshot_)) return false;
+    const GlinkResultInfo& result = glink_snapshot_.last_result;
+    if (!glink_result_feed.due(glink_snapshot_.has_result, result.seq)) return false;
+    char* out = glink_tx.scratch();
+    if (!out) return false;
+    const size_t n = glink_encode_result_broadcast(out, glink_tx.scratch_capacity(), result);
+    glink_result_feed.mark_sent(result.seq);  // also when it did not fit: never loop on it
+    if (n == 0) return false;
+    tx_failed = false;
+    glink_tx.commit(n, glink_tx_sequence++);
+    log("GLink: grindResult seq %u sent\n",static_cast<unsigned>(result.seq));
+    return true;
 }
 
 void BluetoothManager::glink_pump_tx(uint32_t now_ms) {
@@ -1482,6 +1515,7 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
     if (epoch != glink_epoch_seen) {
         glink_epoch_seen = epoch;
         glink_session.reset();
+        glink_result_feed.reset();
         glink_tx.abort();
         glink_pacer.reset();
         glink_disconnect_sent = false;
@@ -1534,6 +1568,8 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
             glink_tx.commit(n, glink_tx_sequence++);
         }
         glink_session.mark_base_info_sent();  // also when it did not fit: never loop on it
+    } else if (glink_tx.idle() && glink_session.handshaken() && glink_send_result_if_due()) {
+        // grindResult broadcast committed; the periodInfo it changed (resultSeq) follows on the next tick
     } else if (glink_tx.idle()) {
         GlinkPeriodInfo info;
         glink_fill_period(info);

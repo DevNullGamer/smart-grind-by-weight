@@ -39,6 +39,11 @@ bool GlinkCommandGate::take(GlinkRequest* out) {
     return glink_mailbox_take(&mailbox_, out, millis(), GLINK_UI_REPLY_TIMEOUT_MS);
 }
 
+bool GlinkCommandGate::request_queued() {
+    Section section(&mux_);
+    return mailbox_.state == GlinkMailboxState::QUEUED;
+}
+
 void GlinkCommandGate::complete(const GlinkMailboxResult& result) {
     Section section(&mux_);
     glink_mailbox_complete(&mailbox_, result);
