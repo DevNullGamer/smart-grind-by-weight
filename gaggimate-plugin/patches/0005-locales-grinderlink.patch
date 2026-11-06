@@ -1,0 +1,672 @@
+diff --git a/web/src/locales/de/messages.po b/web/src/locales/de/messages.po
+index d98931d5..12669293 100644
+--- a/web/src/locales/de/messages.po
++++ b/web/src/locales/de/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "Dein Smartphone muss im selben Wi-Fi-Netzwerk wie die Maschine sein."
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "Deine gespeicherten Shots und Profile direkt aus dem internen Speicher von GaggiMate."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "GrinderLink aktivieren"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Lässt GaggiMate per Bluetooth mit einer Smart-Grind-By-Weight-Mühle sprechen: Dosis einstellen, Mahlvorgang starten und stoppen und das Ergebnis lesen. Zum Übernehmen des Schalters speichern und neu starten."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink läuft noch nicht. Speichere und starte GaggiMate neu, um es zu starten."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Mühle"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "Keine ausgewählt"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Suchen"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Auswählen"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "Noch keine Mühle gefunden. Wecke die Mühle auf und suche erneut."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "Nicht verbunden"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "Warte auf die Mühle"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dosis (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Mahlgrad"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Einheit"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "An Mühle senden"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Mahlen starten"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Stopp"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "Mühlenstatus"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "Die Mühle hat den Start nicht übernommen."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "Es wurde kein Start erkannt. Prüfe die Mühle, bevor du erneut startest."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Letztes Ergebnis"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "Anfrage fehlgeschlagen"
+diff --git a/web/src/locales/en/messages.po b/web/src/locales/en/messages.po
+index 1868492d..96fec1f7 100644
+--- a/web/src/locales/en/messages.po
++++ b/web/src/locales/en/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "Your phone needs to be on the same Wi-Fi network as the machine."
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "Your saved shots and profiles directly from the GaggiMate internal storage."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "Enable GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Grinder"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "None selected"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Scan"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Select"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "No grinder found yet. Wake the grinder and scan again."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "Not connected"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "Waiting for the grinder"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dose (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Grind size"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Unit"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "Send to grinder"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Start grind"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Stop"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "Grinder state"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "The grinder did not take the start."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "No start was seen. Check the grinder before you start again."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Last result"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "Request failed"
+diff --git a/web/src/locales/es/messages.po b/web/src/locales/es/messages.po
+index 832af6d7..76400f41 100644
+--- a/web/src/locales/es/messages.po
++++ b/web/src/locales/es/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "Tu teléfono debe estar en la misma red Wi-Fi que la máquina."
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "Tus extracciones y perfiles guardados, directamente desde el almacenamiento interno de GaggiMate."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "Activar GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Permite que GaggiMate hable por Bluetooth con un molinillo Smart Grind By Weight: ajustar la dosis, iniciar y detener una molienda y leer el resultado. Guarda y reinicia para aplicar el interruptor."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink aún no está en marcha. Guarda y reinicia GaggiMate para iniciarlo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Molinillo"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "Ninguno seleccionado"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Buscar"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Seleccionar"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "Aún no se encontró ningún molinillo. Despierta el molinillo y busca de nuevo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "No conectado"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "Esperando al molinillo"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dosis (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Tamaño de molienda"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Unidad"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "Enviar al molinillo"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Iniciar molienda"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Detener"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "Estado del molinillo"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "El molinillo no aceptó el inicio."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "No se detectó ningún inicio. Revisa el molinillo antes de iniciar de nuevo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Último resultado"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "La solicitud falló"
+diff --git a/web/src/locales/fr/messages.po b/web/src/locales/fr/messages.po
+index e5d8f858..5c8860a5 100644
+--- a/web/src/locales/fr/messages.po
++++ b/web/src/locales/fr/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "Votre téléphone doit être sur le même réseau Wi-Fi que la machine."
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "Vos shots et profils enregistrés, directement depuis le stockage interne de GaggiMate."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "Activer GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Permet à GaggiMate de communiquer en Bluetooth avec un moulin Smart Grind By Weight : régler la dose, démarrer et arrêter une mouture et lire le résultat. Enregistrez et redémarrez pour appliquer l'interrupteur."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink n'est pas encore actif. Enregistrez et redémarrez GaggiMate pour le démarrer."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Moulin"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "Aucun sélectionné"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Rechercher"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Sélectionner"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "Aucun moulin trouvé. Réveillez le moulin et relancez la recherche."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "Non connecté"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "En attente du moulin"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dose (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Finesse de mouture"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Unité"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "Envoyer au moulin"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Démarrer la mouture"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Arrêter"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "État du moulin"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "Le moulin n'a pas pris en compte le démarrage."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "Aucun démarrage constaté. Vérifiez le moulin avant de redémarrer."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Dernier résultat"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "Échec de la requête"
+diff --git a/web/src/locales/it/messages.po b/web/src/locales/it/messages.po
+index 04f30fd3..29bba498 100644
+--- a/web/src/locales/it/messages.po
++++ b/web/src/locales/it/messages.po
+@@ -5764,3 +5764,91 @@ msgstr "Il telefono deve essere sulla stessa rete Wi-Fi della macchina."
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "Gli shot e i profili salvati, direttamente dalla memoria interna di GaggiMate."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "Attiva GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Permette a GaggiMate di comunicare via Bluetooth con un macinino Smart Grind By Weight: imposta la dose, avvia e ferma una macinatura e leggi il risultato. Salva e riavvia per applicare l'interruttore."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink non è ancora in esecuzione. Salva e riavvia GaggiMate per avviarlo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Macinino"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "Nessuno selezionato"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Cerca"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Seleziona"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "Nessun macinino trovato. Riattiva il macinino e cerca di nuovo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "Non connesso"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "In attesa del macinino"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dose (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Grado di macinatura"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Unità"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "Invia al macinino"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Avvia macinatura"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Stop"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "Stato del macinino"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "Il macinino non ha accettato l'avvio."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "Nessun avvio rilevato. Controlla il macinino prima di riavviare."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Ultimo risultato"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "Richiesta non riuscita"
+diff --git a/web/src/locales/ja/messages.po b/web/src/locales/ja/messages.po
+index 10c91dfc..e561ac1b 100644
+--- a/web/src/locales/ja/messages.po
++++ b/web/src/locales/ja/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "スマートフォンをマシンと同じ Wi-Fi ネットワークに
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "GaggiMate の内部ストレージに保存されたショットとプロファイルを直接表示します。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "GrinderLinkを有効にする"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "GaggiMateがBluetoothでSmart Grind By Weightグラインダーと通信できるようにします。ドーズの設定、挽きの開始と停止、結果の読み取りができます。スイッチを反映するには保存して再起動してください。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLinkはまだ動作していません。保存してGaggiMateを再起動すると開始します。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "グラインダー"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "未選択"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "スキャン"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "選択"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "グラインダーが見つかりません。グラインダーを起こして再度スキャンしてください。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "未接続"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "グラインダーを待っています"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "ドーズ (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "挽き目"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "単位"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "グラインダーに送信"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "挽き開始"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "停止"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "グラインダーの状態"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "グラインダーは開始を受け付けませんでした。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "開始を確認できませんでした。再度開始する前にグラインダーを確認してください。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "前回の結果"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "リクエストに失敗しました"
+diff --git a/web/src/locales/zh/messages.po b/web/src/locales/zh/messages.po
+index 27095dd0..714c9174 100644
+--- a/web/src/locales/zh/messages.po
++++ b/web/src/locales/zh/messages.po
+@@ -5760,3 +5760,91 @@ msgstr "手机需要与咖啡机处于同一 Wi-Fi 网络。"
+ #: src/pages/ShotAnalyzer/components/EmptyState.jsx
+ msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
+ msgstr "直接来自 GaggiMate 内部存储的已保存萃取和曲线。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "启用 GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "让 GaggiMate 通过蓝牙与 Smart Grind By Weight 磨豆机通信：设置粉量、开始和停止研磨并读取结果。保存并重启后开关才会生效。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "GrinderLink 尚未运行。请保存并重启 GaggiMate 以启动它。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "磨豆机"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "未选择"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "扫描"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "选择"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "尚未找到磨豆机。请唤醒磨豆机后重新扫描。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Not connected"
++msgstr "未连接"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "等待磨豆机"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "粉量 (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "研磨粗细"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "单位"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "发送到磨豆机"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "开始研磨"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "停止"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "磨豆机状态"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "磨豆机未接受启动。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "未检测到启动。再次启动前请检查磨豆机。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "上次结果"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "请求失败"

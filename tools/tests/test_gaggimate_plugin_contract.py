@@ -1,4 +1,4 @@
-"""Contract guard for gaggimate-plugin/ (chg020, step 8a).
+"""Contract guard for gaggimate-plugin/ (chg020, steps 8a and 8b).
 
 No GaggiMate checkout, no PlatformIO and no hardware are needed. It keeps the files the plugin shares with the grinder
 firmware byte-identical (line endings aside), keeps the pure plugin code free of Arduino/NimBLE/heap, checks the patch
@@ -64,7 +64,7 @@ def test_shared_file_is_identical_with_the_firmware(copy, original):
 
 def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
-    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp"}
+    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"
@@ -163,6 +163,73 @@ def test_patches_apply_to_the_checkout():
         pytest.skip("no sh")
     r = subprocess.run([sh, str(PLUGIN / "scripts" / "check_patches.sh")], capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ---- NimBLE glue and web card (8b) ---------------------------------------------------------------------------------
+
+PLUGIN_CPP = GLINK / "GLinkPlugin.cpp"
+CARD = PLUGIN / "web" / "src" / "pages" / "Settings" / "GrinderLinkCard.jsx"
+
+
+def code_lines(path: Path):
+    """Source lines with // comments dropped."""
+    return [line.split("//")[0] for line in read_text(path).splitlines()]
+
+
+def test_plugin_glue_is_device_only_and_checks_the_connection_count():
+    for path in (GLINK / "GLinkPlugin.h", PLUGIN_CPP):
+        text = read_text(path)
+        assert "#ifndef GAGGIMATE_SIM" in text, f"{path.name} lacks the simulator guard"
+    assert re.search(r"static_assert\(CONFIG_BT_NIMBLE_MAX_CONNECTIONS >= 3", read_text(PLUGIN_CPP))
+
+
+def test_plugin_never_replays_a_start():
+    code = chr(10).join(code_lines(PLUGIN_CPP))
+    # one place sends a start, and it is the explicit request path (never connect, drop, auto fetch or loop)
+    assert code.count("client->start(") == 1
+    start_at = code.index("client->start(")
+    assert code.rfind("void GLinkPlugin::", 0, start_at) == code.index("void GLinkPlugin::beginClientOp")
+    # the dose that guards the start is always passed
+    assert re.search(r"client->start\(cmd\.profile, expect, now\)", code)
+    # a request queued before a link change is refused
+    assert "linkEpoch" in code and '"STALE"' in code
+    # a start timeout keeps the Client's own block until a periodInfo has been seen, and the plugin watches it
+    assert "startTimedOut" in code and "stopUnconfirmed" in code
+
+
+def test_plugin_keeps_the_big_objects_off_the_stack_and_the_ws_threads_out_of_ble():
+    code = chr(10).join(code_lines(PLUGIN_CPP))
+    assert "new (std::nothrow) glinkc::Client" in code
+    # the AsyncTCP handlers only enqueue
+    enqueue = code[code.index("void GLinkPlugin::enqueue") : code.index("void GLinkPlugin::loop")]
+    assert "NimBLE" not in enqueue and "client->" not in enqueue
+
+
+def test_card_requests_match_what_the_plugin_registers():
+    registered = set(re.findall(r'\{"(req:grinderlink:[a-z:]+)"', read_text(PLUGIN_CPP)))
+    used = set(re.findall(r"'(req:grinderlink:[a-z:]+)'", read_text(CARD)))
+    assert registered and used
+    assert used <= registered, used - registered
+    events = set(re.findall(r"'(evt:grinderlink:[a-z]+)'", read_text(CARD)))
+    assert events and all(f'"{e}"' in read_text(PLUGIN_CPP) for e in events)
+
+
+def test_card_and_patches_use_the_same_setting_names():
+    card = read_text(CARD)
+    assert "grinderLinkActive" in card
+    hook = read_text(PLUGIN / "patches" / "0004-webui-grinderlink-card-hook.patch")
+    assert "GrinderLinkCard" in hook and "'grinderLinkActive'" in hook
+
+
+def test_check_script_refuses_a_directory_that_is_not_empty(tmp_path):
+    sh = shutil.which("sh")
+    if sh is None:
+        pytest.skip("no sh")
+    (tmp_path / "keep.txt").write_text("x", encoding="utf-8")
+    r = subprocess.run([sh, str(PLUGIN / "scripts" / "check_against_gaggimate.sh"), str(tmp_path)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "BLOCKED" in r.stdout
+    assert (tmp_path / "keep.txt").exists()
 
 
 # ---- README -----------------------------------------------------------------------------------------------------
