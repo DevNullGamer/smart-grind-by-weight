@@ -34,13 +34,14 @@ The Smart Grind-by-Weight is a user-friendly, touch interface-driven, highly acc
 
 ## ✨ Features
 
-- **User-friendly interface** with 3 profiles: Single, Double, Custom
+- **User-friendly interface** with 3 profiles: Single, Double, Custom (a fourth only via GaggiMate)
 - **Beautiful display** with simple graphics or detailed charts (easily switchable)
 - **High accuracy**: ±0.03g error tolerance  
 - **Zero-shot learning**: Algorithm adapts instantly to any grind size, bean setting, humidity etc. without manual tuning
 - **Original timed run preserved** – there is a setting to enable the original Grind-By-Time mode
 - **BLE OTA updates** for firmware
 - **WiFi OTA** (experimental): update from your computer with `python3 tools/grinder.py wifi-upload` or from the menu (Menu → WiFi → Check for update), each update confirmed on the grinder, with automatic rollback if the new firmware does not start. Set up with the web flasher or `grinder.py wifi-set`; see [WiFi Setup](docs/DOC.md#-wifi-setup). Not yet verified on hardware end to end.
+- **GaggiMate link** (experimental, off by default): a GaggiMate can read the state, set a dose and start or stop a grind over Bluetooth (GLink, no authentication; see [DOC.md](docs/DOC.md#gaggimate-link-glink) and [GLINK-PROTOCOL.md](docs/GLINK-PROTOCOL.md)). Not yet run end to end on hardware.
 - **Advanced analytics** using BLE data transfer and Python Streamlit reports
 - **For Eureka**: No permanent modifications needed - just swap the screen and add 3D printed parts
 

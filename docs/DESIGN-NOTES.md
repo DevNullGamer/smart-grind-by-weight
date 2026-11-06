@@ -1094,10 +1094,9 @@ removal still have to be checked there.
   A request before the handshake gets `INVALID_STATE`. Every per-connection piece (session, RX, TX, pacer, subscription,
   MTU) restarts on a connect or disconnect (epoch counter).
 - **Update exclusion:** `onConnect` still refuses while `UpdateGuard::is_held()`; requests during an update get `UPDATING`.
-- **Placeholder until 6a:** `baseInfo` is real (build number, MAC-derived `snCode`, firmware version, board); `periodInfo`
-  is a fixed placeholder snapshot (`devState` UNKNOWN, `weight` null, profile 0, `blocked` null, counters 0).
-  `grindProfile`, `grindControl` (including `stop`) and `grindResult` are answered `UI_BUSY` ("ui task did not answer in
-  time") until steps 6a and 6b wire them; `glink_process_request` is where they go.
+- **Superseded by 6a/6b:** step 5 shipped `baseInfo` real and `periodInfo` as a fixed placeholder, with `grindProfile`,
+  `grindControl` and `grindResult` answered `UI_BUSY`. Steps 6a and 6b replaced that (next sections); `baseInfo` (build
+  number, MAC-derived `snCode`, firmware version, board) is unchanged.
 - **Indicator:** `StatusIndicatorController` caches two more states, LISTENING (LINK_ONLY, no client: secondary colour) and
   LINKED (LINK_ONLY, client connected: success colour); it still hides under CONFIRM dialogs. The Bluetooth page shows
   "GaggiMate: listening / connected / linked" in words and no timer line in LINK_ONLY.
@@ -1118,3 +1117,121 @@ removal still have to be checked there.
   writers are FULL-only paths), reads return nothing, writes are refused.
 - To measure on hardware: stack high-water of the Bluetooth task (8 KB; `packet[512]` plus the encoders were added in
   `glink_pump_tx` / `glink_process_request`).
+
+### Step 6a: gate, snapshot, UI controller, profile operations
+- **Threads.** The Bluetooth task never touches LVGL, the controllers, `ProfileController`, `UiSettings` or NVS (guard:
+  `tools/tests/test_glink_ble_task_guard.py`). It talks to the UI task only through `glink_command_gate`
+  (`bluetooth/glink_gate.*`, pure state machine in `glink_mailbox.*`), the same split as `PortalCommandGate`. The UI side is
+  `ui/controllers/glink_controller.*` (`GlinkUIController`, polled from `UIManager::update()`).
+- **Reads come from a snapshot.** While a client is linked the UI task republishes a `GlinkSnapshot` (screen class,
+  periodInfo fields, the four profiles, last result) at least every `BLE_GLINK_SNAPSHOT_PUBLISH_MS` (100 ms), on a screen
+  change and right after a write. `periodInfo`, `grindProfile get` and `grindResult get` are served from that copy. A
+  snapshot older than `BLE_GLINK_SNAPSHOT_STALE_MS` (**1000 ms**) is not trusted: reads answer `UI_BUSY`, `periodInfo`
+  falls back. `profileRev` counts every change of a stored dose, grind size, unit or of the existence of the Profile Dose,
+  whatever its origin (found by comparing consecutive snapshots, so a touch edit counts too).
+- **Writes use a one-slot mailbox.** `select`, `update` and `start` are submitted by the Bluetooth task and decided on the
+  UI task, which has `GLINK_UI_REPLY_TIMEOUT_MS` (1000 ms) to answer, otherwise the answer is `UI_BUSY` and a request that
+  was still QUEUED is withdrawn (not applied afterwards). A request the UI task has TAKEN but not finished within
+  `BLE_GLINK_UI_RUN_TIMEOUT_MS` (**2000 ms**) is answered `UI_BUSY`, but it may still be applied; the mailbox refuses a new submit
+  (`UI_BUSY` too) until the UI task completes it. Disconnect rules: docs/GLINK-PROTOCOL.md 7.4.
+- **Stop is never queued.** `grindControl stop` is executed on the Bluetooth task by `portal_stop_now()` (the call the web
+  panel's stop uses), also before the handshake, during an update and while another request is pending, and raises the
+  counter that `portal_command_gate` keeps; the UI task only notices the counter to cancel a lead-in (or an autotune
+  run). It answers at once, also when nothing was running.
+- **Order of the start refusals** (docs/GLINK-PROTOCOL.md 7.2). The Bluetooth task checks the fields first (`profile`,
+  `expectDose`: `MISSING_FIELD`, `INVALID_PARAM`, `OUT_OF_RANGE`). On the UI task the first applicable refusal wins:
+  `COMMAND_IN_FLIGHT`, `UPDATING`, `NOT_READY` (the web panel's start decision), then `PROFILE_NOT_SET`, `OUT_OF_RANGE`
+  (field `dose`: stored dose outside 5.0 to 60.0 g), `CONFLICT` (`expectDose` differs from the stored dose), then the
+  grinder's own start block (`MOTOR_DISABLED`, `UPDATING` for the update lock-out, `LOAD_CELL_*`). Pure code:
+  `bluetooth/glink_decide.*`.
+- **Stored changes.** Compare-first through `ProfileController` (an unchanged value writes no flash and is never rate
+  limited); a stored change (`update`, or `select` of another profile) at most once per `GLINK_WRITE_MIN_INTERVAL_MS`
+  (1000 ms, `GlinkWriteLimiter`). `select` of profile 3 while the PROFILE page is not built yet answers `UI_BUSY` (the
+  READY rebuild of step 4 has to happen first). Only profile 3 is writable; Single, Double and Custom are readable and
+  selectable only.
+- **Hardware.** Over BLE on COM15 (main env, build #692): handshake, `periodInfo`, `grindProfile get` and the error answers
+  were seen. NOT run: a valid `update`, the unchanged-value path, `RATE_LIMITED`, `select`, persistence across a reboot,
+  `EDIT_IN_PROGRESS`, the PROFILE page appearing (the board sat on the SETTING screen with nobody to touch it, so writes
+  answered `NOT_READY`).
+
+### Step 6b: start, stop, lead-in, result broadcast
+- **Start.** `grindControl start` is decided like the web panel's start, on the real screen state (including the grinder's
+  start block), then a `GLINK_START_LEAD_IN_MS` (3000 ms) overlay "Remote start: PROFILE 18.0 g in 3 s, touch to cancel"
+  that a touch, the overlay's STOP button or a `stop` cancels. At the end the decision is made again, then
+  `GrindingUIController::start_glink_grind(profile)` runs the shared start body (weight mode, `start_block()` checked once
+  more inside). Pure rules: `bluetooth/glink_start.*`. A cancelled lead-in produces no result; the client sees it through
+  `periodInfo` (`devState` back to IDLE).
+- **Lead-in exclusivity with the web panel.** One remote start in flight across both: the GLink controller counts the web
+  panel's lead-in as in flight and the web panel counts GLink's (`command_in_flight`). Both hold the screen awake
+  (`hold_awake_remote_start`) so screen off cannot hide the overlay.
+- **A refusal at GO** opens the grinder's own start-block dialog only when the refusal is a start block (it must not be
+  mapped to the motor dialog); every other refusal shows nothing on screen.
+- **Mode restore.** A BLE start grinds in WEIGHT mode whatever the grinder's grind mode is. `GlinkForcedMode` (owned by
+  `GrindingUIController`) is armed when such a session starts; when the screen returns to READY it puts back the user's
+  stored mode in `UIManager::current_mode` and on the grinding screen. Touch and web grinds are untouched. The grinding
+  screen shows the profile name CUSTOM for the Profile Dose, and history records it as CUSTOM (step 4).
+- **PURGE_CONFIRM.** With the purge mode of Grind Settings a BLE-started grind waits in `PURGE_CONFIRM` until somebody taps
+  the grinder (`phase` shows it, `devState` stays GRINDING; the 60 s grind timeout still applies). Use Prime mode for remote
+  starts. Behaviour of the existing purge flow, not changed here.
+- **Result broadcast.** A change of `GrindController::result_count()` is read through the seam (`read_last_result`), mapped
+  to the wire result (code, origin BLE/WEB/TOUCH, ...) and put in the snapshot whoever started the grind. The Bluetooth task
+  broadcasts it to the client that is connected and handshaken at that moment; `get` and `periodInfo.resultSeq` cover a
+  missed one. `seq` is 1-based since boot (RAM only). Wording kept in the spec (5.6): in a rare race a `STOPPED` result may
+  be followed by the real outcome of the same grind with a higher `seq`; the latest `seq` wins.
+  `test_glink_start_guard.py` pins that the 60 s TIMEOUT branch of `grind_controller.cpp` publishes its result as not stopped.
+- **Hardware.** NOT run anywhere: touch cancel, the overlay, a full start, `NOT_READY` on a non-READY screen, a real `BUSY`
+  race. COM15 has no load cell or motor, so a full grind would also need the mock env.
+
+### Step 7: Python client and simulator
+`tools/ble/glink_codec.py` (frame and envelope codec), `tools/ble/glink_client.py` (client, `--sim`) and
+`tools/ble/glink_sim.py` (a simulated grinder that follows the firmware). Commands `glink-info`, `glink-profile`
+(`--select`, `--dose`, `--grind-size`, `--grind-unit`, `--clear-grind-size`), `glink-start` (`--expect-dose`, `--no-wait`,
+`--timeout`) and `glink-stop` are in `tools/ble/grinder-ble.py`; `tools/grinder.py` forwards them (`cmd_glink`), but where
+its venv install fails (the `detools` build needs MSVC) call `python tools/ble/grinder-ble.py glink-...` directly.
+`--sim` needs no hardware. The client waits for the start confirmation before the result and keeps `select` and `update` at
+least 1 s apart.
+
+### Step 8: GaggiMate plugin (`gaggimate-plugin/`)
+A prototype for the GaggiMate firmware, kept in this repository and not pushed anywhere: GLink codec files shared with the
+firmware (byte identical with `src/bluetooth/glink_frame.*` and `glink_json.*`, checked by
+`tools/tests/test_gaggimate_plugin_contract.py`), the session client, the NimBLE central glue (`GLinkPlugin`), a settings
+card, five patches against GaggiMate b78beee and the scripts. Layout, WebSocket API and the verified / not verified lists
+are in `gaggimate-plugin/README.md`. Verified by the Developer (no Tester re-ran the staging run): 44 plugin host tests, and `check_against_gaggimate.sh` on a
+fresh clone (patches apply, `pio test -e native -f test_grinderlink` passes, `display` and `display-headless` build).
+NOT verified: anything on a GaggiMate display or against a real grinder, the card built with the web toolchain or
+rendered, the translations, the stack margin of `parse_message`, whether three NimBLE connections are enough, the scan
+hand-over with the scale plugin. `GLinkPlugin` always passes `expectDose` on a start.
+
+### GLink: binding decisions in short
+- **No authentication, by decision** (user, 2026-11-05). Anyone in radio range of a grinder with the link or Bluetooth on can
+  read the state, change the Profile Dose and grind size, select a profile, stop, occupy the single connection (which also
+  blocks WiFi updates and `grinder.py`) and start a weight grind of 5.0 to 60.0 g after the 3 s lead-in. Nothing is
+  encrypted. The full list is docs/GLINK-PROTOCOL.md 1.1; do not soften it in other docs.
+- **Stop is always accepted** (see 6a). **One BLE client** at a time; a second central is disconnected.
+- **LINK_ONLY** (Bluetooth page "GaggiMate link", touch-only, NVS `bluetooth` / `glink`, default off, no timers, not on the
+  web panel): only a write to GLink RX and read/notify of GLink TX are allowed; the old OTA, data export, sysinfo and
+  diagnostics characteristics answer nothing (per-characteristic filter, step 5). FULL (Bluetooth Enabled) is unchanged,
+  keeps its timers and also serves GLink.
+- **Update exclusion.** `onConnect` refuses a BLE client while `UpdateGuard::is_held()`; requests during an update get
+  `UPDATING`; a connected GLink client blocks WiFi pull and push (`BLE_CONNECTED`) until it disconnects or the link is
+  switched off. Dropping an idle GLink client automatically is out of scope.
+- **Grind size is display-only.** NVS blob `gsz0..3`, shown on READY and EDIT, written by `grindProfile update` for profile 3
+  only; the grinder never edits it.
+- **No "Allow remote start" switch** (user decision, S-B dropped): the always-on 3 s lead-in is the only mitigation. Dose and profile writes need no switch either.
+- **Dose range** 5.0 to 60.0 g for writes and BLE starts. A profile set above 60 g by touch can be started by touch only.
+
+### GLink: open items for the maintainer (not fixed here)
+1. **Spec vs firmware order of checks.** `docs/GLINK-PROTOCOL.md` 4.1 lists the handshake gate (step 5) and `BUSY` (step 6)
+   before the operation and field checks (step 7); `glink_process_request` in `manager.cpp` parses the request and checks
+   operation, fields and types first (`glink_parse_request`), then applies the gate and the pending-request check. The only
+   visible effect is which error a client gets for a request that is both malformed and early or concurrent. The simulator
+   follows the firmware. The spec is frozen: decide which side changes, then add a vector for it.
+2. **`grindControl` is provisional.** Object names and the `start` / `stop` layout may change after the GaggiMate maintainer
+   has seen `docs/GLINK-PROTOCOL.md` (the user still has to hand it over).
+3. **A latched deadman fault** does not block a touch, web or BLE start today (`start_block()`); a separate change if wanted.
+4. **Hardware loop (plan step 9) not run:** MTU negotiation, the LINK_ONLY items, second-client refusal, the third central
+   link on GaggiMate, a real grind from a BLE start, the Bluetooth task stack high-water mark and the `[HEAP]` numbers.
+   Measured so far (FULL mode, COM15, step 5 Tester): heap after BLE enable 159128 bytes, a client without `appHello`
+   dropped after about 10 s, 77 of 150 stress cycles clean (partial: the Tester stopped the run early; no warnings in those 77).
+5. **Visual checks owed on a device:** the PROFILE page appearing and disappearing, swipe both ways, long press edit, the
+   grind-size line fit, the Bluetooth page rows and indicator colours (LISTENING / LINKED).

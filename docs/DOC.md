@@ -325,6 +325,8 @@ Access via **Menu → Diagnostics → Noise Floor**.
 ## 📱 Usage Guide
 
 ### Grinding Profiles
+A fourth page, **PROFILE** (the "Profile Dose"), appears only after a GaggiMate has set a dose over Bluetooth; see [GaggiMate link](#gaggimate-link-glink).
+
 All profiles are fully customizable. Default grind-by-weight targets (fallback time values shown in parenthesis):
 - **Single**: 9 g (5 s)
 - **Double**: 18 g (10 s)  
@@ -507,6 +509,23 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 ## 🔵 Bluetooth Connectivity
 
 Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Logs & Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
+
+### GaggiMate link (GLink)
+
+**Menu → Bluetooth → GaggiMate link** (off by default, touchscreen only) lets a GaggiMate, or any program that speaks the GLink protocol, talk to the grinder over Bluetooth Low Energy. The protocol is specified in [GLINK-PROTOCOL.md](GLINK-PROTOCOL.md); the GaggiMate side is a prototype in [`gaggimate-plugin/`](../gaggimate-plugin/README.md).
+
+- **What a connected device can do:** read the state and the live weight, read the profiles, select a profile, set the dose (and a display-only grind size) of the fourth profile, start a grind, and stop it.
+- **Persistent link:** with the link on, the grinder keeps advertising for GLink without the 30 and 5 minute Bluetooth timers. In this mode only GLink works: the Bluetooth update, data export and device-info services stay closed. The normal **Bluetooth → Enabled** switch behaves as before and also serves GLink. The Bluetooth page shows "GaggiMate: listening / connected / linked", and, only while Bluetooth Enabled is off, the Bluetooth symbol is grey while listening and green while a device is linked (with Enabled on, the normal colours apply).
+- **One device at a time.** A second device is disconnected.
+- **Updates:** while a GLink device is connected, WiFi updates are refused (disconnect it, or switch the link off). While an update runs the grinder refuses Bluetooth connections.
+
+> **Security: GLink has no authentication and no pairing, and nothing is encrypted.** Anyone within Bluetooth range (typically 10 to 30 m) while the link or Bluetooth is on can see the state and weight, change the Profile Dose, select a profile, stop a grind, block other Bluetooth and WiFi use by holding the connection, and **start a grind of 5.0 to 60.0 g** with the stored dose of a profile. The grinder's own safety aborts still apply. Do not leave the link on where strangers can come within range, or while you work at an open hopper with the grinder still powered. Switch the link off in the menu (or cut the power) to stop it.
+
+**Remote start.** Every Bluetooth start first shows a "Remote start ... touch to cancel" screen for 3 seconds; a touch, STOP or a stop command cancels it. A start works only from the READY screen with no dialog open, no start block (motor disabled, load cell problem) and no update, and always grinds the stored weight of the chosen profile in **weight mode**, whatever grind mode is selected; your own grind mode is put back afterwards. A cancelled start does not stop the connected device from sending another start at once. Stop is always accepted. If Grind Settings → Purging is in **Purge** mode, a remotely started grind waits for a tap on the grinder at the purge confirmation: use **Prime** mode for remote starts. A web panel start and a Bluetooth start cannot overlap.
+
+**Profile Dose.** The first time a GaggiMate sets a dose, a fourth page "PROFILE" appears between Custom and the menu (the screen redraws once, on READY or in the menu while idle). It works like the other profiles, with the dose in grams and, if the GaggiMate sent one, a grind size shown under the weight (display only; the grinder does not edit or use it). **Menu → Bluetooth → Remove GaggiMate profile** deletes it and the page disappears. The web panel and the history keep three profiles (a Profile Dose grind is recorded as Custom). Single, Double and Custom can be read and selected over Bluetooth but not changed.
+
+> **Status:** host tests, the simulator (`python3 tools/ble/grinder-ble.py glink-info --sim`, also `glink-profile`, `glink-start`, `glink-stop`) and a few runs over Bluetooth against a development board (connect, handshake, state, error answers) have been done. **Not run on hardware:** writing a dose, a remote start with the touch cancel, the GaggiMate link mode, and anything on the GaggiMate itself. Treat the feature as experimental. The protocol may still change (`grindControl` is provisional).
 
 ---
 

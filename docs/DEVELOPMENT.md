@@ -255,6 +255,16 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest     # tools/tests (pytest.ini
 pio test -c platformio-native.ini -e native-test       # host tests in test_native/
 ```
 
+GLink (GaggiMate link, chg020): the pure `src/bluetooth/glink_*` modules are in the native suite (`test_native/`), and `tools/tests/test_glink_*.py` keep the spec `docs/GLINK-PROTOCOL.md`, the constants in `src/config/bluetooth.h`, `tools/tests/glink_vectors.json` and the Python client/simulator (`tools/ble/glink_*.py`) equal; `test_glink_ble_task_guard.py` and `test_glink_start_guard.py` are text guards (Bluetooth task never calls LVGL/NVS/controllers; the start path). The GaggiMate plugin has its own checks, not run by CI (they need g++ or a GaggiMate clone):
+
+```bash
+sh gaggimate-plugin/scripts/run_host_tests.sh                          # 44 plugin host tests with g++ (C++17), no PlatformIO
+sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]   # clone GaggiMate b78beee into a NEW directory, apply the patches, pio test + pio run
+python3 tools/ble/grinder-ble.py glink-info --sim                      # client against the simulated grinder, no hardware
+```
+
+`tools/tests/test_gaggimate_plugin_contract.py` (part of pytest) checks that the files shared by the plugin and the firmware are byte-identical. Use `tools/ble/grinder-ble.py glink-*` directly if `tools/grinder.py` cannot create its venv (it prints a noisy `detools` pip build error before working).
+
 `tools/tests/test_nvs_single_source.py` (part of pytest) fails if a menu NVS key literal appears outside `src/system/ui_settings.*` (plus the A4 exceptions `grind_controller.h` and `profile_controller.cpp`, and the walk harness) or UI code uses `Preferences` (except `grinding_screen.*` and the walk harness). The menu bench walk (`DEBUG_MENU_WALK`, env `waveshare-esp32s3-touch-amoled-164-menu-walk`, bench board only) and its golden diff are described in `docs/DESIGN-NOTES.md` "Menu refactor (chg006 item 23)".
 
 The native suite (`test_native/`) builds only the pure modules listed in `build_src_filter` of `platformio-native.ini`. Among them are `src/hardware/circular_buffer_math/` (the locked load cell ring), `src/hardware/calibration_math.*` and `src/hardware/rmt_pulse_math.*` (rmt_pulse_math is described under Motor and Grind Safety). The `pio test` summary line gives the current number of test cases.

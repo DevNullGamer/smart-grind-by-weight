@@ -13,6 +13,7 @@
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
 - [After Updating: Re-run Auto-Tune](#after-updating-re-run-auto-tune)
 - [WiFi Updates and the Update Failed Screen](#wifi-updates-and-the-update-failed-screen)
+- [GaggiMate Link (GLink)](#gaggimate-link-glink)
 - [Getting Diagnostic Reports](#getting-diagnostic-reports)
 
 ---
@@ -367,6 +368,26 @@ Tap OK. Try the update again after one minute. If a freshly built image rolls ba
 - **Install** appears only after a successful Check in the last 10 minutes, while WiFi is connected. Switching Beta clears the result.
 - Install is refused while a Bluetooth client is connected (disconnect it first) and when internal memory is too low. A refusal before the download starts leaves Bluetooth as it was; if the refusal comes after Bluetooth was already switched off, the grinder switches it back on.
 - The pull flow does not check certificate expiry (the grinder has no clock).
+
+---
+
+## GaggiMate Link (GLink)
+
+The link is experimental: the GaggiMate side is a prototype and the remote start was not run on hardware (see [DOC.md](DOC.md#gaggimate-link-glink)). The protocol is in [GLINK-PROTOCOL.md](GLINK-PROTOCOL.md).
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| GaggiMate cannot find the grinder | **Menu → Bluetooth → GaggiMate link** is off (default), or another device holds the single Bluetooth connection (a second one is disconnected) | Switch the link on; disconnect the other device. The GaggiMate card has its own scan |
+| Update refused: "Disconnect Bluetooth first" | A GLink device is connected (the link keeps the connection open) | Disconnect it, or switch the link off |
+| Connection drops about 10 s after connecting | The device did not send the `appHello` handshake | Use a GLink client; the web flasher and `grinder.py` use the other Bluetooth services, which need **Bluetooth → Enabled**, not the link alone |
+| The OTA / data export / `grinder.py` commands find nothing with only the link on | The link mode opens only the GLink service | Turn **Bluetooth → Enabled** on |
+| A remote start shows "touch to cancel" and then nothing happens | Cancelled by a touch, or refused when the 3 s are up (screen changed, start block, update). The client was already told "accepted" and only sees `periodInfo` return to IDLE with no result; the log has the reason | Look for the grinder's start-block dialog, the only explanation on screen. Errors such as `NOT_READY`, `MOTOR_DISABLED` or `LOAD_CELL_NO_DATA` are answered at once, before the 3 s start |
+| A remote start waits and never grinds | Purge mode is waiting for a tap (PURGE_CONFIRM) | Tap the grinder, or switch Grind Settings → Purging to Prime |
+| No PROFILE page | It exists only after a GaggiMate has set a dose | Set a dose from GaggiMate (or `grinder-ble.py glink-profile --dose 18`) |
+| Profile Dose rejected (`OUT_OF_RANGE`, `RATE_LIMITED`, `NOT_READY`, `EDIT_IN_PROGRESS`) | Dose outside 5.0 to 60.0 g, a second stored change within 1 s, or the grinder is not on READY/menu | Retry with a valid dose, slower, from the READY screen |
+| Grinder shows a PROFILE page you do not want | A GaggiMate set a dose | **Menu → Bluetooth → Remove GaggiMate profile** |
+
+If strangers might be within Bluetooth range, switch the link off: it has no authentication.
 
 ---
 
