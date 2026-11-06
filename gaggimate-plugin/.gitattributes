@@ -1,0 +1,4 @@
+# Everything is LF, like the shared firmware files.
+* text eol=lf
+# Patches must keep their exact bytes (a Windows autocrlf checkout would otherwise corrupt the context lines).
+patches/*.patch -text

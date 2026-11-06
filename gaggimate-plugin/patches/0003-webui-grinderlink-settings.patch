@@ -1,0 +1,23 @@
+diff --git a/src/display/plugins/WebUIPlugin.cpp b/src/display/plugins/WebUIPlugin.cpp
+index 1cde6a9..90bfe10 100644
+--- a/src/display/plugins/WebUIPlugin.cpp
++++ b/src/display/plugins/WebUIPlugin.cpp
+@@ -395,6 +395,8 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
+                 settings->setMahlkonigActive(parseBoolArg(request->arg("mahlkonigActive")));
+             if (request->hasArg("mahlkonigRecipeProfiles"))
+                 settings->setMahlkonigRecipeProfiles(request->arg("mahlkonigRecipeProfiles"));
++            if (request->hasArg("grinderLinkActive"))
++                settings->setGrinderLinkActive(parseBoolArg(request->arg("grinderLinkActive")));
+             if (request->hasArg("homeAssistant"))
+                 settings->setHomeAssistant(parseBoolArg(request->arg("homeAssistant")));
+             if (request->hasArg("haUser"))
+@@ -584,6 +586,9 @@ void WebUIPlugin::handleSettings(AsyncWebServerRequest *request) const {
+     doc["smartGrindMode"] = settings.getSmartGrindMode();
+     doc["mahlkonigActive"] = settings.isMahlkonigActive();
+     doc["mahlkonigRecipeProfiles"] = settings.getMahlkonigRecipeProfiles();
++    doc["grinderLinkActive"] = settings.isGrinderLinkActive();
++    doc["grinderLinkAddress"] = settings.getGrinderLinkAddress();
++    doc["grinderLinkName"] = settings.getGrinderLinkName();
+     doc["deviceIp"] = apMode ? WIFI_AP_IP.toString() : WiFi.localIP().toString(); // read-only, for plugin setup hints
+     doc["momentaryButtons"] = settings.isMomentaryButtons();
+     doc["flushDuration"] = settings.getFlushDuration();

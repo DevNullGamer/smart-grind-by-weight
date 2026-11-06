@@ -1,0 +1,22 @@
+diff --git a/src/display/core/Controller.cpp b/src/display/core/Controller.cpp
+index a448202..937df75 100644
+--- a/src/display/core/Controller.cpp
++++ b/src/display/core/Controller.cpp
+@@ -31,6 +31,7 @@
+ #include <display/plugins/MQTTPlugin.h>
+ #include <display/plugins/NetworkWatchdogPlugin.h>
+ #include <display/plugins/WifiStaWatchdogPlugin.h>
++#include <display/plugins/grinderlink/GLinkPlugin.h>
+ #include <display/plugins/mDNSPlugin.h>
+ #endif
+ #include <display/util/PsramAllocator.h>
+@@ -116,6 +117,9 @@ void Controller::setup() {
+     pluginManager->registerPlugin(&ShotHistory);
+ #ifndef GAGGIMATE_SIM
+     pluginManager->registerPlugin(&BLEScales);
++    if (settings.isGrinderLinkActive()) {
++        pluginManager->registerPlugin(new GLinkPlugin());
++    }
+ #endif
+     pluginManager->registerPlugin(new LedControlPlugin());
+     pluginManager->registerPlugin(new AutoWakeupPlugin());

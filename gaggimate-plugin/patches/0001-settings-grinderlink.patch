@@ -1,0 +1,51 @@
+diff --git a/src/display/core/Settings.h b/src/display/core/Settings.h
+index 8d155fb..bd43ff2 100644
+--- a/src/display/core/Settings.h
++++ b/src/display/core/Settings.h
+@@ -116,6 +116,9 @@ class Settings {
+     int getSteamFillTime() const { return steamFillTime.get(); }
+     bool isSmartGrindActive() const { return smartGrindActive.get(); }
+     bool isMahlkonigActive() const { return mahlkonigActive.get(); }
++    bool isGrinderLinkActive() const { return grinderLinkActive.get(); }
++    String getGrinderLinkAddress() const { return grinderLinkAddress.get(); }
++    String getGrinderLinkName() const { return grinderLinkName.get(); }
+     String getMahlkonigRecipeProfiles() const { return mahlkonigRecipeProfiles.get(); }
+     int getSmartGrindMode() const { return smartGrindMode.get(); }
+     String getSmartGrindIp() const { return smartGrindIp.get(); }
+@@ -230,6 +233,9 @@ class Settings {
+     void setSteamFillTime(int steam_fill_time);
+     void setSmartGrindActive(bool smart_grind_active);
+     void setMahlkonigActive(bool mahlkonig_active);
++    void setGrinderLinkActive(bool grinder_link_active);
++    void setGrinderLinkAddress(String grinder_link_address);
++    void setGrinderLinkName(String grinder_link_name);
+     void setMahlkonigRecipeProfiles(String profiles);
+     void setSmartGrindIp(String smart_grind_ip);
+     void setSmartGrindMode(int smart_grind_mode);
+@@ -343,6 +349,9 @@ class Settings {
+     Property<int> smartGrindMode{registry, "sg_m", 0};
+     Property<String> smartGrindIp{registry, "sg_i", ""};
+     Property<bool> mahlkonigActive{registry, "mk_a", false};
++    Property<bool> grinderLinkActive{registry, "gl_a", false};
++    Property<String> grinderLinkAddress{registry, "gl_ad", ""}; // BLE address of the chosen grinder, "" = none
++    Property<String> grinderLinkName{registry, "gl_n", ""};     // its name, for the web card
+     Property<String> mahlkonigRecipeProfiles{registry, "mk_rp", ""}; // profile id per grinder recipe slot, "r1,r2,..."
+     Property<bool> homeAssistant{registry, "ha_a", false};
+     Property<String> homeAssistantUser{registry, "ha_u", ""};
+diff --git a/src/display/core/Settings.cpp b/src/display/core/Settings.cpp
+index 5dd8e80..9ce78d0 100644
+--- a/src/display/core/Settings.cpp
++++ b/src/display/core/Settings.cpp
+@@ -177,6 +177,12 @@ void Settings::setSmartGrindActive(bool smart_grind_active) { smartGrindActive.s
+ 
+ void Settings::setMahlkonigActive(bool mahlkonig_active) { mahlkonigActive.set(mahlkonig_active); }
+ 
++void Settings::setGrinderLinkActive(bool grinder_link_active) { grinderLinkActive.set(grinder_link_active); }
++
++void Settings::setGrinderLinkAddress(String grinder_link_address) { grinderLinkAddress.set(grinder_link_address); }
++
++void Settings::setGrinderLinkName(String grinder_link_name) { grinderLinkName.set(grinder_link_name); }
++
+ void Settings::setMahlkonigRecipeProfiles(String profiles) { mahlkonigRecipeProfiles.set(profiles); }
+ 
+ void Settings::setSmartGrindIp(String smart_grind_ip) { smartGrindIp.set(smart_grind_ip); }
