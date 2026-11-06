@@ -3,8 +3,9 @@
 
 #if DEBUG_BLE_ENABLE_STRESS
 
-// Measurement-only experiment: BluetoothManager::disable()+enable() cycles, first from a Core 1 task, then
-// from a task pinned to Core 0. Each cycle logs the internal heap and the stack high-water marks of the
+// Measurement-only experiment: BluetoothManager mode cycles, first from a Core 1 task, then from a task pinned to
+// Core 0. One cycle walks every transition between OFF, LINK_ONLY (GaggiMate link) and FULL (Bluetooth Enabled).
+// Each cycle logs the internal heap and the stack high-water marks of the
 // ipc0/ipc1 tasks (the 1 KB tasks that run BT controller interrupt allocation).
 //
 // Crash survival: the run state is kept in RTC_NOINIT memory (survives a panic reset, not a power cycle).
@@ -62,11 +63,19 @@ int stack_hwm(const char* name) {
 void log_state(const char* what, int cycle) {
     int ipc0 = stack_hwm("ipc0");
     int ipc1 = stack_hwm("ipc1");
-    Serial.printf("[BLESTRESS] %s phase=%s cycle=%d/%d core=%d free=%u largest=%u ipc0_hwm=%d ipc1_hwm=%d ble=%s\n",
+    Serial.printf("[BLESTRESS] %s phase=%s cycle=%d/%d core=%d free=%u largest=%u ipc0_hwm=%d ipc1_hwm=%d mode=%s\n",
                   what, phase_name(g_state.phase), cycle, kCyclesPerPhase, xPortGetCoreID(),
                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                   static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
-                  ipc0, ipc1, g_bluetooth_manager.is_enabled() ? "on" : "off");
+                  ipc0, ipc1, glink_link_mode_name(g_bluetooth_manager.link_mode()));
+}
+
+// A transition that did not end in the expected mode is reported (the run continues)
+void expect_mode(BluetoothManager& ble, GlinkLinkMode want, const char* what, int cycle) {
+    if (ble.link_mode() != want) {
+        Serial.printf("[BLESTRESS] WARNING cycle %d: %s ended in %s, wanted %s\n", cycle, what,
+                      glink_link_mode_name(ble.link_mode()), glink_link_mode_name(want));
+    }
 }
 
 void stress_task(void* arg);
@@ -94,8 +103,23 @@ void stress_task(void*) {
         g_state.in_progress = 1;
         log_state("cycle begin", cycle);
 
+        // From OFF, every transition once: OFF > LINK_ONLY > FULL > LINK_ONLY > OFF > FULL > OFF > FULL
+        ble.set_glink_link(false);
         if (ble.is_enabled()) ble.disable();
+        expect_mode(ble, GlinkLinkMode::OFF, "start", cycle);
         log_state("after disable", cycle);
+        ble.set_glink_link(true);
+        expect_mode(ble, GlinkLinkMode::LINK_ONLY, "OFF>LINK_ONLY", cycle);
+        ble.enable(kBleTimeoutMs);
+        expect_mode(ble, GlinkLinkMode::FULL, "LINK_ONLY>FULL", cycle);
+        ble.disable();
+        expect_mode(ble, GlinkLinkMode::LINK_ONLY, "FULL>LINK_ONLY", cycle);
+        ble.set_glink_link(false);
+        expect_mode(ble, GlinkLinkMode::OFF, "LINK_ONLY>OFF", cycle);
+        ble.enable(kBleTimeoutMs);
+        expect_mode(ble, GlinkLinkMode::FULL, "OFF>FULL", cycle);
+        ble.disable();
+        expect_mode(ble, GlinkLinkMode::OFF, "FULL>OFF", cycle);
         ble.enable(kBleTimeoutMs);
         log_state("after enable", cycle);
 

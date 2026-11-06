@@ -8,6 +8,9 @@ using namespace ui_settings_keys;
 bool UiSettings::ble_startup() const { return store_.get_bool(kBluetoothNs, kBleStartup, true); }
 bool UiSettings::set_ble_startup(bool enabled) { return store_.put_bool(kBluetoothNs, kBleStartup, enabled); }
 
+bool UiSettings::glink_link() const { return store_.get_bool(kBluetoothNs, kGlinkLink, false); }
+bool UiSettings::set_glink_link(bool enabled) { return store_.put_bool(kBluetoothNs, kGlinkLink, enabled); }
+
 bool UiSettings::logging_enabled() const { return store_.get_bool(kLoggingNs, kLoggingEnabled, false); }
 bool UiSettings::set_logging_enabled(bool enabled) { return store_.put_bool(kLoggingNs, kLoggingEnabled, enabled); }
 

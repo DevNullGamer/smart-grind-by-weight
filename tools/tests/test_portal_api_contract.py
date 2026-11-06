@@ -53,6 +53,9 @@ SETTING_MENU_ENTRY = {
 }
 # Radio groups of the menu that the web API deliberately does not expose
 RADIO_NOT_EXPOSED = {"BOARD_OVERRIDE"}
+# chg020: the GaggiMate link toggle is touch-only (never in /api/settings or /api/schema)
+TOUCH_ONLY_GETTERS = {"glink_link"}
+TOUCH_ONLY_TOGGLES = {"GLINK_LINK"}
 PROFILE_KEYS = [f"{p}_{k}" for p in ("single", "double", "custom") for k in ("weight_g", "time_s")]
 
 
@@ -96,19 +99,20 @@ def test_ui_settings_getters_equal_the_portal_settings():
     header = read("src/system/ui_settings.h")
     klass = header[header.index("class UiSettings"):]
     getters = set(re.findall(r"^\s*(?:bool|int|float)\s+([a-z_0-9]+)\(\) const;", klass, re.M))
-    assert getters == set(SETTING_GETTER.values()), "a UiSettings setting is missing in (or extra to) the web API"
+    assert getters - TOUCH_ONLY_GETTERS == set(SETTING_GETTER.values()), "a UiSettings setting is missing in (or extra to) the web API"
+    assert TOUCH_ONLY_GETTERS <= getters and not TOUCH_ONLY_GETTERS & set(SETTING_GETTER.values())
 
 
 def test_menu_tables_equal_the_portal_settings():
     table_h = read("src/system/menu_setting_table.h")
     table_cpp = read("src/system/menu_setting_table.cpp")
-    toggles = enum_members(table_h, "ToggleSetting")
+    toggles = [m for m in enum_members(table_h, "ToggleSetting") if m not in TOUCH_ONLY_TOGGLES]
     sliders = enum_members(table_h, "SliderSetting")
     radios = enum_members(table_h, "RadioSetting")
     menu = {m for m in toggles + sliders + radios if m != "COUNT"} - RADIO_NOT_EXPOSED
     assert menu == set(SETTING_MENU_ENTRY.values())
     # The toggle rows read the same UiSettings getters the portal maps
-    row_getters = set(re.findall(r"&UiSettings::([a-z_0-9]+),\s*&UiSettings::set_", table_cpp))
+    row_getters = set(re.findall(r"&UiSettings::([a-z_0-9]+),\s*&UiSettings::set_", table_cpp)) - TOUCH_ONLY_GETTERS
     bool_keys = [k for k, f in FIELDS.items() if f["type"] == "bool"]
     assert row_getters == {SETTING_GETTER[k] for k in bool_keys}
     for key in bool_keys:

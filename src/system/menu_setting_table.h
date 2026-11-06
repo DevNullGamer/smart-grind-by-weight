@@ -16,6 +16,7 @@ enum class ToggleSetting : unsigned char {
     SWIPE,
     AUTO_START,
     AUTO_RETURN,
+    GLINK_LINK,  // Bluetooth page "GaggiMate link"; touch-only, not a web panel setting (the portal fields end at AUTO_RETURN)
     COUNT
 };
 
@@ -24,7 +25,8 @@ constexpr size_t TOGGLE_SETTING_COUNT = static_cast<size_t>(ToggleSetting::COUNT
 // Work the controller must do after the new value is stored
 enum class ToggleAfter : unsigned char {
     NONE,
-    REFRESH_AUTO_ACTIONS  // UIManager::refresh_auto_action_settings() (motor-adjacent: re-reads auto-start/return)
+    REFRESH_AUTO_ACTIONS, // UIManager::refresh_auto_action_settings() (motor-adjacent: re-reads auto-start/return)
+    APPLY_GLINK_LINK      // BluetoothManager::set_glink_link() (starts or stops the persistent GaggiMate link)
 };
 
 struct ToggleSettingDef {

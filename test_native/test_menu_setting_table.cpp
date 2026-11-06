@@ -64,6 +64,9 @@ const Golden kGolden[] = {
      "Auto-start on cup enabled", "Auto-start on cup disabled", ToggleAfter::REFRESH_AUTO_ACTIONS},
     {ToggleSetting::AUTO_RETURN, "Return", "autogrind", "auto_return", false,
      "Auto return on cup removal enabled", "Auto return on cup removal disabled", ToggleAfter::REFRESH_AUTO_ACTIONS},
+    // chg020: default off after erase and on older firmware; touch-only (no portal field)
+    {ToggleSetting::GLINK_LINK, "GaggiMate link", "bluetooth", "glink", false,
+     "GaggiMate link enabled", "GaggiMate link disabled", ToggleAfter::APPLY_GLINK_LINK},
 };
 const size_t kRows = sizeof(kGolden) / sizeof(kGolden[0]);
 

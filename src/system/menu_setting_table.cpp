@@ -18,6 +18,8 @@ const ToggleSettingDef kToggleDefs[TOGGLE_SETTING_COUNT] = {
      "Auto-start on cup enabled", "Auto-start on cup disabled", ToggleAfter::REFRESH_AUTO_ACTIONS},
     {"Return", &UiSettings::auto_return, &UiSettings::set_auto_return,
      "Auto return on cup removal enabled", "Auto return on cup removal disabled", ToggleAfter::REFRESH_AUTO_ACTIONS},
+    {"GaggiMate link", &UiSettings::glink_link, &UiSettings::set_glink_link,
+     "GaggiMate link enabled", "GaggiMate link disabled", ToggleAfter::APPLY_GLINK_LINK},
 };
 
 // ---- Slider hooks ----

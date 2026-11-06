@@ -34,6 +34,7 @@ public:
     void handle_ble_toggle();
     void handle_grind_mode_radio_button();
     void handle_setting_toggle(ToggleSetting id);
+    void apply_glink_link(bool enabled);
     void handle_setting_slider(SliderSetting id, bool released);
     void handle_grinder_purge_mode_radio_button();
     void handle_board_override_radio_button();

@@ -1038,3 +1038,83 @@ removal still have to be checked there.
   reset erases the whole NVS partition (`nvs_flash_erase`), which includes all of these keys.
 - Grind size is display-only: shown under the weight on each READY page and on the EDIT screen, hidden until a size
   exists; the grinder never edits it.
+
+### Step 5 spike: the BLE host (read in the pinned Arduino BLE library, not flashed)
+- **Host:** `framework-arduinoespressif32/libraries/BLE` runs on **NimBLE** here (`CONFIG_BT_NIMBLE_ENABLED=y`,
+  `CONFIG_BT_NIMBLE_MAX_CONNECTIONS=3`). Callbacks run on the NimBLE host task; `BluetoothManager::handle()` runs on the
+  Bluetooth task (20 ms tick, shared with `wifi_manager.tick()` and `update_server.tick()`, which stay untouched).
+- **MTU:** `BLEServerCallbacks::onMtuChanged(server, desc, mtu)` (host task) fires on a client's MTU exchange and
+  `BLEServer::getPeerMTU(conn)` is `ble_att_mtu(conn)`. The device asks for 517 (`BLEDevice::setMTU`); no event means
+  23. The manager stores the value of the accepted client in an atomic and the Bluetooth task sizes packets from it.
+- **CCCD:** NimBLE adds the 0x2902 descriptor of a notify characteristic itself. `BLECharacteristicCallbacks::onSubscribe(
+  chr, desc, subValue)` reports it (bit 0 = notifications); `notify()` with no subscriber does nothing and reports
+  `ERROR_NO_SUBSCRIBER` through `onStatus`. GLink TX is only written while the accepted client is subscribed.
+- **Notify failures:** `notify()` is `void` and never blocks; failures arrive through `onStatus` (`ERROR_GATT`, from
+  `ble_gatts_notify_custom` or an async `BLE_GAP_EVENT_NOTIFY_TX`). Any status except `SUCCESS_NOTIFY` on GLink TX sets
+  a flag; the Bluetooth task then drops the rest of that message (docs/GLINK-PROTOCOL.md section 8).
+- **Second connection:** before the server callbacks run, the library stores the NEW connection's handle in `m_connId`,
+  so `getConnId()` in `onConnect` names the newcomer and the old one is only known as `connection_id`. The device stops
+  advertising when a client connects (NimBLE ends a connectable advertisement, `advertiseOnDisconnect` is off and the
+  manager restarts it on disconnect), so a second client normally cannot even find the device; if one connects anyway it
+  is refused with `server->disconnect(new_id)`. `onDisconnect(server)` carries no handle, so the manager uses the
+  two-argument overload (`ble_gap_conn_desc`) to tell the refused client from the accepted one (the accepted client's
+  state is not touched, and the 500 ms advertising restart delay is not run for the refused one).
+- **Write callback:** the two-argument `onWrite(chr, desc)` names the connection (its default calls the one-argument
+  form). GLink RX writes from any connection but the accepted one are ignored.
+- **Advertisement:** unchanged. `create_stack()` sets the name-only advertisement and scan response; the four service UUIDs
+  are 128-bit and never fit next to the name, so the packet carries the name only (docs/GLINK-PROTOCOL.md section 2:
+  "the service UUID is not in the advertisement"). The GLink service is created last, after the sysinfo characteristics
+  and before the services start, so the attribute handles of the existing services keep their numbers.
+
+### Step 5 design: link modes, GLink service, handshake
+- **Modes** (`glink_session.h`): `ble_enabled` now means "the stack is serving" (FULL or LINK_ONLY), `full_enabled` is the
+  Bluetooth Enabled toggle and what `is_enabled()` still reports (so every existing caller keeps its meaning). `link_mode()`
+  is `glink_link_mode_resolve(ble_enabled, full_enabled)`. The touch-only "GaggiMate link" setting (NVS `bluetooth` / `glink`,
+  default off, `UiSettings::glink_link()`, `ToggleSetting::GLINK_LINK`, not in `/api/settings` or `/api/schema`) is cached in
+  the manager (`set_glink_link`); the Bluetooth task never reads NVS.
+- **Transitions:** `enable()` from LINK_ONLY only flips the mode (the stack is already advertising or connected; build number,
+  statuses and sysinfo are restored); `disable()` ends FULL and, when the link setting is on, goes to LINK_ONLY (the
+  connected FULL client is dropped as before); `set_glink_link(false)` while LINK_ONLY shuts the stack down (soft). Boot:
+  Startup on = FULL for 5 minutes (then LINK_ONLY if the link is on); Startup off and link on = LINK_ONLY from boot (the
+  ~79 KB stack is resident from boot).
+- **FULL is unchanged:** timers (30/5 min), OTA inactivity check, data export, sysinfo refresh and diagnostics run only in
+  FULL (`handle()` branches on `full_enabled`); the GLink tick runs in both modes. LINK_ONLY has no timer.
+- **Per-characteristic filter** (`ble_char_access_allowed`): OFF refuses everything; FULL filters nothing; LINK_ONLY allows
+  only a write to GLink RX and read/notify of GLink TX. `onWrite` refuses (and never logs payloads); `onRead` blanks the
+  value of a refused read (sysinfo, OTA build number and status, data export) before the stack serves it.
+- **RX:** the host task copies fragments into `GlinkRx` (reassembler plus a second 512 byte buffer, one critical section
+  per fragment; no parsing there). A request that completes while the previous one is unprocessed is dropped and answered
+  `BUSY` under the pseudo-object `error`. Ten bad fragments in 10 s set a flag; the Bluetooth task disconnects.
+- **TX:** only the Bluetooth task notifies. One message at a time (`GlinkTx`, 1 KB, encoded in place), at most 2 fragments
+  per 20 ms (`GlinkTxPacer`), packet size re-read per fragment from the MTU. Order per tick: finish the current message,
+  answer one pending item, then `baseInfo` (once per handshake), then `periodInfo` when due (`GlinkPeriodCadence`: key
+  change, 250/1000 ms cap while GRINDING, 2 s heartbeat).
+- **Handshake:** the session starts at the accepted connect; no `appHello` for 10 s (`>=`) means disconnect. `appHello` has
+  no direct response; `baseInfo` follows as soon as TX is subscribed (so an `appHello` before the subscribe still works).
+  A request before the handshake gets `INVALID_STATE`. Every per-connection piece (session, RX, TX, pacer, subscription,
+  MTU) restarts on a connect or disconnect (epoch counter).
+- **Update exclusion:** `onConnect` still refuses while `UpdateGuard::is_held()`; requests during an update get `UPDATING`.
+- **Placeholder until 6a:** `baseInfo` is real (build number, MAC-derived `snCode`, firmware version, board); `periodInfo`
+  is a fixed placeholder snapshot (`devState` UNKNOWN, `weight` null, profile 0, `blocked` null, counters 0).
+  `grindProfile`, `grindControl` (including `stop`) and `grindResult` are answered `UI_BUSY` ("ui task did not answer in
+  time") until steps 6a and 6b wire them; `glink_process_request` is where they go.
+- **Indicator:** `StatusIndicatorController` caches two more states, LISTENING (LINK_ONLY, no client: secondary colour) and
+  LINKED (LINK_ONLY, client connected: success colour); it still hides under CONFIRM dialogs. The Bluetooth page shows
+  "GaggiMate: listening / connected / linked" in words and no timer line in LINK_ONLY.
+
+### Step 5 expectations (to be measured)
+- `[HEAP]` with the link on at boot (Startup off): internal free heap right after `setup()`, after the first
+  connect/handshake, and the minimum over a grind with a connected client. Static RAM added by this step: about 3.5 KB
+  (`GlinkRx` 2 x 512 B, TX buffer 1024 B, session, pacer); nothing is allocated on the heap in the callbacks. The extra
+  service costs a few hundred bytes of NimBLE attribute memory. Not measured (no hardware run in this step).
+- `ble-stress` env: 150 cycles per core, each walking OFF > LINK_ONLY > FULL > LINK_ONLY > OFF > FULL > OFF > FULL; a
+  transition that ends in the wrong mode logs `[BLESTRESS] WARNING`. Not run on hardware yet.
+- WiFi pull install with the link on: `ble->disable()` before a download drops FULL but LINK_ONLY keeps advertising; a
+  connected GLink client still blocks pull and push (`BLE_CONNECTED`). Whether an idle GLink client should be dropped for an
+  update is the follow-up noted in plan 4.7.
+- Handshake clock: LINK_ONLY runs the 10 s clock from the connect; FULL starts it at the first GLink activity (TX subscribe
+  or RX write), so grinder.py and the web flasher (no appHello) are never dropped.
+- CCCD subscribes on the old characteristics are not refused in LINK_ONLY: nothing notifies them in that mode (their
+  writers are FULL-only paths), reads return nothing, writes are refused.
+- To measure on hardware: stack high-water of the Bluetooth task (8 KB; `packet[512]` plus the encoders were added in
+  `glink_pump_tx` / `glink_process_request`).

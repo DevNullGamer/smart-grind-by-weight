@@ -62,6 +62,8 @@ void StatusIndicatorController::update_ble_status_icon() {
     BleIconState state = BleIconState::HIDDEN;
     if (bluetooth && bluetooth->is_enabled()) {
         state = bluetooth->is_connected() ? BleIconState::SUCCESS : BleIconState::ACCENT;
+    } else if (bluetooth && bluetooth->link_mode() == GlinkLinkMode::LINK_ONLY) {
+        state = bluetooth->is_connected() ? BleIconState::LINKED : BleIconState::LISTENING;
     }
     if (state == ble_icon_state_) {
         return;
@@ -72,10 +74,10 @@ void StatusIndicatorController::update_ble_status_icon() {
         lv_obj_set_hidden(ble_status_icon_, true);
     } else {
         lv_obj_set_hidden(ble_status_icon_, false);
-        lv_obj_set_style_text_color(ble_status_icon_,
-                                    lv_color_hex(state == BleIconState::SUCCESS ? THEME_COLOR_SUCCESS
-                                                                                : THEME_COLOR_ACCENT),
-                                    0);
+        uint32_t color = THEME_COLOR_ACCENT;
+        if (state == BleIconState::SUCCESS || state == BleIconState::LINKED) color = THEME_COLOR_SUCCESS;
+        if (state == BleIconState::LISTENING) color = THEME_COLOR_TEXT_SECONDARY;
+        lv_obj_set_style_text_color(ble_status_icon_, lv_color_hex(color), 0);
     }
 }
 

@@ -22,6 +22,7 @@
 #include "../network/wifi_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
+#include "glink_decide.h"
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -29,6 +30,7 @@ BluetoothManager::BluetoothManager()
     , data_service(nullptr)
     , debug_service(nullptr)
     , sysinfo_service(nullptr)
+    , glink_service_(nullptr)
     , ota_data_characteristic(nullptr)
     , ota_control_characteristic(nullptr)
     , ota_status_characteristic(nullptr)
@@ -43,8 +45,12 @@ BluetoothManager::BluetoothManager()
     , sysinfo_hardware_characteristic(nullptr)
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
+    , glink_rx_characteristic(nullptr)
+    , glink_tx_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false)
+    , full_enabled(false)
+    , glink_link_wanted(false)
     , stack_initialized(false)
     , connection_id(0)
     , debug_stream_active(false)
@@ -61,7 +67,19 @@ BluetoothManager::BluetoothManager()
     , last_reported_export_state(false)
     , ui_status_queue(nullptr)
     , diagnostic_report_pending(false)
-    , diagnostic_report_in_progress(false) {
+    , diagnostic_report_in_progress(false)
+    , link_epoch(0)
+    , link_connect_ms(0)
+    , att_mtu(0)
+    , tx_subscribed(false)
+    , rx_activity(false)
+    , tx_failed(false)
+    , glink_rx_mux(portMUX_INITIALIZER_UNLOCKED)
+    , glink_tx(glink_tx_buffer, sizeof(glink_tx_buffer))
+    , glink_tx_sequence(0)
+    , glink_epoch_seen(0)
+    , glink_disconnect_sent(false)
+    , last_sysinfo_update_ms(0) {
 }
 
 BluetoothManager::~BluetoothManager() {
@@ -109,36 +127,10 @@ bool BluetoothManager::dequeue_ui_status(char* out, size_t out_len) {
     return false;
 }
 
-void BluetoothManager::enable(unsigned long timeout_ms) {
-    if (ble_enabled) return;
-    
-    // Use default timeout if none specified
-    if (timeout_ms == 0) {
-        timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
-    }
-    this->timeout_ms = timeout_ms;
-    unsigned long timeout_minutes = timeout_ms / 60000;
-    log("Bluetooth: Enabling BLE with reduced power settings (%lum timeout)\n", timeout_minutes);
-    
-    // Enable reduced power mode for BLE
-    ota_handler.enable_ble_power_mode();
-    enable_time = millis();
-    last_disconnect_time = enable_time; // Start disconnected timeout from enable time
-    
-    if (stack_initialized) {
-        // Soft re-enable: the BLE stack, server, services and advertising data from the first enable() are
-        // still in place (disable() never deinitialises, see disable()), so only advertising restarts.
-        ble_enabled = true;
-        set_ota_status(BLE_OTA_READY);
-        set_data_status(BLE_DATA_IDLE);
-        refresh_system_info();
-        sessions_info_dirty = true;
-        start_advertising();
-        log("Bluetooth: Ready - device is advertising again (%lum timeout)\n", timeout_minutes);
-        return;
-    }
-
-    // First enable since boot: initialize BLE with delays for power stability
+// Creates the BLE stack, server, services and advertising data (once per boot; disable() keeps them). Leaves the
+// mode flags to the caller.
+void BluetoothManager::create_stack() {
+    // First start since boot: initialize BLE with delays for power stability
     BLEDevice::init(BLE_DEVICE_NAME);
     
     // Request a larger MTU to improve throughput when the client supports it.
@@ -257,6 +249,26 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     sysinfo_diagnostics_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
+    // GLink service (chg020), created last so the attribute handles of the existing services stay as they were.
+    // Its UUID is not advertised (docs/GLINK-PROTOCOL.md section 2): clients find the device by name.
+    glink_service_ = ble_server->createService(GLINK_SERVICE_UUID);
+    delay(BLE_INIT_SERVICE_DELAY_MS);
+
+    glink_rx_characteristic = glink_service_->createCharacteristic(
+        GLINK_RX_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
+    );
+    glink_rx_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    // NimBLE adds the CCCD (0x2902) of a notify characteristic itself; onSubscribe() reports it
+    glink_tx_characteristic = glink_service_->createCharacteristic(
+        GLINK_TX_CHAR_UUID,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    glink_tx_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
     ota_service->start();
     delay(BLE_INIT_START_DELAY_MS);
     
@@ -267,6 +279,9 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     delay(BLE_INIT_START_DELAY_MS);
     
     sysinfo_service->start();
+    delay(BLE_INIT_START_DELAY_MS);
+
+    glink_service_->start();
     delay(BLE_INIT_START_DELAY_MS);
     
     BLEAdvertising* advertising = BLEDevice::getAdvertising();
@@ -288,8 +303,53 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     advertising->setScanResponseData(sr);
     
     delay(BLE_INIT_ADVERTISING_DELAY_MS);
+}
+
+void BluetoothManager::enable(unsigned long timeout_ms) {
+    if (full_enabled) return;
+    
+    // Use default timeout if none specified
+    if (timeout_ms == 0) {
+        timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
+    }
+    this->timeout_ms = timeout_ms;
+    unsigned long timeout_minutes = timeout_ms / 60000;
+    log("Bluetooth: Enabling BLE with reduced power settings (%lum timeout)\n", timeout_minutes);
+    
+    // Enable reduced power mode for BLE
+    ota_handler.enable_ble_power_mode();
+    enable_time = millis();
+    last_disconnect_time = enable_time; // Start disconnected timeout from enable time
+    
+    if (stack_initialized) {
+        // Soft re-enable: the BLE stack, server, services and advertising data from the first start are
+        // still in place (disable() never deinitialises, see disable()), so only advertising restarts.
+        // From LINK_ONLY the stack is already advertising (or a client is connected): nothing to restart.
+        const bool was_serving = ble_enabled;
+        ble_enabled = true;
+        full_enabled = true;
+        set_ota_status(BLE_OTA_READY);
+        set_data_status(BLE_DATA_IDLE);
+        if (build_number_characteristic) {
+            // LINK_ONLY blanks the old read-only values; sysinfo follows via the refresh below
+            build_number_characteristic->setValue(ota_handler.get_build_number().c_str());
+        }
+        if (was_serving) {
+            last_sysinfo_update_ms = 0;  // LINK_ONLY blanked the old values: refresh at once (a cold enable keeps the old timing)
+        }
+        refresh_system_info();
+        sessions_info_dirty = true;
+        if (!was_serving) {
+            start_advertising();
+        }
+        log("Bluetooth: Ready - device is advertising again (%lum timeout)\n", timeout_minutes);
+        return;
+    }
+
+    create_stack();
     
     ble_enabled = true;
+    full_enabled = true;
     stack_initialized = true;
     set_ota_status(BLE_OTA_READY);
     
@@ -302,8 +362,41 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
 }
 
 void BluetoothManager::enable_during_bootup() {
+    glink_link_wanted = ui_settings.glink_link();
     if (ui_settings.ble_startup()) {
         enable(BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS);
+    } else if (glink_link_wanted) {
+        start_link_only();
+    }
+}
+
+// LINK_ONLY: the stack serves GLink only and has no auto-disable timer. The stack (about 79 KB) is resident from
+// here on, as after any first start.
+void BluetoothManager::start_link_only() {
+    if (ble_enabled) return;
+    log("Bluetooth: GaggiMate link on - advertising for GLink only, no auto-disable\n");
+
+    ota_handler.enable_ble_power_mode();
+    if (!stack_initialized) {
+        create_stack();
+        ble_enabled = true;
+        stack_initialized = true;
+    } else {
+        ble_enabled = true;
+    }
+    start_advertising();
+}
+
+void BluetoothManager::set_glink_link(bool on) {
+    glink_link_wanted = on;
+    if (full_enabled) {
+        return;  // FULL serves GLink as well; the setting decides what happens when FULL ends
+    }
+    if (on) {
+        start_link_only();
+    } else if (ble_enabled) {
+        log("Bluetooth: GaggiMate link off\n");
+        shut_down_active();
     }
 }
 
@@ -311,6 +404,18 @@ void BluetoothManager::enable_during_bootup() {
 // initialised (~79 KB resident) and disable() only stops all BLE activity. enable() reuses the server,
 // services and characteristics. DEBUG_BLE_HARD_DEINIT=1 restores the old full teardown for measurements.
 void BluetoothManager::disable() {
+    if (!full_enabled) return;
+    full_enabled = false;
+    shut_down_active();
+
+    // With the GaggiMate link on, the stack keeps advertising for GLink once Bluetooth Enabled ends
+    if (glink_link_wanted.load()) {
+        start_link_only();
+    }
+}
+
+// Stops every BLE activity (any mode): drops the client, stops advertising. The stack stays resident.
+void BluetoothManager::shut_down_active() {
     if (!ble_enabled) return;
     
     log("Bluetooth: Disabling BLE and restoring normal power...\n");
@@ -355,6 +460,9 @@ void BluetoothManager::disable() {
     data_service = nullptr;
     debug_service = nullptr;
     sysinfo_service = nullptr;
+    glink_service_ = nullptr;
+    glink_rx_characteristic = nullptr;
+    glink_tx_characteristic = nullptr;
     ota_data_characteristic = nullptr;
     ota_control_characteristic = nullptr;
     ota_status_characteristic = nullptr;
@@ -389,47 +497,52 @@ void BluetoothManager::handle() {
         }
         return;
     }
-    
-    // Only check timeout when no client is connected
-    if (!device_connected) {
-        unsigned long disconnected_elapsed = millis() - last_disconnect_time;
-        
-        if (disconnected_elapsed > timeout_ms) {
-            log("Bluetooth: Timeout reached (%lu minutes disconnected), disabling BLE\n", timeout_ms / 60000);
-            disable();
-            return;
+
+    // Everything up to the GLink tick is FULL only: the old services and the auto-disable timers.
+    // LINK_ONLY serves GLink alone and has no timer.
+    if (full_enabled) {
+        // Only check timeout when no client is connected
+        if (!device_connected) {
+            unsigned long disconnected_elapsed = millis() - last_disconnect_time;
+
+            if (disconnected_elapsed > timeout_ms) {
+                log("Bluetooth: Timeout reached (%lu minutes disconnected), disabling BLE\n", timeout_ms / 60000);
+                disable();
+                return;
+            }
+        } else {
+            // While connected, constantly reset timeout to default for UI display
+            timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
         }
-    } else {
-        // While connected, constantly reset timeout to default for UI display
-        timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
-    }
-    
-    // A stalled OTA would keep the hardware tasks suspended: abort it
-    if (ota_handler.check_inactivity_timeout()) {
-        if (ota_handler.get_failure_reason()) {
-            update_ui_status(ota_handler.get_failure_reason());
+
+        // A stalled OTA would keep the hardware tasks suspended: abort it
+        if (ota_handler.check_inactivity_timeout()) {
+            if (ota_handler.get_failure_reason()) {
+                update_ui_status(ota_handler.get_failure_reason());
+            }
+            set_ota_status(BLE_OTA_ERROR);
         }
-        set_ota_status(BLE_OTA_ERROR);
+
+        // Handle data export updates
+        update_data_export();
+        process_sessions_info_updates();
+
+        // Run deferred diagnostic report generation on BLE task (not on NimBLE callback thread)
+        if (device_connected && debug_tx_characteristic && diagnostic_report_pending && !diagnostic_report_in_progress) {
+            diagnostic_report_in_progress = true;
+            diagnostic_report_pending = false;
+            generate_diagnostic_report();
+            diagnostic_report_in_progress = false;
+        }
+
+        // Update system info periodically if connected (every 10 seconds)
+        if (device_connected && millis() - last_sysinfo_update_ms > 10000) {
+            refresh_system_info();
+            last_sysinfo_update_ms = millis();
+        }
     }
 
-    // Handle data export updates
-    update_data_export();
-    process_sessions_info_updates();
-
-    // Run deferred diagnostic report generation on BLE task (not on NimBLE callback thread)
-    if (device_connected && debug_tx_characteristic && diagnostic_report_pending && !diagnostic_report_in_progress) {
-        diagnostic_report_in_progress = true;
-        diagnostic_report_pending = false;
-        generate_diagnostic_report();
-        diagnostic_report_in_progress = false;
-    }
-    
-    // Update system info periodically if connected (every 10 seconds)
-    static unsigned long last_sysinfo_update = 0;
-    if (device_connected && millis() - last_sysinfo_update > 10000) {
-        refresh_system_info();
-        last_sysinfo_update = millis();
-    }
+    glink_service_tick(millis());
 }
 
 void BluetoothManager::start_advertising() {
@@ -456,7 +569,7 @@ unsigned long BluetoothManager::get_remaining_time_ms() const {
 }
 
 unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
-    if (!ble_enabled) return 0;
+    if (!full_enabled) return 0;  // LINK_ONLY has no timer
     
     if (device_connected) {
         // When connected, use the full timeout from connection time
@@ -471,7 +584,7 @@ unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
 
 
 void BluetoothManager::start_data_export() {
-    if (!ble_enabled || !device_connected) {
+    if (!full_enabled || !device_connected) {
         log("Bluetooth Data: Cannot start export - BLE not enabled or not connected\n");
         return;
     }
@@ -615,7 +728,7 @@ void BluetoothManager::clear_measurement_data() {
 }
 
 void BluetoothManager::send_file_list() {
-    if (!ble_enabled || !device_connected || !data_transfer_characteristic) {
+    if (!full_enabled || !device_connected || !data_transfer_characteristic) {
         log("Bluetooth Data: Cannot send file list - BLE not enabled or not connected\n");
         set_data_status(BLE_DATA_ERROR);
         return;
@@ -674,7 +787,7 @@ void BluetoothManager::send_file_list() {
 }
 
 void BluetoothManager::send_individual_file(uint32_t session_id) {
-    if (!ble_enabled || !device_connected) {
+    if (!full_enabled || !device_connected) {
         log("Bluetooth Data: Cannot start file transfer - BLE not enabled or not connected\n");
         set_data_status(BLE_DATA_ERROR);
         return;
@@ -991,46 +1104,123 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
 
 // BLE Callbacks
 void BluetoothManager::onConnect(BLEServer* server) {
+    // The NimBLE server stores the handle of the newest connection before calling back, so getConnId() names the
+    // client that just connected, also when another one is still connected.
+    const uint16_t new_id = server->getConnId();
     if (!ble_enabled) {
         // Connected while soft-disabled (advertising was still running): refuse
-        server->disconnect(server->getConnId());
+        server->disconnect(new_id);
         return;
     }
     if (UpdateGuard::is_held()) {
         // A WiFi update owns the flash and the tasks: no BLE client may interfere
         log("BLE: Client refused - a WiFi update is running\n");
-        server->disconnect(server->getConnId());
+        server->disconnect(new_id);
         return;
     }
-    connection_id = server->getConnId();
+    if (device_connected && new_id != connection_id) {
+        // One client at a time (FULL and LINK_ONLY): the connected one keeps its state, the newcomer is dropped
+        log("BLE: Second client refused - one client at a time\n");
+        server->disconnect(new_id);
+        return;
+    }
+    connection_id = new_id;
     device_connected = true;
+
+    // GLink per-connection state starts empty (docs/GLINK-PROTOCOL.md 7.4); the Bluetooth task sees the new epoch
+    portENTER_CRITICAL(&glink_rx_mux);
+    glink_rx.reset();
+    portEXIT_CRITICAL(&glink_rx_mux);
+    tx_subscribed = false;
+    tx_failed = false;
+    rx_activity = false;
+    att_mtu = 0;
+    link_connect_ms = millis();
+    link_epoch++;
+
     log("BLE: Client connected - timeout paused while connected\n");
     mark_sessions_info_dirty();
 }
 
-void BluetoothManager::onDisconnect(BLEServer* server) {
+void BluetoothManager::onDisconnect(BLEServer* server, ble_gap_conn_desc* desc) {
+    const uint16_t gone_id = desc ? desc->conn_handle : connection_id;
+    if (device_connected && gone_id != connection_id) {
+        // A refused second client went away: the accepted one is untouched
+        return;
+    }
+
+    const bool was_connected = device_connected;
     device_connected = false;
     last_disconnect_time = millis(); // Reset timeout countdown from now
-    
+    if (was_connected) {
+        tx_subscribed = false;
+        att_mtu = 0;
+        portENTER_CRITICAL(&glink_rx_mux);
+        glink_rx.reset();
+        portEXIT_CRITICAL(&glink_rx_mux);
+        link_epoch++;
+    }
+
     log("BLE: Client disconnected - timeout countdown resumed\n");
-    
+
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota();
     }
-    
+
     if (data_export_in_progress) {
         stop_data_export();
     }
-    
+
     debug_stream_active = false;
-    
+
     // Restart advertising for next connection
     delay(500);
     start_advertising();
 }
 
+void BluetoothManager::onMtuChanged(BLEServer* server, ble_gap_conn_desc* desc, uint16_t mtu) {
+    // The negotiated ATT MTU of the accepted client; the Bluetooth task sizes the packets from it
+    if (desc && device_connected && desc->conn_handle == connection_id) {
+        att_mtu = mtu;
+    }
+}
+
+BleChar BluetoothManager::classify(const BLECharacteristic* characteristic) const {
+    if (!characteristic) return BleChar::COUNT;
+    if (characteristic == ota_data_characteristic) return BleChar::OTA_DATA;
+    if (characteristic == ota_control_characteristic) return BleChar::OTA_CONTROL;
+    if (characteristic == ota_status_characteristic) return BleChar::OTA_STATUS;
+    if (characteristic == build_number_characteristic) return BleChar::OTA_BUILD_NUMBER;
+    if (characteristic == data_control_characteristic) return BleChar::DATA_CONTROL;
+    if (characteristic == data_transfer_characteristic) return BleChar::DATA_TRANSFER;
+    if (characteristic == data_status_characteristic) return BleChar::DATA_STATUS;
+    if (characteristic == debug_rx_characteristic) return BleChar::DEBUG_RX;
+    if (characteristic == debug_tx_characteristic) return BleChar::DEBUG_TX;
+    if (characteristic == sysinfo_system_characteristic) return BleChar::SYSINFO_SYSTEM;
+    if (characteristic == sysinfo_performance_characteristic) return BleChar::SYSINFO_PERFORMANCE;
+    if (characteristic == sysinfo_hardware_characteristic) return BleChar::SYSINFO_HARDWARE;
+    if (characteristic == sysinfo_sessions_characteristic) return BleChar::SYSINFO_SESSIONS;
+    if (characteristic == sysinfo_diagnostics_characteristic) return BleChar::SYSINFO_DIAGNOSTICS;
+    if (characteristic == glink_rx_characteristic) return BleChar::GLINK_RX;
+    if (characteristic == glink_tx_characteristic) return BleChar::GLINK_TX;
+    return BleChar::COUNT;
+}
+
+void BluetoothManager::onWrite(BLECharacteristic* characteristic, ble_gap_conn_desc* desc) {
+    if (characteristic == glink_rx_characteristic) {
+        glink_on_rx_write(characteristic, desc ? desc->conn_handle : BLE_HS_CONN_HANDLE_NONE);
+        return;
+    }
+    onWrite(characteristic);
+}
+
 void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
     if (!ble_enabled) return;
+    // Per-characteristic filter: LINK_ONLY serves GLink only (OTA, data export, debug and diagnostics are refused)
+    if (!ble_char_access_allowed(link_mode(), classify(characteristic), BleAccess::WRITE)) {
+        LOG_BLE("  -> write refused in this mode\n");
+        return;
+    }
     if (characteristic == ota_control_characteristic) {
         handle_ota_control_command(characteristic);
     } else if (characteristic == ota_data_characteristic) {
@@ -1050,7 +1240,256 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
 }
 
 void BluetoothManager::onRead(BLECharacteristic* characteristic) {
-    // Reserved for future use
+    // Runs before the stack reads the value: a read the mode refuses (LINK_ONLY: sysinfo, OTA build number and
+    // status, data export) returns nothing. FULL restores the values when it starts (enable()).
+    const BleChar ch = classify(characteristic);
+    if (ch != BleChar::COUNT && !ble_char_access_allowed(link_mode(), ch, BleAccess::READ)) {
+        characteristic->setValue(reinterpret_cast<const uint8_t*>(""), 0);
+    }
+}
+
+void BluetoothManager::onSubscribe(BLECharacteristic* characteristic, ble_gap_conn_desc* desc, uint16_t sub_value) {
+    // CCCD of GLink TX: bit 0 is notifications. Only the accepted client counts.
+    constexpr uint16_t kSubNotify = 0x0001;
+    if (characteristic == glink_tx_characteristic && desc && device_connected && desc->conn_handle == connection_id) {
+        tx_subscribed = (sub_value & kSubNotify) != 0;
+    }
+}
+
+void BluetoothManager::onStatus(BLECharacteristic* characteristic, Status status, uint32_t code) {
+    // Any outcome of a GLink notification other than success means the fragment did not go out: the Bluetooth task
+    // drops the rest of that message and sends a fresh one later (docs/GLINK-PROTOCOL.md section 8).
+    if (characteristic == glink_tx_characteristic && status != Status::SUCCESS_NOTIFY) {
+        tx_failed = true;
+    }
+}
+
+//------------------------------------------------------------------------------
+// GLink (chg020): the Bluetooth task parses, answers and broadcasts; the host task only copies fragments.
+// No payload is ever logged.
+//------------------------------------------------------------------------------
+void BluetoothManager::glink_on_rx_write(BLECharacteristic* characteristic, uint16_t conn_handle) {
+    // Only the accepted client may talk to GLink; a refused or unknown connection is ignored
+    if (!ble_enabled || !device_connected || conn_handle != connection_id) return;
+    if (!ble_char_access_allowed(link_mode(), BleChar::GLINK_RX, BleAccess::WRITE)) return;
+
+    const size_t len = characteristic->getLength();
+    if (len == 0) return;
+    rx_activity = true;
+    const uint32_t now_ms = millis();
+    portENTER_CRITICAL(&glink_rx_mux);
+    glink_rx.on_fragment(characteristic->getData(), len, now_ms);
+    portEXIT_CRITICAL(&glink_rx_mux);
+}
+
+void BluetoothManager::glink_disconnect_client(const char* reason) {
+    if (glink_disconnect_sent) return;
+    glink_disconnect_sent = true;
+    log("GLink: disconnecting the client (%s)\n", reason);
+    if (ble_server && device_connected) {
+        ble_server->disconnect(connection_id);
+    }
+}
+
+// PLACEHOLDER snapshot until step 6a (glink_gate + UI controller): fixed values, no UI or controller reads.
+static void glink_placeholder_period(GlinkPeriodInfo& info) {
+    info = GlinkPeriodInfo();
+    info.dev_state = GlinkDevState::UNKNOWN;
+    info.weight_valid = false;
+    info.select_profile = 0;
+    info.blocked = GlinkError::NONE;
+    info.result_seq = 0;
+    info.profile_rev = 0;
+}
+
+static GlinkPeriodKey glink_period_key(const GlinkPeriodInfo& info) {
+    GlinkPeriodKey key;
+    key.dev_state = info.dev_state;
+    key.phase = info.phase;
+    key.select_profile = info.select_profile;
+    key.blocked = info.blocked;
+    key.result_seq = info.result_seq;
+    key.profile_rev = info.profile_rev;
+    return key;
+}
+
+// snCode: the 6 bytes of the factory MAC as 12 lower-case hex digits (docs/GLINK-PROTOCOL.md 5.2)
+static void glink_serial_code(char* out, size_t cap) {
+    const uint64_t mac = ESP.getEfuseMac();
+    snprintf(out, cap, "%02x%02x%02x%02x%02x%02x", static_cast<unsigned>(mac & 0xFF),
+             static_cast<unsigned>((mac >> 8) & 0xFF), static_cast<unsigned>((mac >> 16) & 0xFF),
+             static_cast<unsigned>((mac >> 24) & 0xFF), static_cast<unsigned>((mac >> 32) & 0xFF),
+             static_cast<unsigned>((mac >> 40) & 0xFF));
+}
+
+void BluetoothManager::glink_send_error(int object, GlinkError code, const char* message) {
+    char* out = glink_tx.scratch();
+    if (!out) return;
+    const size_t n = glink_encode_error(out, glink_tx.scratch_capacity(), object, code, message, nullptr);
+    if (n != 0) {
+        tx_failed = false;
+        glink_tx.commit(n, glink_tx_sequence++);
+    }
+}
+
+// Answers at most one pending item (an oversize or overrun notice, or one request). The TX buffer is idle.
+void BluetoothManager::glink_process_request(uint32_t now_ms) {
+    enum class Work : uint8_t { NONE, TOO_LARGE, OVERRUN, REQUEST } work = Work::NONE;
+    portENTER_CRITICAL(&glink_rx_mux);
+    if (glink_rx.take_too_large()) {
+        work = Work::TOO_LARGE;
+    } else if (glink_rx.take_overrun()) {
+        work = Work::OVERRUN;
+    } else if (glink_rx.has_message()) {
+        work = Work::REQUEST;
+    }
+    portEXIT_CRITICAL(&glink_rx_mux);
+
+    if (work == Work::TOO_LARGE) {
+        glink_send_error(-1, GlinkError::PAYLOAD_TOO_LARGE, glink_msg::TOO_LARGE);
+        return;
+    }
+    if (work == Work::OVERRUN) {
+        glink_send_error(-1, GlinkError::BUSY, glink_msg::BUSY);
+        return;
+    }
+    if (work != Work::REQUEST) return;
+
+    // The pending buffer is stable until release_message(): the host task only flags overruns while it is occupied
+    GlinkRequest request;
+    GlinkFailure failure;
+    char* out = glink_tx.scratch();
+    const size_t cap = glink_tx.scratch_capacity();
+    size_t n = 0;
+
+    if (!glink_parse_request(glink_rx.message(), glink_rx.message_length(), request, failure) ||
+        !glink_gate(glink_session.handshaken(), false, request, failure)) {
+        n = glink_encode_failure(out, cap, failure);
+    } else if (request.object == GlinkObject::APP_HELLO) {
+        // No direct response: baseInfo, then periodInfo, follow as broadcasts
+        glink_session.on_handshake();
+        log("GLink: client handshake\n");
+    } else if (UpdateGuard::is_held() || ota_handler.is_ota_active()) {
+        n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UPDATING, glink_msg::UPDATING, nullptr);
+    } else {
+        // Step 6a/6b wire grindProfile, grindControl and grindResult through the UI task; until then they are
+        // refused (this includes stop, which has nothing to stop yet)
+        n = glink_encode_error(out, cap, static_cast<int>(request.object), GlinkError::UI_BUSY, glink_msg::UI_BUSY, nullptr);
+    }
+
+    portENTER_CRITICAL(&glink_rx_mux);
+    glink_rx.release_message();
+    portEXIT_CRITICAL(&glink_rx_mux);
+
+    if (n != 0) {
+        tx_failed = false;
+        glink_tx.commit(n, glink_tx_sequence++);
+    }
+}
+
+void BluetoothManager::glink_pump_tx(uint32_t now_ms) {
+    if (glink_tx.idle()) return;
+    if (!glink_tx_characteristic || !glink_session.subscribed()) {
+        glink_tx.abort();  // nobody listens: the message is dropped, a fresh one follows when someone does
+        return;
+    }
+    if (tx_failed.exchange(false)) {
+        glink_tx.abort();
+        return;
+    }
+
+    uint8_t packet[GLINK_MAX_PACKET_BYTES];
+    uint8_t sent = 0;
+    const uint8_t allowance = glink_pacer.allowance(now_ms);
+    while (sent < allowance && !glink_tx.idle()) {
+        const size_t len = glink_tx.peek(glink_session.packet_len(), packet, sizeof(packet));
+        if (len == 0) {
+            glink_tx.abort();
+            break;
+        }
+        glink_tx_characteristic->setValue(packet, len);
+        glink_tx_characteristic->notify();
+        sent++;
+        if (tx_failed.exchange(false)) {
+            glink_tx.abort();
+            break;
+        }
+        glink_tx.advance();
+    }
+    if (sent != 0) {
+        glink_pacer.note_sent(now_ms, sent);
+    }
+}
+
+void BluetoothManager::glink_service_tick(uint32_t now_ms) {
+    // A connect or disconnect since the last tick: forget everything of the previous client
+    const uint32_t epoch = link_epoch.load();
+    if (epoch != glink_epoch_seen) {
+        glink_epoch_seen = epoch;
+        glink_session.reset();
+        glink_tx.abort();
+        glink_pacer.reset();
+        glink_disconnect_sent = false;
+        if (device_connected) {
+            // LINK_ONLY: the 10 s clock runs from the connect. FULL clients (grinder.py, web flasher) never send
+            // appHello, so there it starts at the first GLink activity and a client without any is never dropped.
+            glink_session.on_connect(link_connect_ms.load(), !full_enabled);
+        }
+    }
+    if (!device_connected || !glink_session.connected() || glink_disconnect_sent) return;
+
+    glink_session.set_subscribed(tx_subscribed.load());
+    if (tx_subscribed.load() || rx_activity.exchange(false)) {
+        glink_session.note_activity(now_ms);
+    }
+    glink_session.set_mtu(att_mtu.load());
+
+    portENTER_CRITICAL(&glink_rx_mux);
+    const bool too_many_bad_fragments = glink_rx.disconnect_requested();
+    portEXIT_CRITICAL(&glink_rx_mux);
+    if (too_many_bad_fragments) {
+        glink_disconnect_client("too many bad fragments");
+        return;
+    }
+    if (glink_session.handshake_timed_out(now_ms)) {
+        glink_disconnect_client("no handshake");
+        return;
+    }
+
+    glink_pump_tx(now_ms);
+    if (glink_tx.idle()) {
+        glink_process_request(now_ms);
+    }
+    if (glink_tx.idle() && glink_session.base_info_due()) {
+        GlinkBaseInfo info;
+        char sn[BLE_GLINK_BASE_INFO_SN_HEX_LEN + 1];
+        glink_serial_code(sn, sizeof(sn));
+        info.release_ver = BUILD_NUMBER;
+        info.sn_code = sn;
+        info.fw_version = BUILD_FIRMWARE_VERSION;
+        info.board = board().name();
+        char* out = glink_tx.scratch();
+        const size_t n = glink_encode_base_info(out, glink_tx.scratch_capacity(), info);
+        if (n != 0) {
+            tx_failed = false;
+            glink_tx.commit(n, glink_tx_sequence++);
+        }
+        glink_session.mark_base_info_sent();  // also when it did not fit: never loop on it
+    } else if (glink_tx.idle()) {
+        GlinkPeriodInfo info;
+        glink_placeholder_period(info);
+        const GlinkPeriodKey key = glink_period_key(info);
+        if (glink_session.period_due(now_ms, key, false)) {
+            char* out = glink_tx.scratch();
+            const size_t n = glink_encode_period_info(out, glink_tx.scratch_capacity(), info);
+            if (n != 0) {
+                tx_failed = false;
+                glink_tx.commit(n, glink_tx_sequence++);
+            }
+            glink_session.mark_period_sent(now_ms, key);
+        }
+    }
+    glink_pump_tx(now_ms);
 }
 
 String BluetoothManager::check_ota_failure_after_boot() {
@@ -1058,7 +1497,7 @@ String BluetoothManager::check_ota_failure_after_boot() {
 }
 
 void BluetoothManager::refresh_system_info() {
-    if (!ble_enabled || !device_connected) return;
+    if (!full_enabled || !device_connected) return;
     
     update_system_info();
     update_performance_info();
@@ -1207,7 +1646,7 @@ bool BluetoothManager::update_sessions_info() {
 }
 
 void BluetoothManager::process_sessions_info_updates() {
-    if (!ble_enabled || !device_connected || !sysinfo_sessions_characteristic) {
+    if (!full_enabled || !device_connected || !sysinfo_sessions_characteristic) {
         return;
     }
 

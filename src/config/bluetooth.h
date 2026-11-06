@@ -93,6 +93,12 @@
 #define GLINK_PERIOD_GRINDING_SLOW_MS 1000                                     // periodInfo while GRINDING, ATT MTU below that
 #define GLINK_FAST_MTU_MIN 100                                                 // ATT MTU from which the fast grinding cadence is used
 
+// Device-side GLink knobs that are not part of the frozen protocol tables (docs/GLINK-PROTOCOL.md section 8 states the
+// pacing; the BLE_ prefix keeps them out of the GLINK_ contract check in tools/tests/test_glink_contract.py).
+#define BLE_GLINK_TX_PACE_MS 20                                                // Pacing window of notifications (the Bluetooth task ticks every 20 ms)
+#define BLE_GLINK_TX_FRAGMENTS_PER_PACE 2                                      // Fragments sent per pacing window
+#define BLE_GLINK_BASE_INFO_SN_HEX_LEN 12                                      // snCode: 12 lower-case hex digits of the factory MAC
+
 //------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS
 //------------------------------------------------------------------------------

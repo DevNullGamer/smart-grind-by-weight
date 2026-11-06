@@ -1,12 +1,14 @@
 // MenuUIController: table-driven setting toggles, sliders and radio groups (see system/menu_setting_table.h).
 #include "menu_controller.h"
 
+#include "../../bluetooth/manager.h"
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../../hardware/board_detect.h"
 #include "../../hardware/hardware_manager.h"
 #include "../../system/menu_setting_table.h"
 #include "../../system/nvs_settings_store.h"
+#include "../components/blocking_overlay.h"
 #include "../event_bridge_lvgl.h"
 #include "../ui_helpers.h"
 #include "../ui_manager.h"
@@ -33,9 +35,22 @@ void MenuUIController::handle_setting_toggle(ToggleSetting id) {
 
     if (def.after == ToggleAfter::REFRESH_AUTO_ACTIONS) {
         ui_manager_->refresh_auto_action_settings();
+    } else if (def.after == ToggleAfter::APPLY_GLINK_LINK) {
+        apply_glink_link(enabled);
     }
 
     LOG_DEBUG_PRINTLN(enabled ? def.log_on : def.log_off);
+}
+
+// Starting the link may bring the BLE stack up (about 0.6 s of init delays), so it runs behind the same overlay as
+// the Bluetooth Enabled toggle. While Bluetooth is Enabled (FULL) nothing changes until it ends.
+void MenuUIController::apply_glink_link(bool enabled) {
+    auto* ble = ui_manager_ ? ui_manager_->bluetooth_manager : nullptr;
+    if (!ble) return;
+
+    auto operation = [ble, enabled]() { ble->set_glink_link(enabled); };
+    auto completion = [this]() { ui_manager_->menu_screen.update_ble_status(); };
+    BlockingOperationOverlay::getInstance().show_and_execute(BlockingOperation::BLE_ENABLING, operation, completion);
 }
 
 void MenuUIController::register_setting_slider_events() {

@@ -20,7 +20,9 @@ private:
 
     // Last state pushed to LVGL. Style calls always invalidate the object (a full-width strip
     // flush), so LVGL is only touched when the state changes. UNKNOWN forces the next apply.
-    enum class BleIconState : uint8_t { UNKNOWN, HIDDEN, ACCENT, SUCCESS };
+    // ACCENT/SUCCESS: Bluetooth Enabled (advertising / connected). LISTENING/LINKED: the persistent GaggiMate link
+    // without Bluetooth Enabled (advertising / a client connected).
+    enum class BleIconState : uint8_t { UNKNOWN, HIDDEN, ACCENT, SUCCESS, LISTENING, LINKED };
     enum class WarningIconState : uint8_t { UNKNOWN, HIDDEN, SHOWN };
 
     UIManager* ui_manager_;

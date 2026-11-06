@@ -19,6 +19,7 @@ static const EventBridgeLVGL::EventType kSettingToggleEvents[TOGGLE_SETTING_COUN
     EventBridgeLVGL::EventType::GRIND_MODE_SWIPE_TOGGLE,
     EventBridgeLVGL::EventType::AUTO_START_TOGGLE,
     EventBridgeLVGL::EventType::AUTO_RETURN_TOGGLE,
+    EventBridgeLVGL::EventType::GLINK_LINK_TOGGLE,
 };
 
 EventBridgeLVGL::EventType MenuScreen::setting_toggle_event(ToggleSetting id) {

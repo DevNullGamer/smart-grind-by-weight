@@ -12,6 +12,8 @@ constexpr bool same_str(const char* a, const char* b) {
 
 constexpr const char* kBluetoothNs = "bluetooth";
 constexpr const char* kBleStartup = "startup";
+// chg020: touch-only "GaggiMate link" (LINK_ONLY mode). Not a portal setting; absent after erase or on older firmware = off.
+constexpr const char* kGlinkLink = "glink";
 
 constexpr const char* kLoggingNs = "logging";
 constexpr const char* kLoggingEnabled = "enabled";
@@ -58,6 +60,10 @@ public:
 
     bool ble_startup() const;
     bool set_ble_startup(bool enabled);
+
+    // Keep advertising for the GaggiMate link while Bluetooth is off (default off; touch-only, never in the web panel)
+    bool glink_link() const;
+    bool set_glink_link(bool enabled);
 
     bool logging_enabled() const;
     bool set_logging_enabled(bool enabled);

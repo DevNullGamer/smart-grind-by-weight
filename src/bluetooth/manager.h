@@ -4,6 +4,7 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <atomic>
 #include <functional>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -12,6 +13,7 @@
 #include "../config/constants.h"
 #include "ota_handler.h"
 #include "data_stream.h"
+#include "glink_session.h"
 
 // Forward declaration to avoid circular dependency
 class UIManager;
@@ -56,6 +58,10 @@ enum BLEDataStatus {
  * 
  * Handles BLE connection, characteristic management, and coordinates
  * between OTA updates and data export operations.
+ *
+ * Modes (glink_session.h): OFF, FULL (the "Enabled" toggle: all services, auto-disable timers) and LINK_ONLY (the
+ * touch-only GaggiMate link: only the GLink service works, no timer). `ble_enabled` means "the stack is serving"
+ * (FULL or LINK_ONLY); `full_enabled` is the Enabled toggle and what is_enabled() reports.
  */
 class BluetoothManager : public BLEServerCallbacks, public BLECharacteristicCallbacks {
 private:
@@ -65,6 +71,7 @@ private:
     BLEService* data_service;
     BLEService* debug_service;
     BLEService* sysinfo_service;
+    BLEService* glink_service_;
     
     // OTA characteristics
     BLECharacteristic* ota_data_characteristic;
@@ -87,10 +94,16 @@ private:
     BLECharacteristic* sysinfo_hardware_characteristic;
     BLECharacteristic* sysinfo_sessions_characteristic;
     BLECharacteristic* sysinfo_diagnostics_characteristic;
+
+    // GLink characteristics (service 53474257-0001-...): RX client -> device, TX device -> client
+    BLECharacteristic* glink_rx_characteristic;
+    BLECharacteristic* glink_tx_characteristic;
     
     // Connection state
     bool device_connected;
-    bool ble_enabled;
+    bool ble_enabled;        // the stack is serving: mode FULL or LINK_ONLY
+    bool full_enabled;       // the Bluetooth "Enabled" toggle (mode FULL)
+    std::atomic<bool> glink_link_wanted;  // the touch-only "GaggiMate link" setting (cached; the UI task writes it)
     bool stack_initialized;  // BLEDevice/server/services created by the first enable(); kept across disable()
     uint16_t connection_id;  // handle of the connected client, valid while device_connected
     bool debug_stream_active;
@@ -122,7 +135,37 @@ private:
     bool diagnostic_report_pending;
     bool diagnostic_report_in_progress;
 
+    // GLink link state. Written by the BLE host task (callbacks), read by the Bluetooth task (handle()).
+    std::atomic<uint32_t> link_epoch;       // +1 on every accepted connect and every disconnect of that client
+    std::atomic<uint32_t> link_connect_ms;  // millis() of the accepted connect
+    std::atomic<uint16_t> att_mtu;          // 0 = not negotiated
+    std::atomic<bool> tx_subscribed;        // CCCD of GLink TX
+    std::atomic<bool> rx_activity;          // a GLink RX write arrived (starts the FULL handshake clock)
+    std::atomic<bool> tx_failed;            // a GLink notification failed: drop the rest of the message
+    portMUX_TYPE glink_rx_mux;
+    GlinkRx glink_rx;                       // guarded by glink_rx_mux
+
+    // Bluetooth task only
+    GlinkSession glink_session;
+    uint8_t glink_tx_buffer[GLINK_MAX_REPLY_BYTES];
+    GlinkTx glink_tx;
+    GlinkTxPacer glink_pacer;
+    uint16_t glink_tx_sequence;
+    uint32_t glink_epoch_seen;
+    bool glink_disconnect_sent;
+    unsigned long last_sysinfo_update_ms;
+
     // Private methods
+    void create_stack();
+    void shut_down_active();
+    void start_link_only();
+    BleChar classify(const BLECharacteristic* characteristic) const;
+    void glink_on_rx_write(BLECharacteristic* characteristic, uint16_t conn_handle);
+    void glink_service_tick(uint32_t now_ms);
+    void glink_pump_tx(uint32_t now_ms);
+    void glink_process_request(uint32_t now_ms);
+    void glink_send_error(int object, GlinkError code, const char* message);
+    void glink_disconnect_client(const char* reason);
     void update_ui_status(const char* status);
     void enqueue_ui_status(const char* status);
     void set_ota_status(BLEOTAStatus status);
@@ -163,9 +206,16 @@ public:
     void enable(unsigned long timeout_ms = 0);
     
     /**
-     * Enable BLE during bootup with shorter timeout
+     * Enable BLE during bootup with shorter timeout; with Startup off and the GaggiMate link on, start LINK_ONLY
      */
     void enable_during_bootup();
+
+    /**
+     * The touch-only "GaggiMate link" setting. Caches the value and, unless Bluetooth is Enabled (FULL, which
+     * serves GLink anyway), starts or stops LINK_ONLY. May bring the BLE stack up (init delays): run it behind the
+     * blocking overlay.
+     */
+    void set_glink_link(bool on);
     
     /**
      * Disable BLE and cleanup
@@ -186,8 +236,11 @@ public:
     /**
      * Status queries
      */
-    bool is_enabled() const { return ble_enabled; }
+    bool is_enabled() const { return full_enabled; }  // the Bluetooth "Enabled" toggle (mode FULL)
+    bool is_active() const { return ble_enabled; }    // FULL or LINK_ONLY
+    GlinkLinkMode link_mode() const { return glink_link_mode_resolve(ble_enabled, full_enabled); }
     bool is_connected() const { return device_connected; }
+    bool is_link_handshaken() const { return device_connected && glink_session.handshaken(); }
     bool is_updating() const { return ota_handler.is_ota_active(); }
     // Waits for a BLE OTA start in progress; used by the WiFi update guard to close the start race
     bool is_updating_synchronized() { return ota_handler.is_ota_active_synchronized(); }
@@ -237,9 +290,13 @@ public:
     
     // BLE Callbacks
     void onConnect(BLEServer* server) override;
-    void onDisconnect(BLEServer* server) override;
+    void onDisconnect(BLEServer* server, ble_gap_conn_desc* desc) override;  // names the client that went away
+    void onMtuChanged(BLEServer* server, ble_gap_conn_desc* desc, uint16_t mtu) override;
     void onWrite(BLECharacteristic* characteristic) override;
+    void onWrite(BLECharacteristic* characteristic, ble_gap_conn_desc* desc) override;  // GLink RX needs the connection
     void onRead(BLECharacteristic* characteristic) override;
+    void onSubscribe(BLECharacteristic* characteristic, ble_gap_conn_desc* desc, uint16_t sub_value) override;
+    void onStatus(BLECharacteristic* characteristic, Status status, uint32_t code) override;
 
     // Drain a status message queued from BLE task; called by UI task
     bool dequeue_ui_status(char* out, size_t out_len);

@@ -17,6 +17,7 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
 
     create_toggle_row(parent, "Enabled", &ble_toggle);
     create_setting_toggle_row(parent, ToggleSetting::BLE_STARTUP);
+    create_setting_toggle_row(parent, ToggleSetting::GLINK_LINK);
 
     // BLE Status label
     ble_status_label = lv_label_create(parent);
@@ -60,8 +61,15 @@ void MenuScreen::update_ble_status() {
         lv_obj_remove_state(ble_toggle, LV_STATE_CHECKED);
     }
     
-    // Update status text
-    if (bluetooth_manager->is_enabled()) {
+    // Update status text. The GaggiMate link (LINK_ONLY: no Bluetooth Enabled, no auto-disable timer) shows in words
+    // here and as the status indicator on the main screens.
+    if (bluetooth_manager->link_mode() == GlinkLinkMode::LINK_ONLY) {
+        set_label_text_if_changed(ble_status_label, bluetooth_manager->is_connected()
+                                                         ? (bluetooth_manager->is_link_handshaken() ? "GaggiMate: linked" : "GaggiMate: connected")
+                                                         : "GaggiMate: listening");
+        lv_obj_set_hidden(ble_status_label, false);
+        lv_obj_set_hidden(ble_timer_label, true);
+    } else if (bluetooth_manager->is_enabled()) {
         if (bluetooth_manager->is_connected()) {
             set_label_text_if_changed(ble_status_label, "Connected");
         } else {
