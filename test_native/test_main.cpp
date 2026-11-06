@@ -38,6 +38,10 @@ void run_grind_history_tests();
 void run_grind_history_store_tests();
 void run_portal_insights_tests();
 void run_screen_power_tests();
+void run_glink_frame_tests();
+void run_glink_json_tests();
+void run_glink_messages_tests();
+void run_glink_decide_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -80,5 +84,9 @@ int main() {
     run_grind_history_store_tests();
     run_portal_insights_tests();
     run_screen_power_tests();
+    run_glink_frame_tests();
+    run_glink_json_tests();
+    run_glink_messages_tests();
+    run_glink_decide_tests();
     return UNITY_END();
 }
