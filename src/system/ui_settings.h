@@ -39,6 +39,14 @@ constexpr const char* kPurgeMode = "grinder_mode";
 constexpr const char* kPurgeAmountG = "grinder_amt_g";
 constexpr const char* kFreshnessHours = "freshness_hrs";
 
+// Profiles in the grinder namespace (ProfileController; index = profile index, 3 = the GaggiMate Profile Dose, chg020).
+// weight3 is the "a dose exists" marker: the PROFILE page is shown exactly when it holds a valid weight.
+// gsz0..gsz3 are 12-byte blobs (GrindSizeStore); keys are at most 15 characters.
+constexpr const char* kProfileCurrent = "profile";
+constexpr const char* kProfileWeight[4] = {"weight0", "weight1", "weight2", "weight3"};
+constexpr const char* kProfileTime[4] = {"time0", "time1", "time2", "time3"};
+constexpr const char* kGrindSize[4] = {"gsz0", "gsz1", "gsz2", "gsz3"};
+
 }  // namespace ui_settings_keys
 
 // Typed access to the persisted UI/grind settings. Stateless (no cache): every call goes to the store.

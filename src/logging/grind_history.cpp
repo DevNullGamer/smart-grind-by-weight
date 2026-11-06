@@ -16,6 +16,10 @@ bool grind_history_result_valid(uint8_t code) {
            code == static_cast<uint8_t>(GrindHistoryResult::UNKNOWN);
 }
 
+uint8_t grind_history_profile_of(uint8_t profile_id) {
+    return profile_id > GRIND_HISTORY_PROFILE_MAX ? GRIND_HISTORY_PROFILE_MAX : profile_id;
+}
+
 bool grind_history_entry_valid(const GrindHistoryEntry& entry) {
     return std::isfinite(entry.target) && std::isfinite(entry.final_g) && entry.profile <= GRIND_HISTORY_PROFILE_MAX &&
            entry.mode <= GRIND_HISTORY_MODE_MAX && grind_history_result_valid(entry.result);

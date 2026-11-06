@@ -40,6 +40,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::MENU_SCALE_TARE, [this](lv_event_t*) { handle_scale_tare(); });
     EventBridgeLVGL::register_handler(ET::MENU_AUTOTUNE, [this](lv_event_t*) { handle_autotune(); });
     EventBridgeLVGL::register_handler(ET::MENU_DIAGNOSTIC_RESET, [this](lv_event_t*) { handle_diagnostics_reset(); });
+    EventBridgeLVGL::register_handler(ET::MENU_REMOVE_DOSE_PROFILE, [this](lv_event_t*) { handle_remove_dose_profile(); });
     EventBridgeLVGL::register_handler(ET::MENU_BACK, [this](lv_event_t*) { handle_back(); });
     EventBridgeLVGL::register_handler(ET::MENU_REFRESH_STATS, [this](lv_event_t*) { handle_refresh_stats(); });
 
@@ -196,7 +197,7 @@ void MenuUIController::handle_autotune() {
 
 void MenuUIController::handle_back() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(3);
+    ui_manager_->set_current_tab(ui_manager_->menu_tab_index());
     ui_manager_->switch_to_state(UIState::READY);
 }
 
@@ -239,6 +240,26 @@ void MenuUIController::perform_diagnostics_reset() {
     if (sensor) {
         ui_manager_->menu_screen.update_diagnostics(sensor);
     }
+}
+
+void MenuUIController::handle_remove_dose_profile() {
+    if (!ui_manager_ || !ui_manager_->profile_controller) return;
+
+    ui_manager_->show_confirmation(
+        "REMOVE PROFILE",
+        "Removes the GaggiMate profile (dose and grind size) and its page on the main screen.\n\n"
+        "GaggiMate can create it again.",
+        "REMOVE",
+        lv_color_hex(THEME_COLOR_WARNING),
+        [this]() {
+            // The READY screen follows on its own (ReadyUIController::sync_pages); the menu row hides when MENU is shown again
+            if (!ui_manager_->profile_controller->remove_dose_profile()) {
+                LOG_DEBUG_PRINTLN("Remove GaggiMate profile: could not delete the stored dose");
+            }
+        },
+        "CANCEL",
+        [this]() { return_to_menu(); }
+    );
 }
 
 void MenuUIController::handle_ble_toggle() {
@@ -310,7 +331,7 @@ void MenuUIController::execute_purge_operation() {
 
 void MenuUIController::return_to_menu() {
     if (!ui_manager_) return;
-    ui_manager_->set_current_tab(3);
+    ui_manager_->set_current_tab(ui_manager_->menu_tab_index());
     ui_manager_->switch_to_state(UIState::MENU);
 }
 

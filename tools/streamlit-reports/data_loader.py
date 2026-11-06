@@ -13,7 +13,7 @@ class GrindDataLoader:
             # Check for environment variable first, then fall back to default
             db_path = os.environ.get('GRIND_DB_PATH', '../database/grinder_data.db')
         self.db_path = db_path
-        self.profile_map = {0: "SINGLE", 1: "DOUBLE", 2: "CUSTOM"}
+        self.profile_map = {0: "SINGLE", 1: "DOUBLE", 2: "CUSTOM", 3: "PROFILE"}
     
     def _get_connection(self):
         """Get database connection"""

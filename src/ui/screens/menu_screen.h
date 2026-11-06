@@ -52,6 +52,7 @@ private:
     lv_obj_t* ble_toggle = nullptr;
     lv_obj_t* ble_status_label = nullptr;
     lv_obj_t* ble_timer_label = nullptr;
+    lv_obj_t* remove_dose_button = nullptr;  // "Remove GaggiMate profile": shown only while the Profile Dose exists
     lv_obj_t* setting_toggles_[TOGGLE_SETTING_COUNT] = {};  // table-driven toggles (menu_screen_settings.cpp)
     lv_obj_t* setting_sliders_[SLIDER_SETTING_COUNT] = {};        // table-driven sliders (menu_screen_settings.cpp)
     lv_obj_t* setting_slider_labels_[SLIDER_SETTING_COUNT] = {};  // the label row above each slider
@@ -127,6 +128,8 @@ public:
     void update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap);
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_ble_status();
+    // Shows the Bluetooth page row that removes the GaggiMate profile (Profile Dose) only while one exists
+    void set_dose_profile_row_visible(bool profile_exists);
     void refresh_statistics(bool show_overlay = true);
     // Sets all table-driven toggles to the stored values (menu_screen_settings.cpp)
     void refresh_setting_toggles();

@@ -11,7 +11,7 @@ from circular_buffer_math import calculate_95th_percentile_series
 # --- Configuration ---
 DB_FILE = os.environ.get('GRIND_DB_PATH', '../database/grinder_data.db')
 TOLERANCE_G = 0.03  # Actual grind accuracy tolerance
-PROFILE_MAP = {0: "SINGLE", 1: "DOUBLE", 2: "CUSTOM"}
+PROFILE_MAP = {0: "SINGLE", 1: "DOUBLE", 2: "CUSTOM", 3: "PROFILE"}
 MODE_MAP = {0: "WEIGHT", 1: "TIME"}
 TERMINATION_REASON_MAP = {
     0: "COMPLETE",

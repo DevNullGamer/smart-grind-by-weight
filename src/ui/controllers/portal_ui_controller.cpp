@@ -154,7 +154,9 @@ void PortalUIController::load_values(PortalValues* out) const {
             out->v[PF_SINGLE_TIME_S + 2 * p] = profiles->get_profile_time(p);
         }
         out->v[PF_GRIND_MODE] = static_cast<float>(grind_mode_radio_index(static_cast<int>(profiles->get_grind_mode())));
-        out->current_profile = profiles->get_current_profile();
+        // The web panel knows three profiles: while the Profile Dose is selected on the grinder it shows CUSTOM
+        const int selected = profiles->get_current_profile();
+        out->current_profile = selected < static_cast<int>(PORTAL_PROFILE_COUNT) ? selected : static_cast<int>(PORTAL_PROFILE_COUNT) - 1;
     }
     portal_device_name_from_host(wifi_manager.hostname(), out->device_name);
 }

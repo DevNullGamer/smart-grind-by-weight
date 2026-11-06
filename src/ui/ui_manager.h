@@ -167,6 +167,8 @@ public:
     GrindController* get_grind_controller() { return grind_controller; }
     OtaDataExportController* get_ota_data_export_controller() { return ota_data_export_controller_.get(); }
     void set_current_tab(int tab) { current_tab = tab; }
+    // Tab of the MENU page on the READY screen (it moves when the PROFILE page appears, see ui/ready_tabs.h)
+    int menu_tab_index() const { return ready_screen.menu_tab_index(); }
     
     void set_background_active(bool active);
     void refresh_auto_action_settings();

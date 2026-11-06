@@ -26,6 +26,7 @@ public:
         MENU_SCALE_TARE,
         MENU_AUTOTUNE,
         MENU_DIAGNOSTIC_RESET,
+        MENU_REMOVE_DOSE_PROFILE,
         MENU_BACK,
         MENU_REFRESH_STATS,
         BLE_TOGGLE,

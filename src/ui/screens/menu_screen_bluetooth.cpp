@@ -32,10 +32,22 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     lv_obj_set_style_text_color(ble_timer_label, lv_color_hex(THEME_COLOR_WARNING), 0);
     lv_obj_set_scrollable(ble_timer_label, false);
 
+    // Removes the Profile Dose (the PROFILE page on READY); hidden while there is none
+    remove_dose_button = create_button(parent, "Remove GaggiMate profile", lv_color_hex(THEME_COLOR_WARNING));
+    wrap_button_text(remove_dose_button);
+    lv_obj_set_hidden(remove_dose_button, true);
+
     // Register the event of the Enabled toggle (done here because widgets are created lazily;
     // the Startup toggle is wired by its table row)
     using ET = EventBridgeLVGL::EventType;
     bind_event(ble_toggle, LV_EVENT_VALUE_CHANGED, ET::BLE_TOGGLE);
+    bind_event(remove_dose_button, LV_EVENT_CLICKED, ET::MENU_REMOVE_DOSE_PROFILE);
+}
+
+void MenuScreen::set_dose_profile_row_visible(bool profile_exists) {
+    if (remove_dose_button && lv_obj_is_hidden(remove_dose_button) == profile_exists) {
+        lv_obj_set_hidden(remove_dose_button, !profile_exists);
+    }
 }
 
 void MenuScreen::update_ble_status() {

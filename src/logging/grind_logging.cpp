@@ -26,7 +26,7 @@ GrindHistoryEntry history_entry_of(const GrindSession& session, GrindMode mode, 
     entry.target = (mode == GrindMode::TIME) ? static_cast<float>(session.target_time_ms) / 1000.0f
                                              : session.target_weight;
     entry.final_g = final_weight;
-    entry.profile = session.profile_id;
+    entry.profile = grind_history_profile_of(session.profile_id);  // Profile Dose (3) is recorded as CUSTOM
     entry.mode = static_cast<uint8_t>(mode);
     entry.pulses = pulse_count;
     entry.result = static_cast<uint8_t>(grind_history_result_from_string(final_result));

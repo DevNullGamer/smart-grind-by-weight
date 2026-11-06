@@ -18,7 +18,10 @@ void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit = nullp
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit = nullptr);
 
-lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label);
+// grind_label (optional): a third line under the weight for the grind size (24 pt, secondary colour, clipped to the
+// width). It starts empty and hidden; set it with set_label_text_if_changed and show it only while there is text.
+lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label,
+                               lv_obj_t** grind_label = nullptr);
 
 lv_obj_t* create_dual_button_row(lv_obj_t* parent, lv_obj_t** left_button, lv_obj_t** right_button, 
                                 const char* left_name, const char* right_name, 

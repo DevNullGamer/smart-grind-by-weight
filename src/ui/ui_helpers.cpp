@@ -54,7 +54,7 @@ void set_label_text_float(lv_obj_t* label, float value, const char* unit) {
     set_label_text_if_changed(label, format_float_with_unit(buf, sizeof(buf), value, 2, unit));
 }
 
-lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label){
+lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label, lv_obj_t** grind_label){
     lv_obj_t* label_container = lv_obj_create(parent);
     lv_obj_set_size(label_container, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_style_bg_opa(label_container, LV_OPA_TRANSP, 0);
@@ -76,6 +76,17 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
     lv_label_set_text(*weight_label, "18.0g");
     lv_obj_set_style_text_font(*weight_label, &lv_font_montserrat_60, 0);
     lv_obj_set_style_text_color(*weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+
+    if (grind_label) {
+        *grind_label = lv_label_create(label_container);
+        lv_label_set_text(*grind_label, "");
+        lv_obj_set_style_text_font(*grind_label, &lv_font_montserrat_24, 0);
+        lv_obj_set_style_text_color(*grind_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+        lv_obj_set_style_text_align(*grind_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_width(*grind_label, LV_PCT(100));
+        lv_label_set_long_mode(*grind_label, LV_LABEL_LONG_MODE_CLIP);  // worst case "Grind: 999.9 123456" must not wrap
+        lv_obj_set_hidden(*grind_label, true);
+    }
 
     return label_container;
 }

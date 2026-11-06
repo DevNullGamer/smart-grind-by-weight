@@ -12,9 +12,6 @@
 #include "../../system/nvs_settings_store.h"
 #include "../ui_manager.h"
 
-// Profile index recorded for a GLink start of the Profile Dose (index 3); the history clamps profiles to 0..2
-static constexpr uint8_t kCustomProfileId = 2;
-
 GrindingUIController* GrindingUIController::instance_ = nullptr;
 
 GrindingUIController::GrindingUIController(UIManager* manager)
@@ -200,7 +197,7 @@ void GrindingUIController::handle_grind_button() {
             ui_manager_->grind_controller->stop_grind();
         }
     } else if (ui_manager_->state_machine->is_state(UIState::READY)) {
-        if (ui_manager_->current_tab == 3) {
+        if (ui_manager_->current_tab == ui_manager_->menu_tab_index()) {
             ui_manager_->switch_to_state(UIState::MENU);
             return;
         }
@@ -253,8 +250,7 @@ GrindStartBlock GrindingUIController::start_glink_grind(int profile) {
     if (!std::isfinite(grams) || grams < GLINK_DOSE_MIN_G || grams > GLINK_DOSE_MAX_G) {
         return GrindStartBlock::MOTOR_DISABLED;
     }
-    const uint8_t profile_id = profile < GLINK_PROFILE_WRITABLE_INDEX ? static_cast<uint8_t>(profile) : kCustomProfileId;
-    return begin_grind(profile_id, grams, 0, GrindMode::WEIGHT);
+    return begin_grind(static_cast<uint8_t>(profile), grams, 0, GrindMode::WEIGHT);
 }
 
 GrindStartBlock GrindingUIController::begin_grind(uint8_t profile_id, float target_weight, uint32_t target_time_ms,
@@ -353,7 +349,8 @@ void GrindingUIController::update_grind_button_icon() {
     } else if (ui_manager_->state_machine->is_state(UIState::GRIND_TIMEOUT)) {
         lv_image_set_src(grind_icon_, LV_SYMBOL_CLOSE);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_WARNING), 0);
-    } else if (ui_manager_->state_machine->is_state(UIState::READY) && ui_manager_->current_tab == 3) {
+    } else if (ui_manager_->state_machine->is_state(UIState::READY) &&
+               ui_manager_->current_tab == ui_manager_->menu_tab_index()) {
         lv_image_set_src(grind_icon_, LV_SYMBOL_SETTINGS);
         lv_obj_set_style_bg_color(grind_button_, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
     } else {

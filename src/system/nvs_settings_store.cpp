@@ -77,3 +77,34 @@ bool NvsSettingsStore::put_float(const char* ns, const char* key, float value) {
     prefs.end();
     return written > 0;
 }
+
+size_t NvsSettingsStore::get_blob(const char* ns, const char* key, uint8_t* buf, size_t cap) {
+    if (!buf || cap == 0) return 0;
+    if (is_grinder_ns(ns)) return grinder_prefs_ ? grinder_prefs_->getBytes(key, buf, cap) : 0;
+    Preferences prefs;
+    if (!prefs.begin(ns, true)) return 0;
+    // getBytes returns 0 when the stored entry is longer than cap, so a blob is never silently truncated
+    size_t got = prefs.getBytes(key, buf, cap);
+    prefs.end();
+    return got;
+}
+
+bool NvsSettingsStore::put_blob(const char* ns, const char* key, const uint8_t* data, size_t len) {
+    if (len == 0) return erase_blob(ns, key);
+    if (!data) return false;
+    if (is_grinder_ns(ns)) return grinder_prefs_ && grinder_prefs_->putBytes(key, data, len) == len;
+    Preferences prefs;
+    if (!prefs.begin(ns, false)) return false;
+    size_t written = prefs.putBytes(key, data, len);  // one nvs_set_blob + commit: a failure keeps the old entry
+    prefs.end();
+    return written == len;
+}
+
+bool NvsSettingsStore::erase_blob(const char* ns, const char* key) {
+    if (is_grinder_ns(ns)) return grinder_prefs_ && (!grinder_prefs_->isKey(key) || grinder_prefs_->remove(key));
+    Preferences prefs;
+    if (!prefs.begin(ns, false)) return false;
+    const bool gone = !prefs.isKey(key) || prefs.remove(key);
+    prefs.end();
+    return gone;
+}

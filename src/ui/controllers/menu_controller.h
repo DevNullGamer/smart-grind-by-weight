@@ -30,6 +30,7 @@ public:
     void handle_back();
     void handle_refresh_stats();
     void handle_diagnostics_reset();
+    void handle_remove_dose_profile();
     void handle_ble_toggle();
     void handle_grind_mode_radio_button();
     void handle_setting_toggle(ToggleSetting id);

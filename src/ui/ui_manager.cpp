@@ -7,6 +7,7 @@
 #include "../logging/grind_logging.h"
 #include "../system/nvs_settings_store.h"
 #include "../controllers/grind_mode_traits.h"
+#include "../controllers/grind_size.h"
 #include "menu_walk_debug.h"
 #include <utility>
 // Static instance pointer for grind event callbacks
@@ -91,7 +92,7 @@ void UIManager::create_ui() {
     lv_obj_add_style(lv_screen_active(), &style_screen, 0);
 
     // Create all screens
-    ready_screen.create();
+    ready_screen.create(profile_controller->has_dose_profile());
     edit_screen.create();
     grinding_screen.init(hardware_manager->get_preferences());
     grinding_screen.create();
@@ -163,6 +164,11 @@ void UIManager::update() {
         return;
     }
     
+    // The PROFILE page comes and goes with the stored dose (rebuilds the READY screen on a safe screen only)
+    if (ready_controller_) {
+        ready_controller_->sync_pages();
+    }
+
     // Update based on current state
     UIState current = state_machine->get_current_state();
     
@@ -238,6 +244,12 @@ void UIManager::switch_to_state(UIState new_state) {
             edit_screen.update_profile_name(profile_controller->get_current_name());
             edit_screen.set_mode(current_mode);
             edit_screen.update_target(edit_target);
+            {
+                char grind_text[GRIND_SIZE_TEXT_BUF];
+                grind_size_format(grind_text, sizeof(grind_text),
+                                  profile_controller->get_grind_size(profile_controller->get_current_profile()));
+                edit_screen.update_grind_size_text(grind_text);
+            }
             break;
 
         case UIState::GRINDING:
@@ -255,6 +267,7 @@ void UIManager::switch_to_state(UIState new_state) {
 
         case UIState::MENU:
             menu_screen.show();
+            menu_screen.set_dose_profile_row_visible(profile_controller && profile_controller->has_dose_profile());
             break;
 
         case UIState::CALIBRATION: {
@@ -549,7 +562,7 @@ void UIManager::update_auto_actions() {
 
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
-    const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
+    const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < menu_tab_index();
 
     // Auto-start stays off while a grind could not start (motor disabled, update running, load cell
     // fault): a refused start would pop up the notice repeatedly. Also off while a Motor Test runs.

@@ -10,17 +10,21 @@
 //------------------------------------------------------------------------------
 // COFFEE PROFILES
 //------------------------------------------------------------------------------
-#define USER_PROFILE_COUNT 3                                                   // Number of coffee profiles available
+#define USER_BASE_PROFILE_COUNT 3                                              // Single, Double, Custom: the profiles the web panel and the history know
+#define USER_PROFILE_COUNT 4                                                   // Profiles in total: the base ones plus the GaggiMate Profile Dose (index 3)
+#define USER_DOSE_PROFILE_INDEX 3                                              // Profile Dose: exists once GaggiMate has set a dose (chg020)
 #define USER_PROFILE_NAME_MAX_LENGTH 8                                         // Maximum characters in profile name
 
 // Default target weights for each profile
 #define USER_SINGLE_ESPRESSO_WEIGHT_G 9.0f                                     // Single espresso default weight
 #define USER_DOUBLE_ESPRESSO_WEIGHT_G 18.0f                                    // Double espresso default weight  
 #define USER_CUSTOM_PROFILE_WEIGHT_G 21.5f                                     // Custom profile default weight
+#define USER_DOSE_PROFILE_WEIGHT_G 18.0f                                       // Profile Dose weight before any dose is stored
 
 #define USER_SINGLE_ESPRESSO_TIME_S 5.0f                                       // Single espresso default grind time
 #define USER_DOUBLE_ESPRESSO_TIME_S 10.0f                                      // Double espresso default grind time
 #define USER_CUSTOM_PROFILE_TIME_S 12.0f                                       // Custom profile default grind time
+#define USER_DOSE_PROFILE_TIME_S USER_CUSTOM_PROFILE_TIME_S                    // Profile Dose grind time (GaggiMate writes only the weight)
 
 // Weight limits
 #define USER_MIN_TARGET_WEIGHT_G 5.0f                                          // Minimum allowed target weight

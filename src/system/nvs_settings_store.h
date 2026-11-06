@@ -22,6 +22,11 @@ public:
     float get_float(const char* ns, const char* key, float default_value) override;
     bool put_float(const char* ns, const char* key, float value) override;
 
+    // Blobs; the grinder namespace goes through the shared handle like the typed values. erase_blob removes any key.
+    size_t get_blob(const char* ns, const char* key, uint8_t* buf, size_t cap) override;
+    bool put_blob(const char* ns, const char* key, const uint8_t* data, size_t len) override;
+    bool erase_blob(const char* ns, const char* key) override;
+
 private:
     bool is_grinder_ns(const char* ns) const { return ui_settings_keys::same_str(ns, ui_settings_keys::kGrinderNs); }
 

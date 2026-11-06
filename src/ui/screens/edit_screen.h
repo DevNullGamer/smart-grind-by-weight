@@ -8,6 +8,7 @@ private:
     lv_obj_t* screen;
     lv_obj_t* profile_label;
     lv_obj_t* weight_label;
+    lv_obj_t* grind_label;  // grind size of the profile being edited: text only, no edit controls
     lv_obj_t* save_btn;
     lv_obj_t* cancel_btn;
     lv_obj_t* plus_btn;
@@ -21,6 +22,8 @@ public:
     void hide();
     void update_profile_name(const char* name);
     void update_target(float value);
+    // Grind size line under the weight (read-only); empty or null text hides it
+    void update_grind_size_text(const char* text);
     void set_mode(GrindMode time_mode);
     
     bool is_visible() const { return visible; }

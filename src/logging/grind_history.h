@@ -43,6 +43,11 @@ struct GrindHistoryEntry {
     bool earlier_boot = false;  // RAM only: loaded from the files, so its ended_s belongs to another boot
 };
 
+// The history profile of a grind session's profile id: 0 .. GRIND_HISTORY_PROFILE_MAX. The grinder has a fourth profile
+// (the GaggiMate Profile Dose, chg020) that the history and the web panel do not know; it is recorded as the last one
+// (CUSTOM). Call where the entry is made.
+uint8_t grind_history_profile_of(uint8_t profile_id);
+
 // True when the entry could be stored and read back as it is: finite weights, profile and mode in range, a known result
 bool grind_history_entry_valid(const GrindHistoryEntry& entry);
 // Brings out-of-range values into range before an entry is stored (non-finite weights become 0, profile and mode are

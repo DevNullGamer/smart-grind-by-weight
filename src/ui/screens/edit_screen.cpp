@@ -21,7 +21,7 @@ void EditScreen::create() {
 
     create_dual_button_row(screen, &save_btn, &cancel_btn, LV_SYMBOL_OK, LV_SYMBOL_CLOSE, lv_color_hex(THEME_COLOR_SUCCESS), lv_color_hex(THEME_COLOR_NEUTRAL), 80, &lv_font_montserrat_32);
 
-    create_profile_label(screen, &profile_label, &weight_label);
+    create_profile_label(screen, &profile_label, &weight_label, &grind_label);
 
     create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(THEME_COLOR_PRIMARY), lv_color_hex(THEME_COLOR_PRIMARY), 100, &lv_font_montserrat_32);
 
@@ -48,6 +48,16 @@ void EditScreen::update_target(float value) {
     char text[16];
     format_ready_value(text, sizeof(text), mode, value);
     lv_label_set_text(weight_label, text);
+}
+
+void EditScreen::update_grind_size_text(const char* text) {
+    const bool show_line = text && text[0] != '\0';
+    if (show_line) {
+        set_label_text_if_changed(grind_label, text);
+    }
+    if (lv_obj_is_hidden(grind_label) == show_line) {
+        lv_obj_set_hidden(grind_label, !show_line);
+    }
 }
 
 void EditScreen::set_mode(GrindMode time_mode) {

@@ -135,7 +135,9 @@ def test_field_types_follow_the_menu_widgets():
 
 def test_profile_limits_and_defaults_equal_user_h_and_profile_controller():
     user = read("src/config/user.h")
-    assert macro(user, "USER_PROFILE_COUNT") == LIMITS["profile_count"] == 3
+    # The web panel knows the three base profiles; USER_PROFILE_COUNT also counts the GaggiMate Profile Dose (chg020)
+    assert macro(user, "USER_BASE_PROFILE_COUNT") == LIMITS["profile_count"] == 3
+    assert macro(user, "USER_PROFILE_COUNT") == 4
     assert macro(user, "USER_MIN_TARGET_WEIGHT_G") == LIMITS["profile_weight_min_g"]
     assert macro(user, "USER_MAX_TARGET_WEIGHT_G") == LIMITS["profile_weight_max_g"]
     assert macro(user, "USER_MIN_TARGET_TIME_S") == LIMITS["profile_time_min_s"]

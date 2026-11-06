@@ -969,3 +969,72 @@ CLAUDE.md is loaded into every agent spawn, so reference material that agents do
 - `lv_font_montserrat_32`: Button symbols (OK, CLOSE, PLUS, MINUS)
 - `lv_font_montserrat_36`: Screen titles
 - `lv_font_montserrat_56`: Large weight displays
+
+## GaggiMate link (chg020)
+
+### Step 4 spike: a PROFILE page that exists only once GaggiMate has set a dose
+
+Decision (plan section 10 Q3): the READY tabview has the extra "PROFILE" page (profile index 3, the Profile Dose) only
+when a dose is stored. Without it the grinder is exactly Single, Double, Custom, MENU as before.
+
+**What the READY tabview does (LVGL 9.6.0, `lv_tabview.c`, read in the pinned copy):**
+- The page index is purely positional. `lv_tabview_set_active(idx)` scrolls to `idx * (width + gap)`; the active index
+  after a swipe is `scroll_end / width`; `tab_cur` is a plain stored number that is not corrected when pages come and go.
+- `lv_tabview_add_tab` can only append. MENU must stay last, so adding the PROFILE page at runtime would mean moving
+  both the content child and the (hidden) tab-bar button with `lv_obj_move_to_index`, and the stored `tab_cur` would
+  point at the wrong page until fixed by hand. Nothing in LVGL tells the tabview about it.
+- Hiding the PROFILE page (`LV_OBJ_FLAG_HIDDEN`) would keep the structure, but the index then follows the visible pages
+  only if flex layout, scroll snap and `lv_tabview_get_tab_count` (it counts tab-bar buttons, hidden or not) agree.
+  That is behaviour I could not verify without flashing, and it makes tab index and profile index drift apart.
+- `lv_obj_delete` resets input-device references to the deleted object (`obj_delete_core`: `act_obj`, `scroll_obj`,
+  `last_pressed`, group focus), so deleting a READY screen outside its own event callback is safe.
+
+**Options considered:**
+1. Build-time presence only (decide at boot, a new dose needs a reboot): no runtime LVGL change at all, but the user
+   would see the page appear only after a restart, which is a poor experience for the first GaggiMate use.
+2. Hide/show the page in place: see above, unverifiable index behaviour.
+3. Insert/remove the tab at runtime: fragile (indices, `tab_cur`, button order).
+4. **Chosen: rebuild the READY screen** (delete the screen object and create it again with or without the PROFILE page)
+   when the presence changes, from `UIManager::update()` and only on a safe screen. The creation path is the same code
+   that already runs at boot, so no new LVGL behaviour is relied on.
+
+**Mechanism:**
+- `ProfileController::has_dose_profile()` is the single truth (RAM mirror of "the NVS key `weight3` holds a valid
+  dose"; read at boot, set by `store_profile_weight(3, ...)`, cleared by `remove_dose_profile()`).
+- `ReadyUIController::sync_pages()` runs once per `update()`: a bool compare against `ReadyScreen::has_dose_page()`, no
+  LVGL call unless they differ. It acts only in `UIState::MENU` (screen hidden) or in `UIState::READY` when the display
+  has been idle for `READY_REBUILD_IDLE_MS` (no finger on the screen). In every other state (grinding, edit, dialogs,
+  update screens) the change is simply applied later, when the state allows it.
+- The rebuild keeps the object's z-order (`lv_obj_get_index` / `lv_obj_move_to_index`, so the START button and status
+  indicator created later stay on top), keeps visibility, re-attaches the per-object events
+  (`ReadyUIController::register_screen_events`), refreshes values and restores the active page.
+- `current_tab` is remapped: MENU stays MENU (its index changes between 3 and 4), a profile page keeps its index.
+- Menu tab index: `READY_MENU_TAB_INDEX` (= `USER_PROFILE_COUNT`, with the PROFILE page) and
+  `READY_MENU_TAB_INDEX_NO_DOSE` (= `USER_BASE_PROFILE_COUNT`) in `ui/ready_tabs.h`; `ready_menu_tab_index(bool)`
+  picks one. No other literal is used as a tab index; `UIManager::menu_tab_index()` is what the code asks. A native
+  test greps the sources for stray literals.
+- Selecting or starting profile 3 without a dose is refused (`set_current_profile` returns false,
+  `get_profile_weight(3)` is 0 so `start_glink_grind(3)` returns its existing refusal).
+
+**Cost:** one LVGL object tree (about 10 objects per page) deleted and created, once per presence change, from
+PSRAM-backed LVGL memory. Time is a few ms, inside one frame. **Risks:** (a) a rebuild in READY while the user touches
+the screen: avoided by the idle check, and LVGL resets the indev on delete anyway; (b) object pointers cached outside
+`ReadyScreen`: checked, only `ReadyUIController` uses them and re-reads them after the rebuild; (c) fragmentation of the
+PSRAM pool by repeated rebuilds: the event happens at most a few times in a device's life (first GaggiMate write,
+removal); (d) not yet run on hardware (COM15): swipe both ways, long press on PROFILE, first-write appearance and
+removal still have to be checked there.
+
+### Step 4 behaviour (profile model)
+- `USER_PROFILE_COUNT` is 4 (Single, Double, Custom, PROFILE); `USER_BASE_PROFILE_COUNT` is 3 (the profiles the web
+  panel and the history know). The web panel stays at three profiles (`PORTAL_PROFILE_COUNT`), the current profile it
+  publishes is clamped to Custom while PROFILE is selected, and a Profile Dose grind is recorded as CUSTOM in the
+  history (`grind_history_profile_of()` at the point the entry is made).
+- NVS (namespace `grinder`, keys in `ui_settings.h`): `weight3`, `time3` (written together when the dose is first set),
+  `gsz0..gsz3` (12-byte blob: float + 7 unit chars + NUL). Writes are compare-first: a store of the same value does not
+  touch flash (`put_float_if_changed`, `GrindSizeStore::store`). A wrong-length blob, a non-finite or out-of-range
+  float, or a unit outside the charset loads as "no grind size".
+- Removing the GaggiMate profile (Menu, Bluetooth page, confirm dialog) deletes `weight3`, `time3`, `gsz3` and moves the
+  selected profile to DOUBLE if PROFILE was selected. The other three grind-size slots are not part of it. A factory
+  reset erases the whole NVS partition (`nvs_flash_erase`), which includes all of these keys.
+- Grind size is display-only: shown under the weight on each READY page and on the EDIT screen, hidden until a size
+  exists; the grinder never edits it.

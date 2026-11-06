@@ -4,7 +4,14 @@
 #include "../../controllers/grind_mode_traits.h"
 #include "../ui_helpers.h"
 
-void ReadyScreen::create() {
+void ReadyScreen::create(bool with_dose_page) {
+    dose_page = with_dose_page;
+    for (int i = 0; i < USER_PROFILE_COUNT; i++) {
+        profile_tabs[i] = nullptr;
+        weight_labels[i] = nullptr;
+        grind_labels[i] = nullptr;
+    }
+
     screen = lv_obj_create(lv_screen_active());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
     lv_obj_align(screen, LV_ALIGN_TOP_MID, 0, 0);
@@ -27,27 +34,41 @@ void ReadyScreen::create() {
     // Transparent background
     lv_obj_set_style_bg_opa(tabview, LV_OPA_TRANSP, 0);
 
-    // Add profile tabs
-    profile_tabs[0] = lv_tabview_add_tab(tabview, "Single");
-    profile_tabs[1] = lv_tabview_add_tab(tabview, "Double");
-    profile_tabs[2] = lv_tabview_add_tab(tabview, "Custom");
-    menu_tab = lv_tabview_add_tab(tabview, "MENU");
-    profile_tabs[3] = menu_tab;
+    // Profile pages in profile-index order, then MENU (its index is ready_menu_tab_index(dose_page))
+    const float default_weights[USER_PROFILE_COUNT] = {USER_SINGLE_ESPRESSO_WEIGHT_G, USER_DOUBLE_ESPRESSO_WEIGHT_G,
+                                                       USER_CUSTOM_PROFILE_WEIGHT_G, USER_DOSE_PROFILE_WEIGHT_G};
+    const char* const names[USER_PROFILE_COUNT] = {"SINGLE", "DOUBLE", "CUSTOM", "PROFILE"};
+    const char* const tab_names[USER_PROFILE_COUNT] = {"Single", "Double", "Custom", "Profile"};
 
-    // Default weights
-    float default_weights[3] = {USER_SINGLE_ESPRESSO_WEIGHT_G, USER_DOUBLE_ESPRESSO_WEIGHT_G, USER_CUSTOM_PROFILE_WEIGHT_G};
-    const char* names[3] = {"SINGLE", "DOUBLE", "CUSTOM"};
-    
-    for (int i = 0; i < 3; i++) {
+    const int page_count = menu_tab_index();
+    for (int i = 0; i < page_count; i++) {
+        profile_tabs[i] = lv_tabview_add_tab(tabview, tab_names[i]);
         create_profile_page(profile_tabs[i], i, names[i], default_weights[i]);
     }
 
     // Create menu tab page
+    menu_tab = lv_tabview_add_tab(tabview, "MENU");
     create_menu_page(menu_tab);
 
     update_profile_values(default_weights, GrindMode::WEIGHT);
 
     visible = false;
+}
+
+void ReadyScreen::rebuild(bool with_dose_page) {
+    const bool was_visible = visible;
+    int32_t order = 0;
+    if (screen) {
+        order = lv_obj_get_index(screen);
+        lv_obj_delete(screen);  // takes the tabview, pages and labels with it; LVGL resets input references to them
+    }
+    create(with_dose_page);
+    lv_obj_move_to_index(screen, order);
+    if (was_visible) {
+        show();
+    } else {
+        hide();
+    }
 }
 
 void ReadyScreen::create_profile_page(lv_obj_t* parent, int profile_index, const char* profile_name, float weight) {
@@ -57,7 +78,7 @@ void ReadyScreen::create_profile_page(lv_obj_t* parent, int profile_index, const
     lv_obj_set_style_pad_gap(parent, 0, 0);
 
     lv_obj_t* name_label;
-    (void)create_profile_label(parent, &name_label, &weight_labels[profile_index]);
+    (void)create_profile_label(parent, &name_label, &weight_labels[profile_index], &grind_labels[profile_index]);
     lv_label_set_text(name_label, profile_name);
     lv_obj_set_clickable(name_label, true);
     
@@ -91,24 +112,38 @@ void ReadyScreen::hide() {
     visible = false;
 }
 
-void ReadyScreen::update_profile_values(const float values[3], GrindMode mode) {
-    for (int i = 0; i < 3; i++) {
+void ReadyScreen::update_profile_values(const float values[USER_PROFILE_COUNT], GrindMode mode) {
+    for (int i = 0; i < USER_PROFILE_COUNT; i++) {
         if (weight_labels[i]) {
             char text[24];
             format_ready_value(text, sizeof(text), mode, values[i]);
-            lv_label_set_text(weight_labels[i], text);
+            set_label_text_if_changed(weight_labels[i], text);
         }
     }
 }
 
+void ReadyScreen::update_grind_size_text(int profile_index, const char* text) {
+    if (profile_index < 0 || profile_index >= USER_PROFILE_COUNT || !grind_labels[profile_index]) {
+        return;
+    }
+    lv_obj_t* label = grind_labels[profile_index];
+    const bool show_line = text && text[0] != '\0';
+    if (show_line) {
+        set_label_text_if_changed(label, text);
+    }
+    if (lv_obj_is_hidden(label) == show_line) {
+        lv_obj_set_hidden(label, !show_line);
+    }
+}
+
 void ReadyScreen::set_active_tab(int tab) {
-    if (tab >= 0 && tab < 4) {
+    if (tab >= 0 && tab <= menu_tab_index()) {
         lv_tabview_set_active(tabview, tab, LV_ANIM_OFF);
     }
 }
 
 void ReadyScreen::set_profile_long_press_handler(lv_event_cb_t handler) {
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < USER_PROFILE_COUNT; i++) {
         if (weight_labels[i]) {
             lv_obj_add_event_cb(weight_labels[i], handler, LV_EVENT_LONG_PRESSED, NULL);
         }
