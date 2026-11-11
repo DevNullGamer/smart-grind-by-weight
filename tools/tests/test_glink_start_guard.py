@@ -147,3 +147,12 @@ def test_result_broadcast_goes_to_a_handshaken_client_only():
     assert "glink_session.handshaken() && glink_send_result_if_due()" in code
     assert code.count("glink_result_feed.on_handshake();") == 1
     assert code.count("glink_result_feed.reset();") == 1
+
+
+def test_start_block_refuses_while_the_deadman_fault_is_latched():
+    text = _code(_read("controllers/grind_controller.cpp"))
+    body = _body(text, "GrindStartBlock GrindController::start_block() const {")
+    assert "grinder->deadman_tripped_since_boot()" in body
+    check = _code(_read("controllers/grind_start_check.cpp"))
+    first = check.index("if (motor_fault_latched) return GrindStartBlock::MOTOR_FAULT;")
+    assert first < check.index("GrindStartBlock::MOTOR_DISABLED"), "a latched fault is checked first"

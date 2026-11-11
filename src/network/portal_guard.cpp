@@ -233,6 +233,7 @@ PortalError portal_error_from_start_block(GrindStartBlock block) {
         case GrindStartBlock::LOAD_CELL_NOT_CONNECTED: return PortalError::LOAD_CELL_NOT_CONNECTED;
         case GrindStartBlock::LOAD_CELL_NO_DATA: return PortalError::LOAD_CELL_NO_DATA;
         case GrindStartBlock::LOAD_CELL_RATE_INVALID: return PortalError::LOAD_CELL_RATE_INVALID;
+        case GrindStartBlock::MOTOR_FAULT: return PortalError::MOTOR_FAULT;  // same code as the motor test
     }
     return PortalError::BUSY;  // unknown block: refuse
 }

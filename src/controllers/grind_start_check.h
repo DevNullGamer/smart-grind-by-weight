@@ -10,19 +10,22 @@ enum class GrindStartBlock : uint8_t {
     UPDATE_IN_PROGRESS,       // Grinder locked out (firmware update running)
     LOAD_CELL_NOT_CONNECTED,
     LOAD_CELL_NO_DATA,
-    LOAD_CELL_RATE_INVALID
+    LOAD_CELL_RATE_INVALID,
+    MOTOR_FAULT               // Grinder deadman fault latched until reboot (checked first)
 };
 
 // Load cell boot fault as the start check sees it (mirror of WeightSensor::HardwareFault).
 enum class GrindStartFault : uint8_t { NONE = 0, NOT_CONNECTED, NO_DATA, INVALID_SAMPLE_RATE };
 
-// First applicable block, in this order: motor, lock-out, load cell fault.
-GrindStartBlock grind_start_block(bool motor_available, bool locked_out, GrindStartFault fault);
+// First applicable block, in this order: latched motor fault, motor, lock-out, load cell fault. A latched fault is
+// checked first (as in motor_test_block): a failed output halt also clears "available", and the user must restart.
+GrindStartBlock grind_start_block(bool motor_available, bool locked_out, GrindStartFault fault,
+                                  bool motor_fault_latched = false);
 
 // Short lower-case reason for the "[GRIND_START] Refused - <reason>" log line. "" for NONE.
 const char* grind_start_block_reason(GrindStartBlock block);
 
-// Title and body of the on-screen notice. nullptr for NONE and MOTOR_DISABLED (that one has its
-// own dialog, UIManager::show_motor_disabled_notice).
+// Title and body of the on-screen notice (MOTOR_FAULT: same wording as the motor test's). nullptr for NONE and
+// MOTOR_DISABLED (that one has its own dialog, UIManager::show_motor_disabled_notice).
 const char* grind_start_block_title(GrindStartBlock block);
 const char* grind_start_block_message(GrindStartBlock block);

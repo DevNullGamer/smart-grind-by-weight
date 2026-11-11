@@ -40,6 +40,28 @@ static void test_priority_all_combinations() {
     }
 }
 
+static void test_latched_motor_fault_blocks_and_outranks_everything() {
+    TEST_ASSERT_EQUAL(GrindStartBlock::MOTOR_FAULT, grind_start_block(true, false, GrindStartFault::NONE, true));
+    for (int m = 0; m < 2; m++) {
+        for (int l = 0; l < 2; l++) {
+            for (int f = 0; f < 4; f++) {
+                TEST_ASSERT_EQUAL(GrindStartBlock::MOTOR_FAULT,
+                                  grind_start_block(m != 0, l != 0, ALL_FAULTS[f], true));
+                // Not latched: the old order is unchanged (the default argument means "not latched")
+                TEST_ASSERT_EQUAL(grind_start_block(m != 0, l != 0, ALL_FAULTS[f]),
+                                  grind_start_block(m != 0, l != 0, ALL_FAULTS[f], false));
+            }
+        }
+    }
+}
+
+static void test_motor_fault_texts_match_the_motor_test() {
+    TEST_ASSERT_EQUAL_STRING("MOTOR FAULT", grind_start_block_title(GrindStartBlock::MOTOR_FAULT));
+    TEST_ASSERT_EQUAL_STRING("Motor output was cut off.\n\nRestart the device.",
+                             grind_start_block_message(GrindStartBlock::MOTOR_FAULT));
+    TEST_ASSERT_TRUE(strlen(grind_start_block_reason(GrindStartBlock::MOTOR_FAULT)) > 0);
+}
+
 static void test_texts_non_empty() {
     for (GrindStartBlock b : TEXT_BLOCKS) {
         TEST_ASSERT_NOT_NULL(grind_start_block_reason(b));
@@ -96,6 +118,8 @@ void run_grind_start_check_tests() {
     RUN_TEST(test_all_clear_is_none);
     RUN_TEST(test_single_faults);
     RUN_TEST(test_priority_all_combinations);
+    RUN_TEST(test_latched_motor_fault_blocks_and_outranks_everything);
+    RUN_TEST(test_motor_fault_texts_match_the_motor_test);
     RUN_TEST(test_texts_non_empty);
     RUN_TEST(test_none_and_motor_have_no_notice);
     RUN_TEST(test_message_first_line_fits);

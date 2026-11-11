@@ -340,6 +340,7 @@ Goal: a faulty sensor, a stuck phase, a lost motor command or an interrupted upd
 - Weight and time mode are treated alike. Not refused: not calibrated, or a sensor that goes quiet only after boot (caught as `Err: sensor` once the grind runs). The notice screen is NOT hardware-verified.
 
 ### Known limitations
+- A latched deadman fault (D9) refuses every grind start (touch, web, BLE) through `start_block()` (`GrindStartBlock::MOTOR_FAULT`, first in the order); the web panel reports `motor_fault`, BLE `NOT_READY` (see "GaggiMate link (chg020)" open item 3). Not run on hardware.
 - **Flatline and saturation are not detected.** The planned checks (10 identical readings, ADC within 4096 counts of the rails) were deferred. A disconnected HX711 (pulled down) that keeps delivering a constant 0x800000 is therefore NOT caught by the stale check: the samples are fresh, they just never change. In weight mode it should surface as `Err: no flow` in PRIME or PREDICTIVE, not as a sensor error (not verified on hardware).
 - The stale check assumes ~10 SPS sampling; another rate needs `HW_LOADCELL_STALE_SAMPLE_MS` revisited.
 - After `Err: tare` the `doTare` request is not cancelled; the tare may still complete later.
@@ -1221,14 +1222,17 @@ hand-over with the scale plugin. `GLinkPlugin` always passes `expectDose` on a s
 - **Dose range** 5.0 to 60.0 g for writes and BLE starts. A profile set above 60 g by touch can be started by touch only.
 
 ### GLink: open items for the maintainer (not fixed here)
-1. **Spec vs firmware order of checks.** `docs/GLINK-PROTOCOL.md` 4.1 lists the handshake gate (step 5) and `BUSY` (step 6)
-   before the operation and field checks (step 7); `glink_process_request` in `manager.cpp` parses the request and checks
-   operation, fields and types first (`glink_parse_request`), then applies the gate and the pending-request check. The only
-   visible effect is which error a client gets for a request that is both malformed and early or concurrent. The simulator
-   follows the firmware. The spec is frozen: decide which side changes, then add a vector for it.
+1. **Spec vs firmware order of checks: resolved.** `docs/GLINK-PROTOCOL.md` 4.1 now lists the operation and field checks
+   (step 5) before the handshake gate (6) and `BUSY` (7), as `glink_process_request` does; stop stays at step 4. Vector
+   `malformed_before_handshake_gets_field_error` pins it (also in the plugin's copy of the spec and vectors).
 2. **`grindControl` is provisional.** Object names and the `start` / `stop` layout may change after the GaggiMate maintainer
    has seen `docs/GLINK-PROTOCOL.md` (the user still has to hand it over).
-3. **A latched deadman fault** does not block a touch, web or BLE start today (`start_block()`); a separate change if wanted.
+3. **A latched deadman fault now blocks every start** (resolved): `GrindController::start_block()` returns
+   `GrindStartBlock::MOTOR_FAULT` (checked first, ahead of MOTOR_DISABLED, as in `motor_test_block`) while
+   `Grinder::deadman_tripped_since_boot()`. Touch shows "MOTOR FAULT / Motor output was cut off. Restart the device.";
+   the web panel answers `motor_fault` (409, the code the motor test already uses); BLE answers `NOT_READY` with message
+   "motor fault, restart the grinder" (the protocol has no motor fault code and is frozen), and `periodInfo.blocked` is
+   `NOT_READY` in the WARNING state. 7.2 of the spec lists the other refusals and does not mention this one.
 4. **Hardware loop (plan step 9) not run:** MTU negotiation, the LINK_ONLY items, second-client refusal, the third central
    link on GaggiMate, a real grind from a BLE start, the Bluetooth task stack high-water mark and the `[HEAP]` numbers.
    Measured so far (FULL mode, COM15, step 5 Tester): heap after BLE enable 159128 bytes, a client without `appHello`

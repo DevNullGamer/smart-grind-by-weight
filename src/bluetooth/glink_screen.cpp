@@ -25,6 +25,7 @@ GlinkStartBlock glink_start_block_from_grind(GrindStartBlock block) {
         case GrindStartBlock::LOAD_CELL_NOT_CONNECTED: return GlinkStartBlock::LOAD_CELL_NOT_CONNECTED;
         case GrindStartBlock::LOAD_CELL_NO_DATA: return GlinkStartBlock::LOAD_CELL_NO_DATA;
         case GrindStartBlock::LOAD_CELL_RATE_INVALID: return GlinkStartBlock::LOAD_CELL_RATE_INVALID;
+        case GrindStartBlock::MOTOR_FAULT: return GlinkStartBlock::MOTOR_FAULT;
     }
     return GlinkStartBlock::NONE;
 }

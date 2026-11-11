@@ -241,7 +241,8 @@ static void test_profile_changing_during_the_lead_in_drops_the_start() {
 static void test_refusal_at_go_shows_the_dialog_only_for_a_start_block() {
     const GlinkStartBlock blocks[] = {GlinkStartBlock::MOTOR_DISABLED, GlinkStartBlock::UPDATE_LOCK,
                                       GlinkStartBlock::LOAD_CELL_NOT_CONNECTED, GlinkStartBlock::LOAD_CELL_NO_DATA,
-                                      GlinkStartBlock::LOAD_CELL_RATE_INVALID};
+                                      GlinkStartBlock::LOAD_CELL_RATE_INVALID,
+                                      GlinkStartBlock::MOTOR_FAULT};
     for (GlinkStartBlock block : blocks) {
         GlinkFailure f;
         const GlinkStartInputs in = start_inputs(block);

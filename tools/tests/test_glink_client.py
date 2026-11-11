@@ -825,7 +825,7 @@ def test_an_idle_period_before_the_start_response_does_not_decide(w):
 def test_the_firmware_order_parse_before_gate_before_the_handshake():
     w = World(handshake=False)
     e = refused(w.client.call("grindProfile", {"op": "update", "index": 3, "dose": 61.0}))
-    assert e.code == "OUT_OF_RANGE"  # doc 4.1 would say INVALID_STATE (gate, step 5, before fields, step 7)
+    assert e.code == "OUT_OF_RANGE"  # 4.1: the field checks (step 5) come before the handshake gate (step 6)
     e = refused(w.client.call("grindProfile", {"op": "get"}))
     assert e.code == "INVALID_STATE"
 

@@ -301,8 +301,7 @@ class GlinkSim:
     def _handle_message(self, s: SimSession, data: bytes):
         req, fail = codec.parse_request(data)
         if fail is not None:
-            # Order of the firmware (manager.cpp): parse with all field checks first, then the gate. This differs
-            # from docs/GLINK-PROTOCOL.md 4.1, which lists the gate (5, 6) before the field checks (7).
+            # 4.1 steps 1 to 5: parse with all field checks first, then the gate (6) and the pending check (7).
             s.send(codec.encode_failure(fail))
             return
         if req.object == "grindControl" and req.op == "stop":

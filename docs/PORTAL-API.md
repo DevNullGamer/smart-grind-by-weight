@@ -241,7 +241,8 @@ that applies is the refusal):
 3. `busy`: a grind, autotune or motor output is active.
 4. `not_ready`: `tare` and `start` need the READY screen with no dialog; `motor_test` needs READY or a menu page.
 5. the command's own block, the same checks the touchscreen uses: for `start` `GrindController::start_block()`
-   (`motor_disabled`, `update_in_progress`, `load_cell_not_connected`, `load_cell_no_data`, `load_cell_rate_invalid`);
+   (`motor_fault` while the deadman fault is latched, `motor_disabled`, `update_in_progress`, `load_cell_not_connected`,
+   `load_cell_no_data`, `load_cell_rate_invalid`);
    for `motor_test` `UIManager::motor_pulse_block()` (`motor_disabled`, `update_in_progress`, `busy`, `motor_fault`).
 
 **Motor test.** There is no lead-in and no confirm dialog for `motor_test` (the lead-in is the remote start's only):
@@ -480,7 +481,7 @@ Every refusal, with its HTTP status. `status` is what the client sees; `error` i
 | `not_ready` | 409 | the screen is not in a state that allows this (EDIT, dialog, calibration, ...) |
 | `update_in_progress` | 409 | a firmware update holds the grinder |
 | `motor_disabled` | 409 | the board is not confirmed, the motor is disabled |
-| `motor_fault` | 409 | the motor output fault is latched until reboot (motor test) |
+| `motor_fault` | 409 | the motor output fault is latched until reboot (motor test and start) |
 | `load_cell_not_connected` | 409 | load cell not connected (start) |
 | `load_cell_no_data` | 409 | load cell delivers no data (start) |
 | `load_cell_rate_invalid` | 409 | load cell sample rate invalid (start) |

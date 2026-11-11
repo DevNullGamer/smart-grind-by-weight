@@ -415,7 +415,7 @@ MSG = {
     "EDIT_IN_PROGRESS": "profile is being edited on the grinder", "IN_FLIGHT": "a start is in progress",
     "UPDATING": "update in progress", "MOTOR_DISABLED": "motor is disabled",
     "LOAD_CELL_NOT_CONNECTED": "load cell not connected", "LOAD_CELL_NO_DATA": "load cell sends no data",
-    "LOAD_CELL_RATE_INVALID": "load cell sample rate invalid",
+    "LOAD_CELL_RATE_INVALID": "load cell sample rate invalid", "MOTOR_FAULT": "motor fault, restart the grinder",
     "DOSE_OUT_OF_BLE_RANGE": "stored dose outside 5.0 to 60.0 g", "CONFLICT": "dose differs from expectDose",
 }
 
@@ -576,7 +576,7 @@ def _parse_start(obj, oid, req):
 
 
 def parse_request(data):
-    """Parses one request message (4.1 steps 1 to 4 and 7). Returns (Request, None) or (None, Failure)."""
+    """Parses one request message (4.1 steps 1 to 5). Returns (Request, None) or (None, Failure)."""
     if isinstance(data, str):
         data = data.encode("utf-8")
     try:
@@ -815,6 +815,7 @@ class StartBlock(IntEnum):
     LOAD_CELL_NOT_CONNECTED = 3
     LOAD_CELL_NO_DATA = 4
     LOAD_CELL_RATE_INVALID = 5
+    MOTOR_FAULT = 6
 
 
 def _state_refusal(screen: Screen, op: OpClass):
@@ -845,7 +846,7 @@ def state_check(screen: Screen, op: OpClass, obj=None):
 
 
 def gate(handshaken: bool, request_pending: bool, request: Request):
-    """4.1 steps 5 and 6. None = pass on, else a Failure (INVALID_STATE before the handshake, BUSY while pending)."""
+    """4.1 steps 6 and 7. None = pass on, else a Failure (INVALID_STATE before the handshake, BUSY while pending)."""
     if request.object == "grindControl" and request.op == "stop":
         return None
     if not handshaken and request.object != "appHello":
@@ -926,6 +927,7 @@ _BLOCK_ERRORS = {
     StartBlock.LOAD_CELL_NOT_CONNECTED: ("LOAD_CELL_NOT_CONNECTED", "LOAD_CELL_NOT_CONNECTED"),
     StartBlock.LOAD_CELL_NO_DATA: ("LOAD_CELL_NO_DATA", "LOAD_CELL_NO_DATA"),
     StartBlock.LOAD_CELL_RATE_INVALID: ("LOAD_CELL_RATE_INVALID", "LOAD_CELL_RATE_INVALID"),
+    StartBlock.MOTOR_FAULT: ("NOT_READY", "MOTOR_FAULT"),
 }
 
 

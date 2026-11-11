@@ -337,7 +337,7 @@ static void test_dev_state_and_blocked() {
 
     // 6.5: blocked is the code a start would return right now. Check against the real start decision for every screen.
     for (int s = 0; s < static_cast<int>(GlinkScreen::COUNT); s++) {
-        for (int b = 0; b <= static_cast<int>(GlinkStartBlock::LOAD_CELL_RATE_INVALID); b++) {
+        for (int b = 0; b <= static_cast<int>(GlinkStartBlock::MOTOR_FAULT); b++) {
             const GlinkScreen screen = static_cast<GlinkScreen>(s);
             const GlinkStartBlock block = static_cast<GlinkStartBlock>(b);
             GlinkFailure f;
@@ -368,7 +368,7 @@ static void test_start_block_error() {
     // Every blocked value of the vectors is the code of a start block.
     for (const GJson& b : glink_vectors().at("blocked").a) {
         bool found = b.s == "NOT_READY" || b.s == "COMMAND_IN_FLIGHT";
-        for (int i = 1; i <= static_cast<int>(GlinkStartBlock::LOAD_CELL_RATE_INVALID); i++) {
+        for (int i = 1; i <= static_cast<int>(GlinkStartBlock::MOTOR_FAULT); i++) {
             found = found || b.s == glink_error_code(glink_start_block_error(static_cast<GlinkStartBlock>(i), &msg));
         }
         TEST_ASSERT_TRUE_MESSAGE(found, b.s.c_str());

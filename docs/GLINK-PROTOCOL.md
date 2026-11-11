@@ -96,8 +96,9 @@ drawn at random in the shape of a version-4 UUID with RFC variant bits, and the 
   the channel is not ready).
 - **Disconnect.** See 7.4: every disconnect clears all per-connection state. After reconnecting, subscribe to TX again
   and resend `appHello`.
-- **Handshake gate.** Until `appHello` has been processed, every request except `appHello` and `grindControl` `stop`
-  is answered with `INVALID_STATE` ("handshake required"; this is the only use of `INVALID_STATE`). A client that has
+- **Handshake gate.** Until `appHello` has been processed, every request that passes the field checks (4.1 step 5),
+  except `appHello` and `grindControl` `stop`, is answered with `INVALID_STATE` ("handshake required"; this is the only
+  use of `INVALID_STATE`). A client that has
   not sent `appHello` within 10 s (`GLINK_HANDSHAKE_TIMEOUT_MS`) of connecting is disconnected. A handshaken client may
   stay connected silently.
 - **Update exclusion.** While a firmware update runs the grinder refuses new connections, and the requests of an
@@ -255,11 +256,12 @@ The first failing step is the answer:
 4. `grindControl` `stop` is executed here (5.5), whatever follows, even before the handshake and while a request is
    pending. A message is a stop if it passes the reader and the envelope and the object is `grindControl` with `op` equal
    to `stop`; other members of the object are ignored.
-5. Handshake gate: `INVALID_STATE`, unless the object is `appHello`.
-6. Pending request: `BUSY`.
-7. Operation and fields on the BLE task: `op` (`MISSING_FIELD`, `INVALID_PARAM`, `UNKNOWN_OP`), unknown keys
+5. Operation and fields on the BLE task: `op` (`MISSING_FIELD`, `INVALID_PARAM`, `UNKNOWN_OP`), unknown keys
    (`INVALID_PARAM`, field is the dotted path of the key), required fields, types, and ranges, in the order the fields
-   are listed in section 5.
+   are listed in section 5. This comes before the handshake gate: a malformed request before `appHello` gets its field
+   error, not `INVALID_STATE`.
+6. Handshake gate: `INVALID_STATE`, unless the object is `appHello`.
+7. Pending request: `BUSY`.
 8. The state checks and the write or start decision on the UI task (section 7). The UI task answers within 1000 ms
    (`GLINK_UI_REPLY_TIMEOUT_MS`), otherwise `UI_BUSY`; a request that timed out is **not** applied (7.4).
 
@@ -607,7 +609,7 @@ First error only. `Kind` is `common` (the Motto80 common set), `glink` (specific
 | `PROFILE_READ_ONLY` | glink | `update` of profile 0, 1 or 2 |
 | `EDIT_IN_PROGRESS` | glink | `update` while the profile is edited on the grinder |
 | `PROFILE_NOT_SET` | glink | `select` or `start` of profile 3 before a dose has been set |
-| `NOT_READY` | start | the screen or grinder state does not allow the request (7.1): not on the READY screen, a grind or motor run is active, another screen or dialog is shown |
+| `NOT_READY` | start | the screen or grinder state does not allow the request (7.1): not on the READY screen, a grind or motor run is active, another screen or dialog is shown; also a latched motor fault (see 7.2) |
 | `UPDATING` | start | a firmware update is running or the grinder is locked out for one |
 | `MOTOR_DISABLED` | start | the board is not established, so the motor is disabled |
 | `LOAD_CELL_NOT_CONNECTED` | start | the load cell is not connected |
@@ -627,7 +629,7 @@ kind `start`; `null` means a start would pass the state checks.
 | `STARTING` | `COMMAND_IN_FLIGHT` |
 | `GRINDING`, `DONE`, `SETTING`, `UNKNOWN` | `NOT_READY` |
 | `UPDATING` | `UPDATING` |
-| `WARNING` | `MOTOR_DISABLED`, `UPDATING`, `LOAD_CELL_NOT_CONNECTED`, `LOAD_CELL_NO_DATA` or `LOAD_CELL_RATE_INVALID` |
+| `WARNING` | `MOTOR_DISABLED`, `UPDATING`, `LOAD_CELL_NOT_CONNECTED`, `LOAD_CELL_NO_DATA`, `LOAD_CELL_RATE_INVALID` or, for a latched motor fault, `NOT_READY` |
 
 ## 7. State and write rules
 
@@ -656,7 +658,7 @@ panel (a write is accepted on the READY screen and in the menu only). There are 
 gets its own code, and the web panel also accepts a profile change on a menu page whereas `select` in `MENU` is
 `NOT_READY`. A start on a locked-out READY screen shows `PROFILE_NOT_SET` or `MOTOR_DISABLED` first (7.2); the
 lock-out itself is reported as `UPDATING` after those. Because `UPDATING` is decided on the UI task, a request that fails validation on the BLE task first
-(section 4.1, step 7) gets that error instead. `update` is refused while grinding rather than stored for later; a client
+(section 4.1, step 5) gets that error instead. `update` is refused while grinding rather than stored for later; a client
 may retry.
 
 ### 7.2 Order of the start refusals
@@ -677,6 +679,10 @@ start block, in its order; the profile checks are placed between the two groups:
 9. `LOAD_CELL_NOT_CONNECTED`
 10. `LOAD_CELL_NO_DATA`
 11. `LOAD_CELL_RATE_INVALID`
+
+A latched motor fault (the grinder's deadman tripped; it lasts until restart) is the grinder's first start block, before
+item 7. The protocol has no code for it: while the screen is READY a start is refused with `NOT_READY` and the message
+"motor fault, restart the grinder".
 
 ### 7.3 Stored changes
 

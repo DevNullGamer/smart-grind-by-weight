@@ -107,6 +107,7 @@ constexpr const char* MOTOR_DISABLED = "motor is disabled";
 constexpr const char* LOAD_CELL_NOT_CONNECTED = "load cell not connected";
 constexpr const char* LOAD_CELL_NO_DATA = "load cell sends no data";
 constexpr const char* LOAD_CELL_RATE_INVALID = "load cell sample rate invalid";
+constexpr const char* MOTOR_FAULT = "motor fault, restart the grinder";
 constexpr const char* DOSE_OUT_OF_BLE_RANGE = "stored dose outside 5.0 to 60.0 g";
 constexpr const char* CONFLICT = "dose differs from expectDose";
 }  // namespace glink_msg
@@ -153,7 +154,7 @@ struct GlinkRequest {
     int32_t expect_dose_tenths = 0;
 };
 
-// Parses one request message (4.1 steps 1 to 4 and 7): size, reader, envelope, operation, unknown keys, required
+// Parses one request message (4.1 steps 1 to 5): size, reader, envelope, operation, unknown keys, required
 // fields, types and ranges, in that order. true = the request is valid and `request` is filled; false = `failure`
 // holds the first error. A `stop` is valid whatever else the object contains (executed before the handshake gate).
 bool glink_parse_request(const char* text, size_t len, GlinkRequest& request, GlinkFailure& failure);

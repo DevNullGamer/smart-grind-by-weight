@@ -134,7 +134,8 @@ GrindStartBlock GrindController::start_block() const {
             case WeightSensor::HardwareFault::NONE: break;
         }
     }
-    return grind_start_block(motor_available, grinder && grinder->is_locked_out(), fault);
+    return grind_start_block(motor_available, grinder && grinder->is_locked_out(), fault,
+                            grinder && grinder->deadman_tripped_since_boot());
 }
 
 GrindStartBlock GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {

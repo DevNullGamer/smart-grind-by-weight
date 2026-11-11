@@ -377,7 +377,7 @@ void UIManager::show_start_blocked_notice(GrindStartBlock block) {
         grind_start_block_title(block),
         grind_start_block_message(block),
         "OK",
-        lv_color_hex(THEME_COLOR_WARNING),
+        lv_color_hex(block == GrindStartBlock::MOTOR_FAULT ? THEME_COLOR_ERROR : THEME_COLOR_WARNING),
         nullptr,
         nullptr);  // Single OK button
 }

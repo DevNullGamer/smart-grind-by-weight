@@ -288,6 +288,23 @@ static void test_start_block_mapping() {
     TEST_ASSERT_EQUAL(GlinkStartBlock::LOAD_CELL_NO_DATA, glink_start_block_from_grind(GrindStartBlock::LOAD_CELL_NO_DATA));
     TEST_ASSERT_EQUAL(GlinkStartBlock::LOAD_CELL_RATE_INVALID,
                       glink_start_block_from_grind(GrindStartBlock::LOAD_CELL_RATE_INVALID));
+    TEST_ASSERT_EQUAL(GlinkStartBlock::MOTOR_FAULT, glink_start_block_from_grind(GrindStartBlock::MOTOR_FAULT));
+}
+
+// The protocol has no motor fault code: a latched deadman fault is refused as NOT_READY, on a start and in periodInfo
+static void test_motor_fault_start_block_is_not_ready() {
+    const char* message = nullptr;
+    TEST_ASSERT_EQUAL(GlinkError::NOT_READY, glink_start_block_error(GlinkStartBlock::MOTOR_FAULT, &message));
+    TEST_ASSERT_EQUAL_STRING(glink_msg::MOTOR_FAULT, message);
+    TEST_ASSERT_EQUAL(GlinkError::NOT_READY, glink_blocked(GlinkDevState::WARNING, GlinkStartBlock::MOTOR_FAULT));
+    TEST_ASSERT_EQUAL(GlinkDevState::WARNING, glink_dev_state(GlinkScreen::READY, GlinkStartBlock::MOTOR_FAULT));
+    GlinkStartInputs in;
+    in.profile_exists = true;
+    in.stored_dose_tenths = 180;
+    in.block = GlinkStartBlock::MOTOR_FAULT;
+    GlinkFailure f;
+    TEST_ASSERT_FALSE(glink_decide_start(GlinkScreen::READY, in, f));
+    TEST_ASSERT_EQUAL(GlinkError::NOT_READY, f.code);
 }
 
 static void test_period_idle_warning_and_grinding() {
@@ -422,6 +439,7 @@ void run_glink_gate_tests() {
     RUN_TEST(test_screen_feeds_the_write_table);
     RUN_TEST(test_phase_mapping);
     RUN_TEST(test_start_block_mapping);
+    RUN_TEST(test_motor_fault_start_block_is_not_ready);
     RUN_TEST(test_period_idle_warning_and_grinding);
     RUN_TEST(test_period_weight_validity_and_rounding);
     RUN_TEST(test_period_states_without_grinding_have_no_phase_or_target);

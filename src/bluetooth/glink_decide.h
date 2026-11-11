@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "glink_messages.h"
 
-// GLink write / start decisions (docs/GLINK-PROTOCOL.md sections 4.1 steps 5 and 6, 6.5, 7). Pure state tables and
+// GLink write / start decisions (docs/GLINK-PROTOCOL.md sections 4.1 steps 6 and 7, 6.5, 7). Pure state tables and
 // rules: the UI task gathers the real state (screen, profile 3, start block, clock) and calls these; they decide
 // and produce the exact error (code, message, field). No Arduino/ESP dependencies, unit tested on the host.
 
@@ -29,14 +29,15 @@ enum class GlinkStartBlock : uint8_t {
     UPDATE_LOCK,
     LOAD_CELL_NOT_CONNECTED,
     LOAD_CELL_NO_DATA,
-    LOAD_CELL_RATE_INVALID
+    LOAD_CELL_RATE_INVALID,
+    MOTOR_FAULT  // latched deadman fault; answered as NOT_READY (the protocol has no motor fault code)
 };
 
 // 7.1: refusal of an operation class in a screen state (message included). true = accept (for START this means
 // "continue with the decide chain"). `object` is the GlinkObject the failure is answered under.
 bool glink_state_check(GlinkScreen screen, GlinkOpClass op, int object, GlinkFailure& failure);
 
-// 4.1 steps 5 and 6: INVALID_STATE before the handshake (appHello and a stop pass), BUSY while a request is pending.
+// 4.1 steps 6 and 7: INVALID_STATE before the handshake (appHello and a stop pass), BUSY while a request is pending.
 // true = pass on. Call after glink_parse_request succeeded.
 bool glink_gate(bool handshaken, bool request_pending, const GlinkRequest& request, GlinkFailure& failure);
 

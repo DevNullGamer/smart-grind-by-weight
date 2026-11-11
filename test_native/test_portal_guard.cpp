@@ -316,7 +316,8 @@ static void test_lead_in_counts_as_in_flight_for_every_other_command() {
 static void test_every_start_and_motor_block_maps_to_a_distinct_refusal() {
     const GrindStartBlock starts[] = {GrindStartBlock::MOTOR_DISABLED, GrindStartBlock::UPDATE_IN_PROGRESS,
                                       GrindStartBlock::LOAD_CELL_NOT_CONNECTED, GrindStartBlock::LOAD_CELL_NO_DATA,
-                                      GrindStartBlock::LOAD_CELL_RATE_INVALID};
+                                      GrindStartBlock::LOAD_CELL_RATE_INVALID,
+                                      GrindStartBlock::MOTOR_FAULT};
     PortalError seen[8];
     size_t n = 0;
     for (GrindStartBlock b : starts) {
@@ -327,6 +328,14 @@ static void test_every_start_and_motor_block_maps_to_a_distinct_refusal() {
         seen[n++] = e;
     }
     TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_error_from_start_block(GrindStartBlock::NONE)));
+    // A latched deadman fault refuses a web start with the same code as the motor test
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::MOTOR_FAULT),
+                      static_cast<int>(portal_error_from_start_block(GrindStartBlock::MOTOR_FAULT)));
+    PortalDecisionInput latched;
+    latched.ui = PortalUiMode::READY;
+    latched.start_block = grind_start_block(true, false, GrindStartFault::NONE, true);
+    TEST_ASSERT_EQUAL(static_cast<int>(PortalError::MOTOR_FAULT),
+                      static_cast<int>(portal_command_decide(PortalCommand::START, latched)));
     TEST_ASSERT_EQUAL(static_cast<int>(PortalError::BUSY), static_cast<int>(portal_error_from_start_block(static_cast<GrindStartBlock>(99))));
     TEST_ASSERT_EQUAL(static_cast<int>(PortalError::BUSY), static_cast<int>(portal_error_from_motor_test_block(static_cast<MotorTestBlock>(99))));
     TEST_ASSERT_EQUAL(static_cast<int>(PortalError::NONE), static_cast<int>(portal_error_from_motor_test_block(MotorTestBlock::NONE)));

@@ -1,6 +1,8 @@
 #include "grind_start_check.h"
 
-GrindStartBlock grind_start_block(bool motor_available, bool locked_out, GrindStartFault fault) {
+GrindStartBlock grind_start_block(bool motor_available, bool locked_out, GrindStartFault fault,
+                                  bool motor_fault_latched) {
+    if (motor_fault_latched) return GrindStartBlock::MOTOR_FAULT;
     if (!motor_available) return GrindStartBlock::MOTOR_DISABLED;
     if (locked_out) return GrindStartBlock::UPDATE_IN_PROGRESS;
     switch (fault) {
@@ -19,6 +21,7 @@ const char* grind_start_block_reason(GrindStartBlock block) {
         case GrindStartBlock::LOAD_CELL_NOT_CONNECTED: return "load cell not connected";
         case GrindStartBlock::LOAD_CELL_NO_DATA: return "load cell sends no data";
         case GrindStartBlock::LOAD_CELL_RATE_INVALID: return "load cell sample rate invalid";
+        case GrindStartBlock::MOTOR_FAULT: return "motor fault latched";
         case GrindStartBlock::NONE: break;
     }
     return "";
@@ -31,6 +34,7 @@ const char* grind_start_block_title(GrindStartBlock block) {
         case GrindStartBlock::LOAD_CELL_NO_DATA:
         case GrindStartBlock::LOAD_CELL_RATE_INVALID:
             return "CAN'T START";
+        case GrindStartBlock::MOTOR_FAULT: return "MOTOR FAULT";
         case GrindStartBlock::NONE:
         case GrindStartBlock::MOTOR_DISABLED:
             break;
@@ -44,6 +48,7 @@ const char* grind_start_block_message(GrindStartBlock block) {
         case GrindStartBlock::LOAD_CELL_NOT_CONNECTED: return "Load cell not connected\n\nCheck the wiring and restart.";
         case GrindStartBlock::LOAD_CELL_NO_DATA: return "Load cell sends no data\n\nCheck the cable and restart.";
         case GrindStartBlock::LOAD_CELL_RATE_INVALID: return "Load cell rate invalid\n\nTie the RATE pin to GND.";
+        case GrindStartBlock::MOTOR_FAULT: return "Motor output was cut off.\n\nRestart the device.";
         case GrindStartBlock::NONE:
         case GrindStartBlock::MOTOR_DISABLED:
             break;

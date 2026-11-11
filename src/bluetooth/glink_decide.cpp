@@ -147,6 +147,9 @@ GlinkError glink_start_block_error(GlinkStartBlock block, const char** message) 
         case GlinkStartBlock::LOAD_CELL_RATE_INVALID:
             *message = glink_msg::LOAD_CELL_RATE_INVALID;
             return GlinkError::LOAD_CELL_RATE_INVALID;
+        case GlinkStartBlock::MOTOR_FAULT:
+            *message = glink_msg::MOTOR_FAULT;
+            return GlinkError::NOT_READY;
     }
     *message = "";
     return GlinkError::NONE;

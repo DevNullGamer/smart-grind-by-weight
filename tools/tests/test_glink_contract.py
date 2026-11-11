@@ -453,7 +453,8 @@ def test_write_rules_and_start_order_equal_vectors():
     assert order[6:] == ["MOTOR_DISABLED", "UPDATING", "LOAD_CELL_NOT_CONNECTED", "LOAD_CELL_NO_DATA", "LOAD_CELL_RATE_INVALID"]
     block = (ROOT / "src" / "controllers" / "grind_start_check.cpp").read_text(encoding="utf-8")
     assert [m for m in re.findall(r"GrindStartBlock::([A-Z_]+);", block.split("grind_start_block_reason")[0])] == [
-        "MOTOR_DISABLED", "UPDATE_IN_PROGRESS", "LOAD_CELL_NOT_CONNECTED", "LOAD_CELL_NO_DATA", "LOAD_CELL_RATE_INVALID", "NONE"]
+        "MOTOR_FAULT", "MOTOR_DISABLED", "UPDATE_IN_PROGRESS", "LOAD_CELL_NOT_CONNECTED", "LOAD_CELL_NO_DATA",
+        "LOAD_CELL_RATE_INVALID", "NONE"]  # MOTOR_FAULT (latched deadman) is the grinder's own, not in the 7.2 list
     guard = (ROOT / "src" / "network" / "portal_guard.cpp").read_text(encoding="utf-8")
     decide = guard[guard.index("PortalError portal_command_decide"):]
     assert decide.index("command_in_flight") < decide.index("update_held") < decide.index("in.busy") < decide.index("start_block")
