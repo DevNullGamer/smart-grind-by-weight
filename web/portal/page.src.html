@@ -65,13 +65,18 @@
   <div class="messages">
     <div id="message" class="message" role="status" aria-live="polite"></div>
     <div id="alert" class="message error" role="alert"></div>
+    <p id="leadin-live" class="sr-only" role="status"></p>
   </div>
   <section id="panel-grind" class="panel" aria-label="Grind">
-    <div id="conn-note" class="card note" hidden>
-      <p id="conn-detail"></p>
-      <button id="retry" class="btn" type="button" hidden>Retry now</button>
+    <div id="conn-note" class="alert warning note" hidden>
+      <svg class="icon icon-warning" aria-hidden="true"><use id="conn-note-icon" href="#i-warning"></use></svg>
+      <div class="conn-body">
+        <p id="conn-detail"></p>
+        <button id="retry" class="btn" type="button" hidden>Retry now</button>
+      </div>
     </div>
-    <div id="weboff" class="card note" hidden>
+    <div id="weboff" class="card note weboff" hidden>
+      <svg class="icon weboff-icon" aria-hidden="true"><use href="#i-offline"></use></svg>
       <h2>The web interface is off</h2>
       <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
     </div>
@@ -238,7 +243,7 @@
     </div>
   </section>
 </main>
-<footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
+<footer class="notice"><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span>Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</span></footer>
 </div>
 <script>
 /*@@PORTAL_CLIENT@@*/

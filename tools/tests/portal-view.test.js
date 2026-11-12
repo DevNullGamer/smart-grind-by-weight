@@ -1785,3 +1785,32 @@ test('chg021 V6: skeleton placeholders carry hidden and aria-hidden in the marku
         assert.doesNotMatch(inner.replace(/<[^>]*>/g, ''), /\S/, id + ' holds text');
     }
 });
+
+test('chg021 V8: the lead-in is announced once in a live line outside the countdown; the countdown never reaches the status line', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    // the live line: a status region, screen-reader only, and not inside the hidden countdown block
+    const tag = html.match(/<p id="leadin-live"[^>]*>/);
+    assert.ok(tag, 'leadin-live is missing');
+    assert.match(tag[0], /class="sr-only"/);
+    assert.match(tag[0], /role="status"/);
+    const leadin = html.indexOf('<div id="leadin"');
+    const leadinEnd = html.indexOf('<p id="leadin-text">');
+    assert.ok(leadin !== -1 && leadinEnd !== -1, 'the countdown block is missing');
+    const at = html.indexOf(tag[0]);
+    assert.ok(at < leadin || at > leadinEnd + 40, 'leadin-live sits inside #leadin');
+    // the countdown text (with its count) is never said or written to the status line
+    assert.doesNotMatch(app, /say\(V\.leadInView\(leadIn/, 'the countdown text is still announced');
+    assert.equal(app.match(/setText\(\$\('message'\), ''\)/g).length, 1, 'the status line is cleared only where a lead-in starts');
+    assert.doesNotMatch(app, /setText\(\$\('message'\), V\./, 'a view text is written to the status line');
+    // the live line is written once, at the start, and cleared when the lead-in is over
+    assert.match(app, /setText\(\$\('leadin-live'\), 'Starting ' \+ START_WORDS\[index\]/);
+    assert.match(app, /if \(!li\.visible \|\| li\.dropped\) setText\(\$\('leadin-live'\), ''\);/);
+});
+
+test('chg021 V8: the "did not answer" alert leaves on an edit and at the next save', () => {
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.match(app, /function onEdit\(key, raw\) \{\s*clearBusyAlert\(\);/);
+    assert.match(app, /function saveSettings\(\) \{\s*clearBusyAlert\(\);/);
+    assert.match(app, /if \(code === 'ui_busy'\) busyAlert = err\.message \|\| ''/);
+});

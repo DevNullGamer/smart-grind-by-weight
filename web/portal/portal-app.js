@@ -41,6 +41,7 @@
   var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 
   var requestedTab = 'grind';
+  var START_WORDS = ['SINGLE', 'DOUBLE', 'CUSTOM']; // the profile names the lead-in announces, as on the grinder
 
   function showTab(requested) {
     requestedTab = requested;
@@ -97,6 +98,14 @@
     say(err && err.message ? err.message : fallback, true);
   }
 
+  // The "did not answer" refusal of a save that found the grinder screen busy. It is out of date once the user edits or
+  // saves again, so it leaves the alert line then (other alerts stay).
+  var busyAlert = '';
+  function clearBusyAlert() {
+    if (busyAlert !== '' && $('alert').textContent === busyAlert) setText($('alert'), '');
+    busyAlert = '';
+  }
+
   // --- rendering
   function leadInIsActive() { return V.leadInActive(leadIn); }
 
@@ -144,6 +153,8 @@
       if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
     }
     setText($('insights-message'), view.message);
+    setClass($('insights-message'), 'is-empty', view.kind === 'empty');
+    setClass($('insights-message'), 'is-problem', view.kind === 'error');
     setText($('insights-note'), view.note);
     setHidden($('tiles'), view.tiles.length === 0);
     setHidden($('tiles-skel'), view.kind !== 'loading');
@@ -193,6 +204,8 @@
     var view = V.historyView(history, conn, now());
     setHidden($('history'), !view.visible);
     setText($('history-message'), view.message);
+    setClass($('history-message'), 'is-empty', view.kind === 'empty');
+    setClass($('history-message'), 'is-problem', view.kind === 'error');
     setText($('history-note'), view.note);
     setText($('history-notice'), view.notice);
     setHidden($('history-notice'), view.notice === '');
@@ -248,6 +261,7 @@
     setText($('conn-text'), view.label);
     var icon = '#i-' + view.icon;
     if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
+    if ($('conn-note-icon').getAttribute('href') !== icon) $('conn-note-icon').setAttribute('href', icon);
     var webOff = conn.state === 'web_off';
     setHidden($('weboff'), !webOff);
     setHidden($('live'), webOff);
@@ -285,6 +299,9 @@
 
     // lead-in block: the ring is drawn by the stylesheet from one custom property
     var li = V.leadInView(leadIn, t);
+    // the screen-reader line of a lead-in is written once when it starts (startProfile); it is emptied when the lead-in ends
+    // a dropped start is no countdown either: the line is empty then, so a retry of the same profile is written afresh
+    if (!li.visible || li.dropped) setText($('leadin-live'), '');
     setHidden($('leadin'), !li.visible);
     setText($('leadin-text'), li.text);
     setText($('ring-count'), li.count);
@@ -324,6 +341,7 @@
   }
 
   function onEdit(key, raw) {
+    clearBusyAlert();
     form = V.formSet(form, key, raw);
     delete fieldErrors[key];
     delete fieldNotes[key];
@@ -613,6 +631,7 @@
   }
 
   function saveSettings() {
+    clearBusyAlert();
     if (!form) return;
     var patch = V.formPatch(form, schema);
     var count = Object.keys(patch).length;
@@ -651,6 +670,7 @@
       fieldErrors = shown.fields;
       formError = shown.form;
       say(err && err.message ? err.message : shown.form, true);
+      if (code === 'ui_busy') busyAlert = err.message || '';
       if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
       if (shown.reload) { needSettings = true; quietRefresh = true; }
       render();
@@ -825,7 +845,9 @@
   function startProfile(index) {
     runCommand('start', index, function (doc) {
       setLeadIn(V.leadInStart(index, doc.lead_in_ms, now()));
-      say(V.leadInView(leadIn, now()).text, false);
+      // written once, without the count (the countdown block is not live); the status line is cleared, later messages stay
+      setText($('message'), '');
+      setText($('leadin-live'), 'Starting ' + START_WORDS[index] + '. Touch the grinder or press STOP to cancel.');
     });
   }
 

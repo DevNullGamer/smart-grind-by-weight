@@ -166,12 +166,23 @@ background: none; border: 0; color: var(--muted); font: inherit; font-size: .75r
 .card h2 { margin-bottom: 8px; }
 .muted { color: var(--muted); }
 .notice {
+display: flex; gap: 12px; align-items: flex-start;
 margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+padding: 12px 16px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--surface);
 color: var(--muted); font-size: .875rem;
 }
+.notice .icon { width: 20px; height: 20px; }
 .messages { display: grid; margin-bottom: 8px; }
 .message { grid-area: 1 / 1; min-height: 1.5em; }
 .message.error { color: var(--error); }
+.message.error:not(:empty) {
+display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 12px 12px;
+border-left: 4px solid var(--error); border-radius: var(--r-row); background: var(--tint-error); color: var(--text); font-weight: 600;
+}
+.message.error:not(:empty)::before {
+content: "!"; content: "!" / ""; flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+background: var(--error); color: var(--on-error); font-size: .875rem; font-weight: 800; line-height: 1;
+}
 .live { display: contents; }
 .note p + .btn { margin-top: 12px; }
 .grind-grid { display: grid; gap: 16px; }
@@ -189,6 +200,15 @@ p.alert-body { font-weight: 600; }
 .alerts, .alert-list { display: grid; gap: 8px; }
 .alert-list { list-style: none; margin: 0; padding: 0; }
 .alerts h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.conn-body { display: grid; gap: 12px; justify-items: start; min-width: 0; }
+.conn-body p { overflow-wrap: anywhere; }
+.conn-body .btn { justify-self: start; }
+.note .conn-body .btn { margin-top: 0; }
+.card.weboff { display: grid; justify-items: center; gap: 12px; padding: 32px 20px; text-align: center; }
+.card.weboff h2 { margin: 0; font-size: 1.125rem; }
+.weboff-icon { width: 80px; height: 80px; stroke-width: 1.5; color: var(--muted); opacity: .45; }
+p.is-empty { padding: 20px 16px; border: 1px dashed var(--border); border-radius: var(--r-row); text-align: center; }
+p.is-problem { padding: 12px 14px; border-left: 4px solid var(--warning); border-radius: var(--r-row); background: var(--tint-warning); color: var(--text); font-weight: 600; }
 .hero { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; padding: 20px; }
 .hero-state {
 justify-self: start; display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 4px 14px 4px 12px;
@@ -397,7 +417,7 @@ background: var(--raised); border: 1px solid var(--hairline); border-radius: var
 .tab[aria-current="true"] .tab-icon { background: none; }
 .content, .notice { max-width: 688px; margin-inline: auto; }
 .content { padding-inline: var(--gutter); }
-.notice { padding-inline: var(--gutter); }
+.notice { padding-inline: var(--gutter); width: min(calc(100% - 2 * var(--gutter)), 640px); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
 .panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
 .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -460,6 +480,7 @@ html { scroll-padding-top: 88px; }
 .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
 .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
+.notice { width: min(calc(100% - 2 * var(--gutter)), 1040px); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
 .group { grid-column: auto; }
 .grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
@@ -545,13 +566,18 @@ animation: shimmer 1.6s linear infinite;
   <div class="messages">
     <div id="message" class="message" role="status" aria-live="polite"></div>
     <div id="alert" class="message error" role="alert"></div>
+    <p id="leadin-live" class="sr-only" role="status"></p>
   </div>
   <section id="panel-grind" class="panel" aria-label="Grind">
-    <div id="conn-note" class="card note" hidden>
-      <p id="conn-detail"></p>
-      <button id="retry" class="btn" type="button" hidden>Retry now</button>
+    <div id="conn-note" class="alert warning note" hidden>
+      <svg class="icon icon-warning" aria-hidden="true"><use id="conn-note-icon" href="#i-warning"></use></svg>
+      <div class="conn-body">
+        <p id="conn-detail"></p>
+        <button id="retry" class="btn" type="button" hidden>Retry now</button>
+      </div>
     </div>
-    <div id="weboff" class="card note" hidden>
+    <div id="weboff" class="card note weboff" hidden>
+      <svg class="icon weboff-icon" aria-hidden="true"><use href="#i-offline"></use></svg>
       <h2>The web interface is off</h2>
       <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
     </div>
@@ -718,7 +744,7 @@ animation: shimmer 1.6s linear infinite;
     </div>
   </section>
 </main>
-<footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
+<footer class="notice"><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span>Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</span></footer>
 </div>
 <script>
 'use strict';
@@ -2264,6 +2290,7 @@ var statusAt = null; // when the latest status reply was received (the lead-in m
 var forceStatus = false; // the last settings or info request failed: status goes next
 var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 var requestedTab = 'grind';
+var START_WORDS = ['SINGLE', 'DOUBLE', 'CUSTOM']; // the profile names the lead-in announces, as on the grinder
 function showTab(requested) {
 requestedTab = requested;
 var name = V.tabForViewport(requested);
@@ -2307,6 +2334,11 @@ $(isError ? 'alert' : 'message').textContent = text;
 function sayError(err, fallback) {
 say(err && err.message ? err.message : fallback, true);
 }
+var busyAlert = '';
+function clearBusyAlert() {
+if (busyAlert !== '' && $('alert').textContent === busyAlert) setText($('alert'), '');
+busyAlert = '';
+}
 function leadInIsActive() { return V.leadInActive(leadIn); }
 function setControl(button, reasonEl, control) {
 setDisabled(button, !control.enabled);
@@ -2344,6 +2376,8 @@ setHidden(tab, !view.tabVisible);
 if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
 }
 setText($('insights-message'), view.message);
+setClass($('insights-message'), 'is-empty', view.kind === 'empty');
+setClass($('insights-message'), 'is-problem', view.kind === 'error');
 setText($('insights-note'), view.note);
 setHidden($('tiles'), view.tiles.length === 0);
 setHidden($('tiles-skel'), view.kind !== 'loading');
@@ -2390,6 +2424,8 @@ function renderHistory() {
 var view = V.historyView(history, conn, now());
 setHidden($('history'), !view.visible);
 setText($('history-message'), view.message);
+setClass($('history-message'), 'is-empty', view.kind === 'empty');
+setClass($('history-message'), 'is-problem', view.kind === 'error');
 setText($('history-note'), view.note);
 setText($('history-notice'), view.notice);
 setHidden($('history-notice'), view.notice === '');
@@ -2441,6 +2477,7 @@ var readout = V.readoutView(status, conn, t, { leadIn: leadInIsActive() });
 setText($('conn-text'), view.label);
 var icon = '#i-' + view.icon;
 if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
+if ($('conn-note-icon').getAttribute('href') !== icon) $('conn-note-icon').setAttribute('href', icon);
 var webOff = conn.state === 'web_off';
 setHidden($('weboff'), !webOff);
 setHidden($('live'), webOff);
@@ -2470,6 +2507,7 @@ setClass($('banner'), 'warning', controls.banner.level === 'warning');
 }
 setClass($('stop'), 'is-busy', controls.stop.emphasis);
 var li = V.leadInView(leadIn, t);
+if (!li.visible || li.dropped) setText($('leadin-live'), '');
 setHidden($('leadin'), !li.visible);
 setText($('leadin-text'), li.text);
 setText($('ring-count'), li.count);
@@ -2503,6 +2541,7 @@ function setValue(input, value) {
 if (input.value !== value) input.value = value;
 }
 function onEdit(key, raw) {
+clearBusyAlert();
 form = V.formSet(form, key, raw);
 delete fieldErrors[key];
 delete fieldNotes[key];
@@ -2772,6 +2811,7 @@ link.setAttribute('href', href);
 }
 }
 function saveSettings() {
+clearBusyAlert();
 if (!form) return;
 var patch = V.formPatch(form, schema);
 var count = Object.keys(patch).length;
@@ -2809,6 +2849,7 @@ var shown = V.saveErrorView(code, patch, schema);
 fieldErrors = shown.fields;
 formError = shown.form;
 say(err && err.message ? err.message : shown.form, true);
+if (code === 'ui_busy') busyAlert = err.message || '';
 if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
 if (shown.reload) { needSettings = true; quietRefresh = true; }
 render();
@@ -2967,7 +3008,8 @@ pollNow();
 function startProfile(index) {
 runCommand('start', index, function (doc) {
 setLeadIn(V.leadInStart(index, doc.lead_in_ms, now()));
-say(V.leadInView(leadIn, now()).text, false);
+setText($('message'), '');
+setText($('leadin-live'), 'Starting ' + START_WORDS[index] + '. Touch the grinder or press STOP to cancel.');
 });
 }
 V.TABS.forEach(function (tab) {
