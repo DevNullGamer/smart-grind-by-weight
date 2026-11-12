@@ -10,7 +10,7 @@ tools for working on the page without a grinder.
 
 | File | What |
 |---|---|
-| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, status bar with STOP, name, state and weight, navigation (bottom bar, pill bar or sidebar), panels (Grind, Settings, Insights, Device), and one marker per part below. |
+| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, status bar with STOP, name, state and weight, navigation (bottom bar, pill bar or sidebar), panels (Grind with the Last grind card, Settings, Insights, Device with the About card), and one marker per part below. |
 | `web/portal/portal.css` | Design tokens (light and dark via `prefers-color-scheme`) and layout for phone, tablet and desktop. Marker `/*@@PORTAL_CSS@@*/`. |
 | `web/portal/portal-client.js` | The API client (request queue, error mapping; `toCurl` is a tested helper the page does not use). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
 | `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
@@ -140,6 +140,11 @@ above.
 | History after a restart | `{"history_restart":true}`. | Every age reads "before the last restart". |
 | History not being saved | `{"history_persistent":false}`. | A notice above the list: "History is not being saved on the grinder; it is lost at the next restart." |
 | History not available | `--no-history`, or `{"history_route":false}`. | The tiles stay, the recent-grinds list and its heading are hidden, no error. |
+| Last grind, running | Press Start (Double): after the 3 s lead-in and about a second of grinding. | A "This grind" card between the hero and Profiles with the weight curve (a dashed target line when this page started the grind in weight mode) and a caption "Weight from ... to ... in ...". Hidden until three weights are in. |
+| Last grind, finished | Let the grind above finish (the grinder returns to `ready`). | The card becomes "Last grind": final weight against the target, result badge, error, time, pulses, motor time and "just now" (it keeps ageing), the curve stays. One `GET /api/history` follows the end; the card says "Reading the result from the grinder." until it arrives. |
+| Last grind, stopped | Press Start, then STOP while it grinds (`{"history_fill":3}` first so there is an older grind). | The curve stays; after the second look at the history (about 6 s) a neutral "Not recorded" badge with "This grind did not finish, so the grinder did not record it. It was probably stopped." The older grind is never shown as the result. |
+| Last grind, no history route | `--no-history`, then a grind. | The curve stays with "This grinder firmware does not list finished grinds, so there is no result to show." |
+| Device, About card | Open the Device tab. The dev server answers `/api/info` with `board` "dev" and `confirm` true. | Rows Name, Address, Firmware, Build, Board, Uptime (counts, hidden while the grinder is not reachable) and "Confirm on the grinder: On" with a sentence. A member that is missing, null or of the wrong type hides its row (try it by intercepting `/api/info` in the browser's developer tools). |
 
 ## Manual browser check
 
@@ -172,7 +177,7 @@ usual.
 
 ```
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tools/tests/test_portal_dev_server.py
-node --test tools/tests/portal-client.test.js tools/tests/portal-view.test.js
+node --test tools/tests/portal-client.test.js tools/tests/portal-view.test.js tools/tests/portal-lastgrind.test.js
 ```
 
 `test_portal_dev_server.py` also checks that every flag and every `/dev/state` key is documented here.

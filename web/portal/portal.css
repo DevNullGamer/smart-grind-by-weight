@@ -310,6 +310,22 @@ p.is-problem { padding: 12px 14px; border-left: 4px solid var(--warning); border
 /* the one reason for the three Start buttons sits under the heading, on screen with the dimmed buttons */
 .profiles-card .reason { margin: -4px 0 12px; }
 
+/* last grind (chg021 G2): the result in the style of a history row, under it the weight curve of the grind. The
+   curve is decorative (aria-hidden); the caption under it says the same in words. */
+.lastgrind .group-head { margin-bottom: 8px; }
+.lg-age { margin-left: auto; font-size: .875rem; white-space: nowrap; }
+.lg-age:empty { display: none; }
+.lg-result { margin: 4px 0 8px; }
+.lg-meta { margin-bottom: 4px; }
+.lg-message { font-size: .875rem; margin: 4px 0 8px; }
+.lg-message:empty { display: none; }
+.lg-spark { margin-top: 8px; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.spark { display: block; width: 100%; height: 72px; overflow: visible; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.spark-line { stroke: var(--primary); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.spark-target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.spark-target.is-off { display: none; }
+.spark-caption { font-size: .8125rem; margin-top: 8px; }
+
 /* tools: ghost buttons with an icon, each with its reason beneath */
 .actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
 .action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
@@ -473,7 +489,8 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 .about-row { display: grid; gap: 2px; min-width: 0; }
 .about-row dt { color: var(--muted); font-size: .875rem; }
 .about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
-
+.about-row dd.about-note { font-weight: 400; font-size: .875rem; color: var(--muted); }
+.about-loading { margin-bottom: 12px; }
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
@@ -532,6 +549,9 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .field-stepper > label, .field-stepper > .stepper { grid-row: 1; }
   .field-stepper > .hint, .field-stepper > .field-msg { grid-column: 1 / -1; }
   .field-stepper .stepper input { flex: none; width: 96px; }
+  /* About: two columns, the Confirm row (it has a sentence) across both */
+  .about { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+  .about-row.is-wide { grid-column: 1 / -1; }
 }
 
 /* ---- tablet only: the three profiles side by side as cards (name, target, round Start), the Start buttons on one
@@ -601,6 +621,11 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .hero { grid-column: 1; grid-row: 1; }
   .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
   .tools-card { grid-column: 1; grid-row: 2; }
+  /* the Last grind card, when shown (class set by the page), takes the left column between the hero and Tools */
+  .grind-grid.has-last { grid-template-rows: auto auto 1fr; }
+  .grind-grid.has-last .lastgrind { grid-column: 1; grid-row: 2; }
+  .grind-grid.has-last .profiles-card { grid-row: 1 / span 3; }
+  .grind-grid.has-last .tools-card { grid-row: 3; }
   .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
 }
 

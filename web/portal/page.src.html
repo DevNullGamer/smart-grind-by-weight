@@ -100,7 +100,7 @@
           </li>
         </template>
       </section>
-      <div class="grind-grid">
+      <div id="grind-grid" class="grind-grid">
         <div id="readout" class="card hero is-stale">
           <h2 class="sr-only">Now</h2>
           <p class="hero-state"><span class="dot"></span><span id="readout-state">Connecting</span></p>
@@ -119,6 +119,28 @@
             <p id="leadin-text"></p>
           </div>
         </div>
+        <section id="lastgrind" class="card lastgrind" aria-labelledby="lg-h" hidden>
+          <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-pulse"></use></svg></span><h2 id="lg-h">Last grind</h2><span id="lg-age" class="lg-age muted"></span></div>
+          <div id="lg-result" class="lg-result" hidden>
+            <div class="h-main"><span id="lg-final" class="h-final"></span><span id="lg-target" class="h-target muted"></span></div>
+          </div>
+          <div id="lg-meta" class="h-meta lg-meta" hidden>
+            <span id="lg-badge" class="h-badge" hidden>
+              <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <span id="lg-badge-text"></span>
+            </span>
+            <span id="lg-error" class="h-error"></span>
+            <span id="lg-detail" class="h-detail muted"></span>
+            <span id="lg-motor" class="h-motor muted" hidden><svg class="icon" aria-hidden="true"><use href="#i-motor"></use></svg><span id="lg-motor-text"></span></span>
+          </div>
+          <p id="lg-message" class="muted lg-message"></p>
+          <div id="lg-spark" class="lg-spark" hidden>
+            <svg class="spark" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true" focusable="false"><line id="lg-target-line" class="spark-target is-off" x1="0" x2="240" y1="0" y2="0"></line><polyline id="lg-line" class="spark-line" points=""></polyline></svg>
+            <p id="lg-caption" class="muted spark-caption"></p>
+          </div>
+        </section>
         <div class="card profiles-card">
           <h2>Profiles</h2>
           <p id="reason-start" class="reason" aria-hidden="true"></p>
@@ -234,10 +256,15 @@
   <section id="panel-device" class="panel" aria-label="Device" hidden>
     <section class="card full" aria-labelledby="about-h">
       <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-device"></use></svg></span><h2 id="about-h">About this grinder</h2></div>
+      <p id="about-loading" class="muted about-loading">The details load when the grinder answers.</p>
       <dl class="about">
-        <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
-        <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
-        <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+        <div id="about-row-name" class="about-row" hidden><dt>Name</dt><dd id="about-name">--</dd></div>
+        <div id="about-row-address" class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
+        <div id="about-row-firmware" class="about-row" hidden><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+        <div id="about-row-build" class="about-row" hidden><dt>Build</dt><dd id="about-build">--</dd></div>
+        <div id="about-row-board" class="about-row" hidden><dt>Board</dt><dd id="about-board">--</dd></div>
+        <div id="about-row-uptime" class="about-row" hidden><dt>Uptime</dt><dd id="about-uptime">--</dd></div>
+        <div id="about-row-confirm" class="about-row is-wide" hidden><dt>Confirm on the grinder</dt><dd id="about-confirm">--</dd><dd id="about-confirm-note" class="about-note"></dd></div>
       </dl>
     </section>
   </section>

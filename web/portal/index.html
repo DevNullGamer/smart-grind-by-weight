@@ -249,6 +249,19 @@ border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(
 .reason { color: var(--muted); font-size: .875rem; }
 .reason:empty { display: none; }
 .profiles-card .reason { margin: -4px 0 12px; }
+.lastgrind .group-head { margin-bottom: 8px; }
+.lg-age { margin-left: auto; font-size: .875rem; white-space: nowrap; }
+.lg-age:empty { display: none; }
+.lg-result { margin: 4px 0 8px; }
+.lg-meta { margin-bottom: 4px; }
+.lg-message { font-size: .875rem; margin: 4px 0 8px; }
+.lg-message:empty { display: none; }
+.lg-spark { margin-top: 8px; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.spark { display: block; width: 100%; height: 72px; overflow: visible; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.spark-line { stroke: var(--primary); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.spark-target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.spark-target.is-off { display: none; }
+.spark-caption { font-size: .8125rem; margin-top: 8px; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
 .action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
 .note-line { font-size: .875rem; margin-top: 12px; }
@@ -385,6 +398,8 @@ background: var(--surface); border-top: 1px solid var(--hairline); box-shadow: 0
 .about-row { display: grid; gap: 2px; min-width: 0; }
 .about-row dt { color: var(--muted); font-size: .875rem; }
 .about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.about-row dd.about-note { font-weight: 400; font-size: .875rem; color: var(--muted); }
+.about-loading { margin-bottom: 12px; }
 @media (max-width: 599px) and (max-height: 450px) {
 :root { --dock-h: 44px; --tabbar-h: 44px; }
 .tab { flex-direction: row; gap: 6px; padding: 2px 4px; }
@@ -436,6 +451,8 @@ padding: 8px 12px; box-shadow: var(--shadow);
 .field-stepper > label, .field-stepper > .stepper { grid-row: 1; }
 .field-stepper > .hint, .field-stepper > .field-msg { grid-column: 1 / -1; }
 .field-stepper .stepper input { flex: none; width: 96px; }
+.about { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+.about-row.is-wide { grid-column: 1 / -1; }
 }
 @media (min-width: 600px) and (max-width: 1023px) {
 .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -485,6 +502,10 @@ html { scroll-padding-top: 88px; }
 .hero { grid-column: 1; grid-row: 1; }
 .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
 .tools-card { grid-column: 1; grid-row: 2; }
+.grind-grid.has-last { grid-template-rows: auto auto 1fr; }
+.grind-grid.has-last .lastgrind { grid-column: 1; grid-row: 2; }
+.grind-grid.has-last .profiles-card { grid-row: 1 / span 3; }
+.grind-grid.has-last .tools-card { grid-row: 3; }
 .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
 }
 @media (min-width: 1024px) and (max-height: 520px) {
@@ -598,7 +619,7 @@ animation: shimmer 1.6s linear infinite;
           </li>
         </template>
       </section>
-      <div class="grind-grid">
+      <div id="grind-grid" class="grind-grid">
         <div id="readout" class="card hero is-stale">
           <h2 class="sr-only">Now</h2>
           <p class="hero-state"><span class="dot"></span><span id="readout-state">Connecting</span></p>
@@ -617,6 +638,28 @@ animation: shimmer 1.6s linear infinite;
             <p id="leadin-text"></p>
           </div>
         </div>
+        <section id="lastgrind" class="card lastgrind" aria-labelledby="lg-h" hidden>
+          <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-pulse"></use></svg></span><h2 id="lg-h">Last grind</h2><span id="lg-age" class="lg-age muted"></span></div>
+          <div id="lg-result" class="lg-result" hidden>
+            <div class="h-main"><span id="lg-final" class="h-final"></span><span id="lg-target" class="h-target muted"></span></div>
+          </div>
+          <div id="lg-meta" class="h-meta lg-meta" hidden>
+            <span id="lg-badge" class="h-badge" hidden>
+              <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <span id="lg-badge-text"></span>
+            </span>
+            <span id="lg-error" class="h-error"></span>
+            <span id="lg-detail" class="h-detail muted"></span>
+            <span id="lg-motor" class="h-motor muted" hidden><svg class="icon" aria-hidden="true"><use href="#i-motor"></use></svg><span id="lg-motor-text"></span></span>
+          </div>
+          <p id="lg-message" class="muted lg-message"></p>
+          <div id="lg-spark" class="lg-spark" hidden>
+            <svg class="spark" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true" focusable="false"><line id="lg-target-line" class="spark-target is-off" x1="0" x2="240" y1="0" y2="0"></line><polyline id="lg-line" class="spark-line" points=""></polyline></svg>
+            <p id="lg-caption" class="muted spark-caption"></p>
+          </div>
+        </section>
         <div class="card profiles-card">
           <h2>Profiles</h2>
           <p id="reason-start" class="reason" aria-hidden="true"></p>
@@ -732,10 +775,15 @@ animation: shimmer 1.6s linear infinite;
   <section id="panel-device" class="panel" aria-label="Device" hidden>
     <section class="card full" aria-labelledby="about-h">
       <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-device"></use></svg></span><h2 id="about-h">About this grinder</h2></div>
+      <p id="about-loading" class="muted about-loading">The details load when the grinder answers.</p>
       <dl class="about">
-        <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
-        <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
-        <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+        <div id="about-row-name" class="about-row" hidden><dt>Name</dt><dd id="about-name">--</dd></div>
+        <div id="about-row-address" class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
+        <div id="about-row-firmware" class="about-row" hidden><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+        <div id="about-row-build" class="about-row" hidden><dt>Build</dt><dd id="about-build">--</dd></div>
+        <div id="about-row-board" class="about-row" hidden><dt>Board</dt><dd id="about-board">--</dd></div>
+        <div id="about-row-uptime" class="about-row" hidden><dt>Uptime</dt><dd id="about-uptime">--</dd></div>
+        <div id="about-row-confirm" class="about-row is-wide" hidden><dt>Confirm on the grinder</dt><dd id="about-confirm">--</dd><dd id="about-confirm-note" class="about-note"></dd></div>
       </dl>
     </section>
   </section>
@@ -1234,7 +1282,7 @@ return !!doc && typeof doc === 'object' && !!doc.values && typeof doc.values ===
 }
 function pollSucceeded(task, needs, doc, wasOnline, prevUi) {
 var next = { needSchema: needs.needSchema, needSettings: needs.needSettings, needInfo: needs.needInfo, forceStatus: false };
-if (!wasOnline) next.needSettings = true; // back after a gap: the grinder may have changed
+if (!wasOnline) { next.needSettings = true; next.needInfo = true; } // back after a gap: the grinder may have changed (also its Confirm switch)
 if (task === 'status') {
 if (prevUi && prevUi !== 'ready' && doc && doc.ui_state === 'ready') next.needSettings = true;
 } else if (task === 'schema') {
@@ -1723,6 +1771,7 @@ profile: g.profile === 0 || g.profile === 1 || g.profile === 2 ? g.profile : nul
 time: time,
 target: finiteOrNull(time ? g.target_s : g.target_g),
 final: finiteOrNull(g.final_g),
+id: finiteOrNull(g.id), // lets the Last grind card tell a new entry from the one it saw before
 timeMs: finiteOrNull(g.time_ms),
 motorMs: finiteOrNull(g.motor_ms),
 pulses: finiteOrNull(g.pulses),
@@ -1736,7 +1785,12 @@ var parsed = parseHistory(doc);
 return parsed ? fetched(h, parsed, nowMs) : statsFailed(h, 'bad_reply', nowMs);
 }
 function historyDue(h, ctx) {
-return !!ctx.tabShown && statsDue(h, ctx);
+if (ctx.tabShown) return statsDue(h, ctx);
+if (!ctx.lastGrindWaiting) return false;
+if (h.unavailable || ctx.hidden || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+if (ctx.nowMs < h.retryAt) return false;
+return h.error !== '' || (h.refreshAt !== null && ctx.nowMs >= h.refreshAt) ||
+(h.followUpAt !== null && ctx.nowMs >= h.followUpAt);
 }
 function tenths(v) {
 var r = Math.round(Math.abs(v) * 10);
@@ -1826,6 +1880,229 @@ var elapsedS = Math.max(0, (nowMs - h.fetchedAt) / 1000);
 view.rows = h.doc.grinds.map(function (g) { return historyRow(g, elapsedS); });
 view.chart = historyChart(view.rows);
 view.rows.forEach(function (r) { delete r.err; });
+return view;
+}
+var ABOUT_TEXT_MAX = 64;
+function aboutText(v) {
+if (typeof v !== 'string' || v.trim() === '') return '';
+var points = Array.from(v.trim());
+return points.length > ABOUT_TEXT_MAX ? points.slice(0, ABOUT_TEXT_MAX).join('') : points.join('');
+}
+function aboutBuild(v) {
+return typeof v === 'number' && isFinite(v) && v >= 0 ? String(Math.floor(v)) : '';
+}
+function infoDoc(info) {
+return info && typeof info === 'object' && !Array.isArray(info) ? info : {};
+}
+function deviceName(info) {
+return aboutText(infoDoc(info).name) || 'Grinder';
+}
+function buildLine(info) {
+var doc = infoDoc(info);
+var parts = [];
+if (aboutText(doc.version)) parts.push('Firmware ' + aboutText(doc.version));
+if (aboutBuild(doc.build)) parts.push('build ' + aboutBuild(doc.build));
+return parts.join(', ');
+}
+var CONFIRM_NOTE = {
+on: 'A pushed firmware update waits for a tap on the grinder.',
+off: 'A pushed firmware update installs without a tap on the grinder, while Receive is on.'
+};
+function aboutView(info, status, opts) {
+var doc = infoDoc(info);
+var o = opts || {};
+var uptime = status && typeof status.uptime_s === 'number' && isFinite(status.uptime_s) && status.uptime_s >= 0 &&
+o.online !== false ? formatDuration(status.uptime_s) : '';
+var confirm = typeof doc.confirm === 'boolean' ? doc.confirm : null;
+var rows = [
+{ id: 'name', label: 'Name', value: aboutText(doc.name), note: '' },
+{ id: 'address', label: 'Address', value: aboutText(o.address), note: '' },
+{ id: 'firmware', label: 'Firmware', value: aboutText(doc.version), note: '' },
+{ id: 'build', label: 'Build', value: aboutBuild(doc.build), note: '' },
+{ id: 'board', label: 'Board', value: aboutText(doc.board), note: '' },
+{ id: 'uptime', label: 'Uptime', value: uptime, note: '' },
+{ id: 'confirm', label: 'Confirm on the grinder', value: confirm === null ? '' : confirm ? 'On' : 'Off',
+note: confirm === null ? '' : confirm ? CONFIRM_NOTE.on : CONFIRM_NOTE.off }
+];
+rows.forEach(function (row) { row.visible = row.value !== ''; });
+return { loading: info === null || info === undefined, rows: rows };
+}
+var GRIND_SAMPLES_MAX = 120;         // about a minute of 500 ms polls (a grind times out after 60 s); the oldest drop out
+var SPARK_MIN_SAMPLES = 3;           // fewer points are not a curve
+var SPARK_W = 240;                   // the drawing's own units (the SVG scales to its box)
+var SPARK_H = 64;
+var SPARK_LIMIT_G = 1e6;             // the API cuts weights at 1000000 g
+var SPARK_LIMIT_MS = 1e12;
+var SPARK_PAD_X = 2;
+var SPARK_PAD_Y = 4;
+var LAST_GRIND_SETTLE_MS = 2000;     // a look this soon after the end may still miss the new entry: it is not "not recorded" yet
+var LAST_GRIND_WAIT_MS = 30000;      // after this long without a usable look the card gives up waiting
+var LAST_GRIND_AGE_SLACK_S = 2;      // clock rounding between the grinder's seconds and the page's milliseconds
+var NO_SAMPLE_PHASES = ['prime', 'prime_settling', 'purge_confirm'];
+function newGrindTrack() {
+return { phase: 'none', samples: [], startedAt: null, lastSeenAt: null, endedAt: null, profile: null, target: null,
+before: { known: false, id: null }, result: null, waitStart: null };
+}
+function copyTrack(t) {
+return { phase: t.phase, samples: t.samples, startedAt: t.startedAt, lastSeenAt: t.lastSeenAt, endedAt: t.endedAt,
+profile: t.profile, target: t.target, before: t.before, result: t.result, waitStart: t.waitStart };
+}
+function profileTarget(settings, index) {
+var values = settings && settings.values && typeof settings.values === 'object' ? settings.values : null;
+if (!values || typeof index !== 'number' || !has(PROFILE_KEYS, String(index))) return null;
+var time = values.grind_mode === 'time';
+var v = values[PROFILE_KEYS[index] + (time ? '_time_s' : '_weight_g')];
+return typeof v === 'number' && isFinite(v) && v > 0 ? { mode: time ? 'time' : 'weight', value: v } : null;
+}
+function knownHistoryHead(h) {
+if (!h || !h.doc || !Array.isArray(h.doc.grinds)) return { known: false, id: null };
+if (h.doc.grinds.length === 0) return { known: true, id: null };
+var id = h.doc.grinds[0].id;
+return typeof id === 'number' ? { known: true, id: id } : { known: false, id: null };
+}
+function grindTrackUpdate(track, status, ctx) {
+if (!status) return track;
+var ui = status.ui_state;
+var nowMs = ctx.nowMs;
+if (ui === 'grinding') {
+var next = copyTrack(track);
+if (track.phase !== 'running') {
+var profile = leadInActive(ctx.leadIn) && typeof ctx.leadIn.profile === 'number' ? ctx.leadIn.profile : null;
+next = copyTrack(newGrindTrack());
+next.phase = 'running';
+next.startedAt = nowMs;
+next.profile = profile;
+next.target = profile === null ? null : profileTarget(ctx.settings, profile);
+next.before = knownHistoryHead(ctx.history);
+}
+next.lastSeenAt = nowMs;
+var w = status.weight_g;
+var last = next.samples.length ? next.samples[next.samples.length - 1].t : -1;
+if (NO_SAMPLE_PHASES.indexOf(status.grind_phase) < 0 && typeof w === 'number' && isFinite(w) && nowMs - next.startedAt > last) {
+next.samples = next.samples.concat([{ t: nowMs - next.startedAt, g: w }]).slice(-GRIND_SAMPLES_MAX);
+}
+return next;
+}
+if (track.phase === 'running' && ui !== 'purge_confirm') {
+var ended = copyTrack(track);
+ended.phase = 'ended';
+ended.endedAt = nowMs;
+return ended;
+}
+return track;
+}
+function entryIsTrackedGrind(track, g, fetchedAt) {
+if (!g || typeof g.ageS !== 'number') return false;
+if (g.ageS > (fetchedAt - track.lastSeenAt) / 1000 + LAST_GRIND_AGE_SLACK_S) return false;
+if (track.before.known && track.before.id !== null && g.id !== null) return g.id > track.before.id; // ids grow with every recorded grind
+return true;
+}
+function grindTrackResolve(track, h, nowMs) {
+if (track.phase !== 'ended' || track.result) return track;
+var result = null;
+if (h.unavailable) {
+result = { state: 'unavailable', grind: null, fetchedAt: null };
+} else if (h.doc && h.fetchedAt !== null && h.fetchedAt >= track.endedAt) {
+var g = h.doc.grinds[0] || null;
+if (entryIsTrackedGrind(track, g, h.fetchedAt)) result = { state: 'recorded', grind: g, fetchedAt: h.fetchedAt };
+else if (h.fetchedAt >= track.endedAt + LAST_GRIND_SETTLE_MS) result = { state: 'unrecorded', grind: null, fetchedAt: h.fetchedAt };
+}
+if (!result) return track;
+var next = copyTrack(track);
+next.result = result;
+return next;
+}
+function lastGrindWaiting(track, nowMs) {
+return track.phase === 'ended' && !track.result && nowMs - waitStartOf(track) < LAST_GRIND_WAIT_MS;
+}
+function waitStartOf(track) {
+return track.waitStart === null ? track.endedAt : track.waitStart;
+}
+function grindTrackResume(track, nowMs) {
+if (track.phase !== 'ended' || track.result) return track;
+var next = copyTrack(track);
+next.waitStart = nowMs;
+return next;
+}
+function validSamples(samples) {
+return (Array.isArray(samples) ? samples : []).filter(function (s) {
+return s && typeof s.t === 'number' && isFinite(s.t) && typeof s.g === 'number' && isFinite(s.g);
+}).map(function (s) {
+return { t: Math.max(-SPARK_LIMIT_MS, Math.min(SPARK_LIMIT_MS, s.t)), g: Math.max(-SPARK_LIMIT_G, Math.min(SPARK_LIMIT_G, s.g)) };
+});
+}
+function sparklinePoints(samples, w, h, targetG) {
+var valid = validSamples(samples);
+if (valid.length < SPARK_MIN_SAMPLES) return { points: '', targetY: null, count: valid.length };
+var target = typeof targetG === 'number' && isFinite(targetG) && targetG > 0 ? targetG : null;
+var lo = 0;
+var hi = target === null ? 0 : target;
+valid.forEach(function (s) {
+if (s.g < lo) lo = s.g;
+if (s.g > hi) hi = s.g;
+});
+var range = Math.max(hi - lo, 1); // a flat curve is not blown up to the full height
+var t0 = valid[0].t;
+var span = valid[valid.length - 1].t - t0;
+function round1(v) { return Math.round(v * 10) / 10; }
+function yOf(g) { return round1(h - SPARK_PAD_Y - (g - lo) / range * (h - 2 * SPARK_PAD_Y)); }
+var points = valid.map(function (s, i) {
+var f = span > 0 ? (s.t - t0) / span : i / (valid.length - 1);
+return round1(SPARK_PAD_X + Math.min(1, Math.max(0, f)) * (w - 2 * SPARK_PAD_X)) + ',' + yOf(s.g);
+});
+return { points: points.join(' '), targetY: target === null ? null : yOf(target), count: valid.length };
+}
+function sparklineSummary(samples, targetG) {
+var valid = validSamples(samples);
+if (valid.length < SPARK_MIN_SAMPLES) return '';
+var first = valid[0];
+var last = valid[valid.length - 1];
+var text = 'Weight from ' + tenths(first.g) + ' g to ' + tenths(last.g) + ' g';
+if (msText(last.t - first.t) !== '' && last.t > first.t) text += ' in ' + msText(last.t - first.t);
+text += '.';
+if (typeof targetG === 'number' && isFinite(targetG) && targetG > 0) text += ' Target ' + tenths(targetG) + ' g (dashed line).';
+return text;
+}
+var LAST_GRIND_TEXT = {
+waiting: 'Reading the result from the grinder.',
+unreadable: 'The result could not be read from the grinder.',
+unavailable: 'This grinder firmware does not list finished grinds, so there is no result to show.',
+unrecorded: 'This grind did not finish, so the grinder did not record it. It was probably stopped.'
+};
+function lastGrindView(track, nowMs) {
+var view = {
+visible: false, running: false, title: 'Last grind', message: '',
+spark: { visible: false, points: '', targetY: null, caption: '' },
+result: { visible: false, name: '', age: '', final: '', target: '', error: '', detail: '', motor: '' },
+badge: { visible: false, label: '', level: 'neutral' }
+};
+if (track.phase === 'none') return view;
+var res = track.result;
+var recorded = res && res.state === 'recorded' ? res.grind : null;
+var targetG = recorded && !recorded.time && recorded.target !== null ? recorded.target :
+track.target && track.target.mode === 'weight' ? track.target.value : null;
+var sp = sparklinePoints(track.samples, SPARK_W, SPARK_H, targetG);
+view.spark = { visible: sp.points !== '', points: sp.points, targetY: sp.targetY, caption: sparklineSummary(track.samples, targetG) };
+if (track.phase === 'running') {
+view.running = true;
+view.title = 'This grind';
+view.visible = view.spark.visible;
+return view;
+}
+view.visible = true;
+if (recorded) {
+var row = historyRow(recorded, Math.max(0, (nowMs - res.fetchedAt) / 1000));
+view.result = { visible: true, name: row.name, age: row.age, final: row.final, target: row.target, error: row.error,
+detail: row.detail, motor: row.motor };
+view.badge = { visible: true, label: row.badge.label, level: row.badge.level };
+} else if (res && res.state === 'unrecorded') {
+view.badge = { visible: true, label: 'Not recorded', level: 'neutral' };
+view.message = LAST_GRIND_TEXT.unrecorded;
+} else if (res && res.state === 'unavailable') {
+view.message = LAST_GRIND_TEXT.unavailable;
+} else {
+view.message = nowMs - waitStartOf(track) >= LAST_GRIND_WAIT_MS ? LAST_GRIND_TEXT.unreadable : LAST_GRIND_TEXT.waiting;
+}
 return view;
 }
 var SETTINGS_GROUPS = [
@@ -2221,6 +2498,24 @@ historyAgeText: historyAgeText,
 msText: msText,
 historyErrorText: historyErrorText,
 historyView: historyView,
+deviceName: deviceName,
+buildLine: buildLine,
+aboutView: aboutView,
+GRIND_SAMPLES_MAX: GRIND_SAMPLES_MAX,
+SPARK_MIN_SAMPLES: SPARK_MIN_SAMPLES,
+SPARK_W: SPARK_W,
+SPARK_H: SPARK_H,
+LAST_GRIND_SETTLE_MS: LAST_GRIND_SETTLE_MS,
+LAST_GRIND_WAIT_MS: LAST_GRIND_WAIT_MS,
+newGrindTrack: newGrindTrack,
+profileTarget: profileTarget,
+grindTrackUpdate: grindTrackUpdate,
+grindTrackResolve: grindTrackResolve,
+grindTrackResume: grindTrackResume,
+lastGrindWaiting: lastGrindWaiting,
+sparklinePoints: sparklinePoints,
+sparklineSummary: sparklineSummary,
+lastGrindView: lastGrindView,
 STEP_OPTIONS: STEP_OPTIONS,
 settingsGroups: settingsGroups,
 groupedKeys: groupedKeys,
@@ -2280,6 +2575,8 @@ var settingsNotice = ''; // "the grinder changed values while you were editing"
 var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
 var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
 var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+var info = null; // the whole GET /api/info document (null until it has arrived), see V.aboutView
+var track = V.newGrindTrack(); // the weights seen during the latest grind and what became of it, see V.lastGrindView
 var polling = false;
 var pollTimer = null;
 var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
@@ -2297,6 +2594,7 @@ if (tab === name) button.setAttribute('aria-current', 'true');
 else button.removeAttribute('aria-current');
 });
 setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
+if (name === 'device') renderAbout();
 if (name === 'insights') {
 stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
 history = V.statsShown(history, now());
@@ -2312,6 +2610,9 @@ if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
 function setHidden(el, hidden) {
 hidden = !!hidden;
 if (el.hidden !== hidden) el.hidden = hidden;
+}
+function setAttr(el, name, value) {
+if (el.getAttribute(name) !== value) el.setAttribute(name, value);
 }
 function setDisabled(el, disabled) {
 disabled = !!disabled;
@@ -2463,6 +2764,49 @@ item.querySelector('.h-badge').classList.add(row.badge.level);
 list.appendChild(item);
 });
 }
+function renderLastGrind() {
+var view = V.lastGrindView(track, now());
+setHidden($('lastgrind'), !view.visible);
+setClass($('grind-grid'), 'has-last', view.visible);
+if (!view.visible) return;
+setText($('lg-h'), view.title);
+setText($('lg-age'), view.result.age);
+setHidden($('lg-result'), !view.result.visible);
+setText($('lg-final'), view.result.final);
+setText($('lg-target'), view.result.target);
+setHidden($('lg-badge'), !view.badge.visible);
+setText($('lg-badge-text'), view.badge.label);
+['ok', 'warning', 'error', 'neutral'].forEach(function (level) {
+setClass($('lg-badge'), level, view.badge.visible && view.badge.level === level);
+});
+setText($('lg-error'), view.result.error);
+setText($('lg-detail'), view.result.detail);
+setText($('lg-motor-text'), view.result.motor);
+setHidden($('lg-motor'), view.result.motor === '');
+setHidden($('lg-meta'), !view.badge.visible && view.result.error === '' && view.result.detail === '' && view.result.motor === '');
+setText($('lg-message'), view.message);
+setHidden($('lg-spark'), !view.spark.visible);
+setAttr($('lg-line'), 'points', view.spark.points);
+var targetLine = $('lg-target-line');
+setClass(targetLine, 'is-off', view.spark.targetY === null);
+if (view.spark.targetY !== null) {
+setAttr(targetLine, 'y1', String(view.spark.targetY));
+setAttr(targetLine, 'y2', String(view.spark.targetY));
+}
+setText($('lg-caption'), view.spark.caption);
+}
+function renderAbout() {
+if ($('panel-device').hidden) return;
+var view = V.aboutView(info, status, { address: window.location.host, online: conn.state === 'online' });
+setHidden($('about-loading'), !view.loading);
+view.rows.forEach(function (row) {
+setHidden($('about-row-' + row.id), !row.visible);
+if (row.visible) setText($('about-' + row.id), row.value);
+});
+var note = view.rows.filter(function (row) { return row.id === 'confirm'; })[0].note;
+setText($('about-confirm-note'), note);
+setHidden($('about-confirm-note'), note === '');
+}
 function render() {
 var t = now();
 var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -2524,6 +2868,8 @@ renderWarnings();
 renderSettings();
 renderInsights();
 renderHistory();
+renderLastGrind();
+renderAbout();
 }
 function el(tag, className, text) {
 var e = document.createElement(tag);
@@ -2890,9 +3236,11 @@ var statsDue = V.statsDue(stats, {
 online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
 tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
 });
+var lastGrindWaiting = V.lastGrindWaiting(track, now()); // the Last grind card wants one look at the history
 var historyDue = V.historyDue(history, {
 online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
-tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now(),
+lastGrindWaiting: lastGrindWaiting
 });
 var task = V.nextPollTask({
 haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
@@ -2930,6 +3278,7 @@ status = doc;
 statusAt = now();
 stats = V.statsOnStatus(stats, before, status.ui_state, statusAt);
 history = V.statsOnStatus(history, before, status.ui_state, statusAt);
+track = V.grindTrackUpdate(track, status, { nowMs: statusAt, leadIn: leadIn, settings: settings, history: history });
 setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
 } else if (task === 'schema') {
 schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
@@ -2943,19 +3292,21 @@ onSettings();
 stats = V.statsLoaded(stats, doc, now());
 } else if (task === 'history') {
 history = V.historyLoaded(history, doc, now());
+track = V.grindTrackResolve(track, history, now());
 } else {
-var firmware = 'Firmware ' + doc.version + ', build ' + doc.build;
-setText($('name'), doc.name);
-setText($('side-name'), doc.name);
-setText($('build'), firmware);
-setText($('about-name'), doc.name);
-setText($('about-firmware'), doc.version + ', build ' + doc.build);
+info = doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {}; // the whole document; the view checks every member
+setText($('name'), V.deviceName(info));
+setText($('side-name'), V.deviceName(info));
+setText($('build'), V.buildLine(info));
 }
 quickNext = next.quick;
 }, function (err) {
 var failed = V.pollFailed(task, err && err.code);
 if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
-if (task === 'history') history = V.statsFailed(history, err && err.code, now());
+if (task === 'history') {
+history = V.statsFailed(history, err && err.code, now());
+track = V.grindTrackResolve(track, history, now()); // a 404 ends the wait: the card shows the curve alone
+}
 if (failed.schemaMissing) {
 schemaMissing = true;
 needSchema = false;
@@ -3028,12 +3379,15 @@ runCommand('motor_test', null, function () { say('Motor test running.', false); 
 $('retry').addEventListener('click', pollNow);
 $('save').addEventListener('click', saveSettings);
 $('discard').addEventListener('click', discardSettings);
-setText($('about-address'), window.location.host);
 showTab('grind');
 window.addEventListener('resize', setSavebarHeight);
 document.addEventListener('visibilitychange', function () {
 if (document.hidden) schedule(null);
-else pollNow();
+else {
+track = V.grindTrackResume(track, now());
+if (V.lastGrindWaiting(track, now())) history = V.statsRefresh(history, 0, now());
+pollNow();
+}
 });
 setInterval(function () {
 if (document.hidden) return;

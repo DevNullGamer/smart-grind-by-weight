@@ -287,7 +287,7 @@
     // for status next (forceStatus) so the retry cannot starve it. `quick`: more is still missing, ask again at once.
     function pollSucceeded(task, needs, doc, wasOnline, prevUi) {
         var next = { needSchema: needs.needSchema, needSettings: needs.needSettings, needInfo: needs.needInfo, forceStatus: false };
-        if (!wasOnline) next.needSettings = true; // back after a gap: the grinder may have changed
+        if (!wasOnline) { next.needSettings = true; next.needInfo = true; } // back after a gap: the grinder may have changed (also its Confirm switch)
         if (task === 'status') {
             if (prevUi && prevUi !== 'ready' && doc && doc.ui_state === 'ready') next.needSettings = true;
         } else if (task === 'schema') {
@@ -878,9 +878,9 @@
 
     // ------------------------------------------------------------------ Insights: recent grinds (chg016 step 12)
     // GET /api/history (docs/PORTAL-API.md section 7, "Recent grinds"). Its state object is the statistics' one (newStats, statsFailed,
-    // statsRefresh and statsOnStatus work on it); only the reply is parsed differently, and it is fetched only while
-    // the Insights tab is shown (historyDue). Ages are relative to the moment the reply arrived, so they keep growing
-    // between two requests.
+    // statsRefresh and statsOnStatus work on it); only the reply is parsed differently, and it is fetched while the
+    // Insights tab is shown, plus once after a grind ended for the Last grind card (historyDue). Ages are relative
+    // to the moment the reply arrived, so they keep growing between two requests.
 
     var HISTORY_ROWS_MAX = 10;
     var HISTORY_CHART_MIN_SCALE_G = 0.5; // a chart of tiny errors is not stretched to the full height
@@ -912,6 +912,7 @@
                 time: time,
                 target: finiteOrNull(time ? g.target_s : g.target_g),
                 final: finiteOrNull(g.final_g),
+                id: finiteOrNull(g.id), // lets the Last grind card tell a new entry from the one it saw before
                 timeMs: finiteOrNull(g.time_ms),
                 motorMs: finiteOrNull(g.motor_ms),
                 pulses: finiteOrNull(g.pulses),
@@ -926,9 +927,16 @@
         return parsed ? fetched(h, parsed, nowMs) : statsFailed(h, 'bad_reply', nowMs);
     }
 
-    // Due only while the Insights tab is shown, then by the statistics' rules (never during a command, a 404 ends it)
+    // Due while the Insights tab is shown, then by the statistics' rules (never during a command, a 404 ends it).
+    // Outside the tab only the one-off look the Last grind card waits for (ctx.lastGrindWaiting): when a look was
+    // asked for after a grind ended, or a failed one is due again; no probe and no periodic refresh.
     function historyDue(h, ctx) {
-        return !!ctx.tabShown && statsDue(h, ctx);
+        if (ctx.tabShown) return statsDue(h, ctx);
+        if (!ctx.lastGrindWaiting) return false;
+        if (h.unavailable || ctx.hidden || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+        if (ctx.nowMs < h.retryAt) return false;
+        return h.error !== '' || (h.refreshAt !== null && ctx.nowMs >= h.refreshAt) ||
+            (h.followUpAt !== null && ctx.nowMs >= h.followUpAt);
     }
 
     // A weight with one decimal; 1000 and more are whole numbers with commas; a value that rounds to 0.0 has no sign.
@@ -1033,6 +1041,298 @@
         view.rows = h.doc.grinds.map(function (g) { return historyRow(g, elapsedS); });
         view.chart = historyChart(view.rows);
         view.rows.forEach(function (r) { delete r.err; });
+        return view;
+    }
+
+    // ------------------------------------------------------------------ Device: about card (chg021 G1)
+    // GET /api/info (open, answers once) plus the uptime of the status. The page keeps the whole info reply; every
+    // member is checked here, so an older firmware, a null or a member of the wrong type hides its row and never shows
+    // "undefined".
+
+    var ABOUT_TEXT_MAX = 64;
+
+    // A usable text member: a non-empty string, cut on code points so a surrogate pair is never split.
+    function aboutText(v) {
+        if (typeof v !== 'string' || v.trim() === '') return '';
+        var points = Array.from(v.trim());
+        return points.length > ABOUT_TEXT_MAX ? points.slice(0, ABOUT_TEXT_MAX).join('') : points.join('');
+    }
+
+    function aboutBuild(v) {
+        return typeof v === 'number' && isFinite(v) && v >= 0 ? String(Math.floor(v)) : '';
+    }
+
+    function infoDoc(info) {
+        return info && typeof info === 'object' && !Array.isArray(info) ? info : {};
+    }
+
+    // The name for the header and the sidebar: the grinder's, or "Grinder" while it is unknown.
+    function deviceName(info) {
+        return aboutText(infoDoc(info).name) || 'Grinder';
+    }
+
+    // The sidebar line: "Firmware 1.2.3, build 45", with only the parts that are known; '' when none is.
+    function buildLine(info) {
+        var doc = infoDoc(info);
+        var parts = [];
+        if (aboutText(doc.version)) parts.push('Firmware ' + aboutText(doc.version));
+        if (aboutBuild(doc.build)) parts.push('build ' + aboutBuild(doc.build));
+        return parts.join(', ');
+    }
+
+    var CONFIRM_NOTE = {
+        on: 'A pushed firmware update waits for a tap on the grinder.',
+        off: 'A pushed firmware update installs without a tap on the grinder, while Receive is on.'
+    };
+
+    // The rows of the About card in display order: {id, label, value, note, visible}. info: the /api/info reply or
+    // null (not read yet); status: the latest status or null; opts: {address: where the page was opened, online:
+    // false hides the uptime (a frozen uptime would mislead)}. `loading` is true until the info reply has arrived.
+    function aboutView(info, status, opts) {
+        var doc = infoDoc(info);
+        var o = opts || {};
+        var uptime = status && typeof status.uptime_s === 'number' && isFinite(status.uptime_s) && status.uptime_s >= 0 &&
+            o.online !== false ? formatDuration(status.uptime_s) : '';
+        var confirm = typeof doc.confirm === 'boolean' ? doc.confirm : null;
+        var rows = [
+            { id: 'name', label: 'Name', value: aboutText(doc.name), note: '' },
+            { id: 'address', label: 'Address', value: aboutText(o.address), note: '' },
+            { id: 'firmware', label: 'Firmware', value: aboutText(doc.version), note: '' },
+            { id: 'build', label: 'Build', value: aboutBuild(doc.build), note: '' },
+            { id: 'board', label: 'Board', value: aboutText(doc.board), note: '' },
+            { id: 'uptime', label: 'Uptime', value: uptime, note: '' },
+            { id: 'confirm', label: 'Confirm on the grinder', value: confirm === null ? '' : confirm ? 'On' : 'Off',
+                note: confirm === null ? '' : confirm ? CONFIRM_NOTE.on : CONFIRM_NOTE.off }
+        ];
+        rows.forEach(function (row) { row.visible = row.value !== ''; });
+        return { loading: info === null || info === undefined, rows: rows };
+    }
+
+    // ------------------------------------------------------------------ Grind: last grind card (chg021 G2)
+    // The page watches the status while a grind runs and keeps the weights it sees (a "track"), draws them as a small
+    // curve, and after the grind asks /api/history once for the result. State objects are never changed in place.
+    // A track: {phase: 'none' | 'running' | 'ended', samples: [{t: ms since the grind started, g}], startedAt,
+    // lastSeenAt (the latest status that showed the grind), endedAt, profile (0..2 when this page started it, else
+    // null), target ({mode, value} of that profile at the start, or null), before ({known, id}: the newest history
+    // entry the page knew at the start), result (null until the history has been read: {state, grind, fetchedAt})}.
+
+    var GRIND_SAMPLES_MAX = 120;         // about a minute of 500 ms polls (a grind times out after 60 s); the oldest drop out
+    var SPARK_MIN_SAMPLES = 3;           // fewer points are not a curve
+    var SPARK_W = 240;                   // the drawing's own units (the SVG scales to its box)
+    var SPARK_H = 64;
+    var SPARK_LIMIT_G = 1e6;             // the API cuts weights at 1000000 g
+    var SPARK_LIMIT_MS = 1e12;
+    var SPARK_PAD_X = 2;
+    var SPARK_PAD_Y = 4;
+    var LAST_GRIND_SETTLE_MS = 2000;     // a look this soon after the end may still miss the new entry: it is not "not recorded" yet
+    var LAST_GRIND_WAIT_MS = 30000;      // after this long without a usable look the card gives up waiting
+    var LAST_GRIND_AGE_SLACK_S = 2;      // clock rounding between the grinder's seconds and the page's milliseconds
+    // while priming or purging the cup holds no grind yet: those weights are not drawn
+    var NO_SAMPLE_PHASES = ['prime', 'prime_settling', 'purge_confirm'];
+
+    function newGrindTrack() {
+        return { phase: 'none', samples: [], startedAt: null, lastSeenAt: null, endedAt: null, profile: null, target: null,
+            before: { known: false, id: null }, result: null, waitStart: null };
+    }
+
+    function copyTrack(t) {
+        return { phase: t.phase, samples: t.samples, startedAt: t.startedAt, lastSeenAt: t.lastSeenAt, endedAt: t.endedAt,
+            profile: t.profile, target: t.target, before: t.before, result: t.result, waitStart: t.waitStart };
+    }
+
+    // The target of a profile in the grind mode the settings show: {mode: 'weight' (g) | 'time' (s), value} or null.
+    function profileTarget(settings, index) {
+        var values = settings && settings.values && typeof settings.values === 'object' ? settings.values : null;
+        if (!values || typeof index !== 'number' || !has(PROFILE_KEYS, String(index))) return null;
+        var time = values.grind_mode === 'time';
+        var v = values[PROFILE_KEYS[index] + (time ? '_time_s' : '_weight_g')];
+        return typeof v === 'number' && isFinite(v) && v > 0 ? { mode: time ? 'time' : 'weight', value: v } : null;
+    }
+
+    // What the page knew about the history when the grind started: its newest entry, or "the list was empty".
+    function knownHistoryHead(h) {
+        if (!h || !h.doc || !Array.isArray(h.doc.grinds)) return { known: false, id: null };
+        if (h.doc.grinds.length === 0) return { known: true, id: null };
+        var id = h.doc.grinds[0].id;
+        return typeof id === 'number' ? { known: true, id: id } : { known: false, id: null };
+    }
+
+    // The track after a status reply. ctx: {nowMs, leadIn (the page's lead-in or null), settings, history}. A grind
+    // that starts (ui_state 'grinding' while no track runs) resets the buffer; one that ends (any other screen but a
+    // purge pause) closes it. The page learns the profile only from a lead-in it started itself.
+    function grindTrackUpdate(track, status, ctx) {
+        if (!status) return track;
+        var ui = status.ui_state;
+        var nowMs = ctx.nowMs;
+        if (ui === 'grinding') {
+            var next = copyTrack(track);
+            if (track.phase !== 'running') {
+                var profile = leadInActive(ctx.leadIn) && typeof ctx.leadIn.profile === 'number' ? ctx.leadIn.profile : null;
+                next = copyTrack(newGrindTrack());
+                next.phase = 'running';
+                next.startedAt = nowMs;
+                next.profile = profile;
+                next.target = profile === null ? null : profileTarget(ctx.settings, profile);
+                next.before = knownHistoryHead(ctx.history);
+            }
+            next.lastSeenAt = nowMs;
+            var w = status.weight_g;
+            var last = next.samples.length ? next.samples[next.samples.length - 1].t : -1;
+            if (NO_SAMPLE_PHASES.indexOf(status.grind_phase) < 0 && typeof w === 'number' && isFinite(w) && nowMs - next.startedAt > last) {
+                next.samples = next.samples.concat([{ t: nowMs - next.startedAt, g: w }]).slice(-GRIND_SAMPLES_MAX);
+            }
+            return next;
+        }
+        if (track.phase === 'running' && ui !== 'purge_confirm') {
+            var ended = copyTrack(track);
+            ended.phase = 'ended';
+            ended.endedAt = nowMs;
+            return ended;
+        }
+        return track;
+    }
+
+    // Is this newest history entry the grind the track watched? It must have ended after the last status that showed
+    // the grind (its age is not larger than the time since then, plus a little slack), and, when the page knew the
+    // newest entry beforehand, it must be another one. A stopped grind is not recorded, so the entry is an older one.
+    function entryIsTrackedGrind(track, g, fetchedAt) {
+        if (!g || typeof g.ageS !== 'number') return false;
+        if (g.ageS > (fetchedAt - track.lastSeenAt) / 1000 + LAST_GRIND_AGE_SLACK_S) return false;
+        if (track.before.known && track.before.id !== null && g.id !== null) return g.id > track.before.id; // ids grow with every recorded grind
+        return true;
+    }
+
+    // The track with its result fixed once the history says what became of the grind (sticky: a later grind that shows
+    // up in a later look must never replace it). A look from before the end, or too soon after it to rule out a
+    // delayed entry, settles nothing. `h` is the history state (see newStats).
+    function grindTrackResolve(track, h, nowMs) {
+        if (track.phase !== 'ended' || track.result) return track;
+        var result = null;
+        if (h.unavailable) {
+            result = { state: 'unavailable', grind: null, fetchedAt: null };
+        } else if (h.doc && h.fetchedAt !== null && h.fetchedAt >= track.endedAt) {
+            var g = h.doc.grinds[0] || null;
+            if (entryIsTrackedGrind(track, g, h.fetchedAt)) result = { state: 'recorded', grind: g, fetchedAt: h.fetchedAt };
+            else if (h.fetchedAt >= track.endedAt + LAST_GRIND_SETTLE_MS) result = { state: 'unrecorded', grind: null, fetchedAt: h.fetchedAt };
+        }
+        if (!result) return track;
+        var next = copyTrack(track);
+        next.result = result;
+        return next;
+    }
+
+    // True while the card waits for a look at the history (lets historyDue fetch outside the Insights tab).
+    function lastGrindWaiting(track, nowMs) {
+        return track.phase === 'ended' && !track.result && nowMs - waitStartOf(track) < LAST_GRIND_WAIT_MS;
+    }
+
+    function waitStartOf(track) {
+        return track.waitStart === null ? track.endedAt : track.waitStart;
+    }
+
+    // The page is visible again: a grind whose result was never read gets one more try (the wait counts only
+    // the time the page could ask, not a hidden tab). Anything else is returned unchanged.
+    function grindTrackResume(track, nowMs) {
+        if (track.phase !== 'ended' || track.result) return track;
+        var next = copyTrack(track);
+        next.waitStart = nowMs;
+        return next;
+    }
+
+    // The samples a curve or a summary may use: finite numbers only, with a weight beyond +-SPARK_LIMIT_G and a time
+    // beyond SPARK_LIMIT_MS pulled in, so no sum or span can overflow to Infinity and put NaN into the drawing.
+    function validSamples(samples) {
+        return (Array.isArray(samples) ? samples : []).filter(function (s) {
+            return s && typeof s.t === 'number' && isFinite(s.t) && typeof s.g === 'number' && isFinite(s.g);
+        }).map(function (s) {
+            return { t: Math.max(-SPARK_LIMIT_MS, Math.min(SPARK_LIMIT_MS, s.t)), g: Math.max(-SPARK_LIMIT_G, Math.min(SPARK_LIMIT_G, s.g)) };
+        });
+    }
+
+    // Points of the curve for a box of w x h units: x follows the time of each sample (a gap in the samples is a
+    // straight stretch), y the weight from 0 g (or the lowest negative reading) up to the highest of the readings
+    // and the target. A sample that is not finite is left out. `points` is '' under SPARK_MIN_SAMPLES samples.
+    // targetY: the y of the target line, null without a usable target.
+    function sparklinePoints(samples, w, h, targetG) {
+        var valid = validSamples(samples);
+        if (valid.length < SPARK_MIN_SAMPLES) return { points: '', targetY: null, count: valid.length };
+        var target = typeof targetG === 'number' && isFinite(targetG) && targetG > 0 ? targetG : null;
+        var lo = 0;
+        var hi = target === null ? 0 : target;
+        valid.forEach(function (s) {
+            if (s.g < lo) lo = s.g;
+            if (s.g > hi) hi = s.g;
+        });
+        var range = Math.max(hi - lo, 1); // a flat curve is not blown up to the full height
+        var t0 = valid[0].t;
+        var span = valid[valid.length - 1].t - t0;
+        function round1(v) { return Math.round(v * 10) / 10; }
+        function yOf(g) { return round1(h - SPARK_PAD_Y - (g - lo) / range * (h - 2 * SPARK_PAD_Y)); }
+        var points = valid.map(function (s, i) {
+            var f = span > 0 ? (s.t - t0) / span : i / (valid.length - 1);
+            return round1(SPARK_PAD_X + Math.min(1, Math.max(0, f)) * (w - 2 * SPARK_PAD_X)) + ',' + yOf(s.g);
+        });
+        return { points: points.join(' '), targetY: target === null ? null : yOf(target), count: valid.length };
+    }
+
+    // The words that stand in for the curve: where it starts and ends, how long it took, the target.
+    function sparklineSummary(samples, targetG) {
+        var valid = validSamples(samples);
+        if (valid.length < SPARK_MIN_SAMPLES) return '';
+        var first = valid[0];
+        var last = valid[valid.length - 1];
+        var text = 'Weight from ' + tenths(first.g) + ' g to ' + tenths(last.g) + ' g';
+        if (msText(last.t - first.t) !== '' && last.t > first.t) text += ' in ' + msText(last.t - first.t);
+        text += '.';
+        if (typeof targetG === 'number' && isFinite(targetG) && targetG > 0) text += ' Target ' + tenths(targetG) + ' g (dashed line).';
+        return text;
+    }
+
+    var LAST_GRIND_TEXT = {
+        waiting: 'Reading the result from the grinder.',
+        unreadable: 'The result could not be read from the grinder.',
+        unavailable: 'This grinder firmware does not list finished grinds, so there is no result to show.',
+        unrecorded: 'This grind did not finish, so the grinder did not record it. It was probably stopped.'
+    };
+
+    // What the Last grind card shows. visible: nothing before the page has seen a grind, and while a grind runs only
+    // once there is a curve. title: "This grind" while it runs. spark: {visible, points, targetY, caption}. result:
+    // {visible, name, age, final, target, error, detail, motor} and badge: {visible, label, level} only for a grind the
+    // history recorded (a stopped one gets a neutral "Not recorded"). message: the sentence for every other case.
+    function lastGrindView(track, nowMs) {
+        var view = {
+            visible: false, running: false, title: 'Last grind', message: '',
+            spark: { visible: false, points: '', targetY: null, caption: '' },
+            result: { visible: false, name: '', age: '', final: '', target: '', error: '', detail: '', motor: '' },
+            badge: { visible: false, label: '', level: 'neutral' }
+        };
+        if (track.phase === 'none') return view;
+        var res = track.result;
+        var recorded = res && res.state === 'recorded' ? res.grind : null;
+        var targetG = recorded && !recorded.time && recorded.target !== null ? recorded.target :
+            track.target && track.target.mode === 'weight' ? track.target.value : null;
+        var sp = sparklinePoints(track.samples, SPARK_W, SPARK_H, targetG);
+        view.spark = { visible: sp.points !== '', points: sp.points, targetY: sp.targetY, caption: sparklineSummary(track.samples, targetG) };
+        if (track.phase === 'running') {
+            view.running = true;
+            view.title = 'This grind';
+            view.visible = view.spark.visible;
+            return view;
+        }
+        view.visible = true;
+        if (recorded) {
+            var row = historyRow(recorded, Math.max(0, (nowMs - res.fetchedAt) / 1000));
+            view.result = { visible: true, name: row.name, age: row.age, final: row.final, target: row.target, error: row.error,
+                detail: row.detail, motor: row.motor };
+            view.badge = { visible: true, label: row.badge.label, level: row.badge.level };
+        } else if (res && res.state === 'unrecorded') {
+            view.badge = { visible: true, label: 'Not recorded', level: 'neutral' };
+            view.message = LAST_GRIND_TEXT.unrecorded;
+        } else if (res && res.state === 'unavailable') {
+            view.message = LAST_GRIND_TEXT.unavailable;
+        } else {
+            view.message = nowMs - waitStartOf(track) >= LAST_GRIND_WAIT_MS ? LAST_GRIND_TEXT.unreadable : LAST_GRIND_TEXT.waiting;
+        }
         return view;
     }
 
@@ -1516,6 +1816,24 @@
         msText: msText,
         historyErrorText: historyErrorText,
         historyView: historyView,
+        deviceName: deviceName,
+        buildLine: buildLine,
+        aboutView: aboutView,
+        GRIND_SAMPLES_MAX: GRIND_SAMPLES_MAX,
+        SPARK_MIN_SAMPLES: SPARK_MIN_SAMPLES,
+        SPARK_W: SPARK_W,
+        SPARK_H: SPARK_H,
+        LAST_GRIND_SETTLE_MS: LAST_GRIND_SETTLE_MS,
+        LAST_GRIND_WAIT_MS: LAST_GRIND_WAIT_MS,
+        newGrindTrack: newGrindTrack,
+        profileTarget: profileTarget,
+        grindTrackUpdate: grindTrackUpdate,
+        grindTrackResolve: grindTrackResolve,
+        grindTrackResume: grindTrackResume,
+        lastGrindWaiting: lastGrindWaiting,
+        sparklinePoints: sparklinePoints,
+        sparklineSummary: sparklineSummary,
+        lastGrindView: lastGrindView,
         STEP_OPTIONS: STEP_OPTIONS,
         settingsGroups: settingsGroups,
         groupedKeys: groupedKeys,

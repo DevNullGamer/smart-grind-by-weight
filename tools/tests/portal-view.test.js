@@ -1483,7 +1483,7 @@ test('parseHistory: needs a grinds array; skips what is no object; keeps only us
     assert.equal(PV.parseHistory({ grinds: 'x' }), null);
     const parsed = PV.parseHistory({ persistent: true, grinds: [null, 5, [], grind({ final_g: 'x', target_g: NaN, profile: 7, time_ms: null, pulses: 'many', age_s: -4, result: 'bogus' })] });
     assert.equal(parsed.grinds.length, 1);
-    assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, timeMs: null,
+    assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, id: 1, timeMs: null,
         motorMs: 9800, pulses: null, result: 'unknown' });
     assert.equal(PV.parseHistory({ grinds: [] }).persistent, true); // a missing flag is not an alarm
     assert.equal(PV.parseHistory({ persistent: false, grinds: [] }).persistent, false);

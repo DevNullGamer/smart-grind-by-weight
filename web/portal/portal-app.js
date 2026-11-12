@@ -2,7 +2,8 @@
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
 // The Grind, Settings and Insights tabs are live (chg016 steps 2, 3, 9 and 12; the Insights tab shows once the
 // firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history). The Device
-// tab (chg021 V3) shows the name, address and firmware the page already knows.
+// tab shows the About card from /api/info and the uptime (chg021 G1); the Grind tab has the Last grind card with
+// the weight curve the page collected during the grind (chg021 G2).
 (function () {
   'use strict';
   var P = PortalClient;
@@ -34,6 +35,8 @@
   var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
   var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
   var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+  var info = null; // the whole GET /api/info document (null until it has arrived), see V.aboutView
+  var track = V.newGrindTrack(); // the weights seen during the latest grind and what became of it, see V.lastGrindView
   var polling = false;
   var pollTimer = null;
   var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
@@ -53,6 +56,7 @@
       else button.removeAttribute('aria-current');
     });
     setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
+    if (name === 'device') renderAbout();
     if (name === 'insights') {
       stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
       history = V.statsShown(history, now());
@@ -74,6 +78,11 @@
   function setHidden(el, hidden) {
     hidden = !!hidden;
     if (el.hidden !== hidden) el.hidden = hidden;
+  }
+
+  // Same for an attribute (the SVG curve is redrawn only when its points change).
+  function setAttr(el, name, value) {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
   }
 
   function setDisabled(el, disabled) {
@@ -249,6 +258,54 @@
     });
   }
 
+  // The Last grind card: each part is written only when it changes, so an idle poll leaves it alone. While a grind
+  // runs the curve and its caption follow the weight (the only text that is meant to move).
+  function renderLastGrind() {
+    var view = V.lastGrindView(track, now());
+    setHidden($('lastgrind'), !view.visible);
+    setClass($('grind-grid'), 'has-last', view.visible);
+    if (!view.visible) return;
+    setText($('lg-h'), view.title);
+    setText($('lg-age'), view.result.age);
+    setHidden($('lg-result'), !view.result.visible);
+    setText($('lg-final'), view.result.final);
+    setText($('lg-target'), view.result.target);
+    setHidden($('lg-badge'), !view.badge.visible);
+    setText($('lg-badge-text'), view.badge.label);
+    ['ok', 'warning', 'error', 'neutral'].forEach(function (level) {
+      setClass($('lg-badge'), level, view.badge.visible && view.badge.level === level);
+    });
+    setText($('lg-error'), view.result.error);
+    setText($('lg-detail'), view.result.detail);
+    setText($('lg-motor-text'), view.result.motor);
+    setHidden($('lg-motor'), view.result.motor === '');
+    setHidden($('lg-meta'), !view.badge.visible && view.result.error === '' && view.result.detail === '' && view.result.motor === '');
+    setText($('lg-message'), view.message);
+    setHidden($('lg-spark'), !view.spark.visible);
+    setAttr($('lg-line'), 'points', view.spark.points);
+    var targetLine = $('lg-target-line');
+    setClass(targetLine, 'is-off', view.spark.targetY === null);
+    if (view.spark.targetY !== null) {
+      setAttr(targetLine, 'y1', String(view.spark.targetY));
+      setAttr(targetLine, 'y2', String(view.spark.targetY));
+    }
+    setText($('lg-caption'), view.spark.caption);
+  }
+
+  // The About card (Device section). Drawn only while the section is shown: the uptime changes every second.
+  function renderAbout() {
+    if ($('panel-device').hidden) return;
+    var view = V.aboutView(info, status, { address: window.location.host, online: conn.state === 'online' });
+    setHidden($('about-loading'), !view.loading);
+    view.rows.forEach(function (row) {
+      setHidden($('about-row-' + row.id), !row.visible);
+      if (row.visible) setText($('about-' + row.id), row.value);
+    });
+    var note = view.rows.filter(function (row) { return row.id === 'confirm'; })[0].note;
+    setText($('about-confirm-note'), note);
+    setHidden($('about-confirm-note'), note === '');
+  }
+
   function render() {
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -324,6 +381,8 @@
     renderSettings();
     renderInsights();
     renderHistory();
+    renderLastGrind();
+    renderAbout();
   }
 
   // --- settings form
@@ -722,9 +781,11 @@
       online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
       tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
     });
+    var lastGrindWaiting = V.lastGrindWaiting(track, now()); // the Last grind card wants one look at the history
     var historyDue = V.historyDue(history, {
       online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
-      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now(),
+      lastGrindWaiting: lastGrindWaiting
     });
     var task = V.nextPollTask({
       haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
@@ -764,6 +825,8 @@
         statusAt = now();
         stats = V.statsOnStatus(stats, before, status.ui_state, statusAt);
         history = V.statsOnStatus(history, before, status.ui_state, statusAt);
+        // before the lead-in is cleared: it tells which profile this page started
+        track = V.grindTrackUpdate(track, status, { nowMs: statusAt, leadIn: leadIn, settings: settings, history: history });
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'schema') {
         schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
@@ -777,19 +840,21 @@
         stats = V.statsLoaded(stats, doc, now());
       } else if (task === 'history') {
         history = V.historyLoaded(history, doc, now());
+        track = V.grindTrackResolve(track, history, now());
       } else {
-        var firmware = 'Firmware ' + doc.version + ', build ' + doc.build;
-        setText($('name'), doc.name);
-        setText($('side-name'), doc.name);
-        setText($('build'), firmware);
-        setText($('about-name'), doc.name);
-        setText($('about-firmware'), doc.version + ', build ' + doc.build);
+        info = doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {}; // the whole document; the view checks every member
+        setText($('name'), V.deviceName(info));
+        setText($('side-name'), V.deviceName(info));
+        setText($('build'), V.buildLine(info));
       }
       quickNext = next.quick;
     }, function (err) {
       var failed = V.pollFailed(task, err && err.code);
       if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
-      if (task === 'history') history = V.statsFailed(history, err && err.code, now());
+      if (task === 'history') {
+        history = V.statsFailed(history, err && err.code, now());
+        track = V.grindTrackResolve(track, history, now()); // a 404 ends the wait: the card shows the curve alone
+      }
       if (failed.schemaMissing) {
         // an older firmware without /api/schema: reachable, but there is no settings form
         schemaMissing = true;
@@ -873,7 +938,6 @@
   $('save').addEventListener('click', saveSettings);
   $('discard').addEventListener('click', discardSettings);
 
-  setText($('about-address'), window.location.host);
   showTab('grind');
   // The save bar wraps differently at another width: keep the scroll padding in step.
   window.addEventListener('resize', setSavebarHeight);
@@ -881,7 +945,12 @@
   // Polling pauses while the page is hidden and resumes at once when it is shown again.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) schedule(null);
-    else pollNow();
+    else {
+      // a grind whose result was not read while the tab was hidden gets one more look
+      track = V.grindTrackResume(track, now());
+      if (V.lastGrindWaiting(track, now())) history = V.statsRefresh(history, 0, now());
+      pollNow();
+    }
   });
   // The lead-in countdown and "last seen" move between polls.
   setInterval(function () {
