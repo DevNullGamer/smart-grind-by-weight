@@ -395,10 +395,11 @@ background: var(--surface); border-top: 1px solid var(--hairline); box-shadow: 0
 .savebar .btn { flex: none; }
 .rename .addr { font-weight: 700; overflow-wrap: anywhere; }
 .about { margin: 0; display: grid; gap: 12px; }
-.about-row { display: grid; gap: 2px; min-width: 0; }
+.about-row { display: grid; gap: 2px; min-width: 0; align-content: start; }
 .about-row dt { color: var(--muted); font-size: .875rem; }
 .about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .about-row dd.about-note { font-weight: 400; font-size: .875rem; color: var(--muted); }
+.about-row dd.about-note:empty { display: none; }
 .about-loading { margin-bottom: 12px; }
 @media (max-width: 599px) and (max-height: 450px) {
 :root { --dock-h: 44px; --tabbar-h: 44px; }
@@ -786,6 +787,26 @@ animation: shimmer 1.6s linear infinite;
         <div id="about-row-confirm" class="about-row is-wide" hidden><dt>Confirm on the grinder</dt><dd id="about-confirm">--</dd><dd id="about-confirm-note" class="about-note"></dd></div>
       </dl>
     </section>
+    <section id="health" class="card full" aria-labelledby="health-h" hidden>
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-pulse"></use></svg></span><h2 id="health-h">Health</h2></div>
+      <p id="health-message" class="muted"></p>
+      <dl id="health-list" class="about" hidden></dl>
+      <template id="health-row">
+        <div class="about-row">
+          <dt></dt>
+          <dd>
+            <span class="hp-val"></span>
+            <span class="h-badge">
+              <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <span class="hp-badge-text"></span>
+            </span>
+          </dd>
+          <dd class="about-note"></dd>
+        </div>
+      </template>
+      <p id="health-note" class="muted note-line"></p>
+    </section>
   </section>
 </main>
 <footer class="notice"><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span>Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</span></footer>
@@ -1023,6 +1044,7 @@ getSchema: function () { return request('GET', '/api/schema'); },
 getSettings: function () { return request('GET', '/api/settings'); },
 getStats: function () { return request('GET', '/api/stats'); },
 getHistory: function () { return request('GET', '/api/history'); },
+getDiagnostics: function () { return request('GET', '/api/diagnostics'); },
 getStatus: function () {
 if (statusInFlight) return statusInFlight;
 var p = request('GET', '/api/status');
@@ -1275,6 +1297,7 @@ if (flags.needSettings) return 'settings';
 if (flags.needInfo) return 'info';
 if (flags.statsDue) return 'stats'; // see statsDue: one request at a time, in turn with the status requests
 if (flags.historyDue) return 'history';
+if (flags.diagnosticsDue) return 'diagnostics'; // see diagnosticsDue: only while the Device section is shown
 return 'status';
 }
 function validSettingsDoc(doc) {
@@ -1292,13 +1315,13 @@ if (validSettingsDoc(doc)) next.needSettings = false;
 else next.forceStatus = true;
 } else if (task === 'info') {
 next.needInfo = false;
-} // 'stats' and 'history' change no need: they keep their own state (statsLoaded, historyLoaded)
+} // 'stats', 'history' and 'diagnostics' change no need: they keep their own state (statsLoaded, historyLoaded, diagnosticsLoaded)
 next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
 return next;
 }
 function pollFailed(task, code) {
 if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
-if (task === 'stats' || task === 'history') {
+if (task === 'stats' || task === 'history' || task === 'diagnostics') {
 var lost = code !== 'not_supported' && code !== 'ui_busy' && code !== 'bad_reply' && code !== 'http_error';
 return { schemaMissing: false, connectionLost: lost, forceStatus: true };
 }
@@ -1927,6 +1950,154 @@ note: confirm === null ? '' : confirm ? CONFIRM_NOTE.on : CONFIRM_NOTE.off }
 rows.forEach(function (row) { row.visible = row.value !== ''; });
 return { loading: info === null || info === undefined, rows: rows };
 }
+var DIAG_PERIOD_MS = 5000;     // refresh while the Device section is shown (the grinder republishes every 2 s)
+var DIAG_RETRY_MS = 5000;      // after a failed request (a 503 right after the web interface went on lasts about 2 s)
+var DIAG_NUMBER_LIMIT = 1e12;  // the API cuts at 1e9; anything beyond this is not a reading
+var DIAG_BUSY_TEXT = 'The grinder screen is busy.';
+var DIAG_NO_ROWS = 'The grinder sent no health values this page can read.';
+var BLE_TEXT = {
+off: 'Off',
+advertising: 'On, waiting for a connection',
+connected: 'On, connected',
+link_listening: 'GaggiMate link, waiting for a client',
+link_connected: 'GaggiMate link, client connected',
+link_linked: 'GaggiMate link, client linked'
+};
+var BOARD_UNCONFIRMED_NOTE = 'The motor stays off until the board is detected or chosen.';
+var BOARD_SOURCE_TEXT = {
+probe: { text: 'Detected at start-up', note: '' },
+user: { text: 'Chosen on the grinder', note: '' },
+cached: { text: 'Remembered from an earlier start', note: BOARD_UNCONFIRMED_NOTE },
+'default': { text: 'Not confirmed (default)', note: BOARD_UNCONFIRMED_NOTE },
+none: { text: 'Not known yet', note: BOARD_UNCONFIRMED_NOTE }
+};
+var WIFI_QUALITY = [
+{ min: -55, word: 'Excellent', level: 'ok' },
+{ min: -67, word: 'Good', level: 'ok' },
+{ min: -75, word: 'Fair', level: 'plain' },
+{ min: -Infinity, word: 'Weak', level: 'warning' }
+];
+function wifiQuality(dbm) {
+return WIFI_QUALITY.filter(function (q) { return dbm >= q.min; })[0];
+}
+function diagNumber(v) {
+return typeof v === 'number' && isFinite(v) && Math.abs(v) <= DIAG_NUMBER_LIMIT ? v : null;
+}
+function diagNonNegative(v) {
+var n = diagNumber(v);
+return n !== null && n >= 0 ? n : null;
+}
+function diagWord(v) {
+return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+}
+function diagBool(v) {
+return typeof v === 'boolean' ? v : null;
+}
+function parseDiagnostics(doc) {
+if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+var rssi = diagNumber(doc.wifi_rssi_dbm);
+rssi = rssi === null ? null : Math.round(rssi);
+return {
+calibrated: diagBool(doc.calibrated),
+calFactor: diagNumber(doc.cal_factor),
+stdDev: diagNonNegative(doc.std_dev_g),
+noiseOk: diagBool(doc.noise_ok),
+sampleRate: diagNonNegative(doc.sample_rate_sps),
+latency: diagNonNegative(doc.motor_latency_ms),
+rssi: rssi !== null && rssi >= -127 && rssi <= -1 ? rssi : null,
+ble: diagWord(doc.ble),
+boardSource: diagWord(doc.board_source),
+pushArmed: diagBool(doc.push_armed)
+};
+}
+function groupedFixed(v, decimals) {
+var s = Math.abs(v).toFixed(decimals);
+var parts = s.split('.');
+parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+return (v < 0 && /[1-9]/.test(s) ? '-' : '') + parts.join('.');
+}
+function noiseText(g) {
+return groupedFixed(g, g < 1 ? 3 : g < 100 ? 2 : 1) + ' g';
+}
+function diagnosticsRows(p) {
+var rows = [];
+function add(id, label, value, level, note) {
+rows.push({ id: id, label: label, value: value, level: level, note: note || '' });
+}
+if (p.calibrated !== null) {
+var factor = p.calFactor !== null && p.calFactor !== 0 ? 'Calibration factor ' + groupedFixed(p.calFactor, 2) : '';
+add('cal', 'Load cell', p.calibrated ? 'Calibrated' : 'Not calibrated', p.calibrated ? 'ok' : 'warning',
+p.calibrated ? factor : 'Calibrate on the grinder: Menu, Tools, Calibrate.');
+}
+if (p.noiseOk !== null) {
+add('noise', 'Noise', p.noiseOk ? 'OK' : 'Too high', p.noiseOk ? 'ok' : 'warning',
+p.stdDev === null ? '' : 'Standard deviation ' + noiseText(p.stdDev));
+} else if (p.stdDev !== null) {
+add('noise', 'Noise', noiseText(p.stdDev), 'plain', 'Standard deviation');
+}
+if (p.sampleRate !== null && p.sampleRate > 0) add('rate', 'Sample rate', groupedFixed(p.sampleRate, 1) + ' samples/s', 'plain');
+if (p.latency !== null) {
+add('latency', 'Motor latency', formatCount(Math.round(p.latency)) + ' ms', 'plain',
+'How long the motor takes to respond, as the grinder measured it.');
+}
+if (p.rssi !== null) {
+var q = wifiQuality(p.rssi);
+add('wifi', 'WiFi signal', q.word + ', ' + p.rssi + ' dBm', q.level);
+}
+if (p.ble !== null) add('ble', 'Bluetooth', has(BLE_TEXT, p.ble) ? BLE_TEXT[p.ble] : shortCode(p.ble), 'plain');
+if (p.pushArmed !== null) {
+add('push', 'Receive updates', p.pushArmed ? 'On' : 'Off', 'plain',
+p.pushArmed ? 'A computer with the update token can send firmware; Confirm decides if a tap is needed.' : '');
+}
+if (p.boardSource !== null) {
+var known = has(BOARD_SOURCE_TEXT, p.boardSource) ? BOARD_SOURCE_TEXT[p.boardSource] : null;
+add('board', 'Board detection', known ? known.text : shortCode(p.boardSource), 'plain', known ? known.note : '');
+}
+return rows;
+}
+function diagnosticsLoaded(d, doc, nowMs) {
+var parsed = parseDiagnostics(doc);
+return parsed ? fetched(d, parsed, nowMs) : diagnosticsFailed(d, 'bad_reply', nowMs);
+}
+function diagnosticsFailed(d, code, nowMs) {
+var next = statsFailed(d, code, nowMs);
+if (next.unavailable) return next;
+if (code === 'ui_busy') next.error = DIAG_BUSY_TEXT;
+next.retryAt = nowMs + DIAG_RETRY_MS;
+return next;
+}
+function diagnosticsDue(d, ctx) {
+if (d.unavailable || ctx.hidden || !ctx.tabShown || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+if (ctx.nowMs < d.retryAt) return false;
+return d.fetchedAt === null || (d.refreshAt !== null && ctx.nowMs >= d.refreshAt) || ctx.nowMs - d.fetchedAt >= DIAG_PERIOD_MS;
+}
+function diagnosticsView(d, conn, nowMs) {
+var online = !!conn && conn.state === 'online';
+var view = { visible: !d.unavailable, kind: 'ready', message: '', note: '', rows: [] };
+if (d.unavailable) return view;
+if (!d.doc) {
+if (!online && conn && conn.state !== 'connecting') {
+view.kind = 'error';
+view.message = 'The grinder is not reachable, so the health values cannot be read. This page tries again by itself.';
+} else if (d.error) {
+view.kind = 'error';
+view.message = 'The health values could not be read. ' + d.error + ' This page tries again by itself.';
+} else {
+view.kind = 'loading';
+view.message = 'Reading the health values.';
+}
+return view;
+}
+var age = formatAge(nowMs - d.fetchedAt);
+if (!online) view.note = 'The grinder is not reachable. These values are from ' + age + ' ago.';
+else if (d.error) view.note = 'The values could not be refreshed (' + d.error + ') and are from ' + age + ' ago.';
+view.rows = diagnosticsRows(d.doc);
+if (view.rows.length === 0) {
+view.kind = 'empty';
+view.message = DIAG_NO_ROWS;
+}
+return view;
+}
 var GRIND_SAMPLES_MAX = 120;         // about a minute of 500 ms polls (a grind times out after 60 s); the oldest drop out
 var SPARK_MIN_SAMPLES = 3;           // fewer points are not a curve
 var SPARK_W = 240;                   // the drawing's own units (the SVG scales to its box)
@@ -2498,6 +2669,17 @@ historyAgeText: historyAgeText,
 msText: msText,
 historyErrorText: historyErrorText,
 historyView: historyView,
+DIAG_PERIOD_MS: DIAG_PERIOD_MS,
+DIAG_RETRY_MS: DIAG_RETRY_MS,
+BLE_TEXT: BLE_TEXT,
+BOARD_SOURCE_TEXT: BOARD_SOURCE_TEXT,
+WIFI_QUALITY: WIFI_QUALITY,
+parseDiagnostics: parseDiagnostics,
+diagnosticsLoaded: diagnosticsLoaded,
+diagnosticsFailed: diagnosticsFailed,
+diagnosticsDue: diagnosticsDue,
+diagnosticsRows: diagnosticsRows,
+diagnosticsView: diagnosticsView,
 deviceName: deviceName,
 buildLine: buildLine,
 aboutView: aboutView,
@@ -2575,6 +2757,7 @@ var settingsNotice = ''; // "the grinder changed values while you were editing"
 var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
 var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
 var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+var diag = V.newStats(); // health numbers (GET /api/diagnostics): the same state shape, see V.diagnosticsLoaded
 var info = null; // the whole GET /api/info document (null until it has arrived), see V.aboutView
 var track = V.newGrindTrack(); // the weights seen during the latest grind and what became of it, see V.lastGrindView
 var polling = false;
@@ -2587,6 +2770,7 @@ var START_WORDS = V.PROFILE_NAMES.map(function (name) { return name.toUpperCase(
 function showTab(requested) {
 requestedTab = requested;
 var name = V.tabForViewport(requested);
+var deviceWasShown = !$('panel-device').hidden;
 V.TABS.forEach(function (tab) {
 setHidden($('panel-' + tab), tab !== name);
 var button = $('tab-' + tab);
@@ -2594,7 +2778,12 @@ if (tab === name) button.setAttribute('aria-current', 'true');
 else button.removeAttribute('aria-current');
 });
 setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
-if (name === 'device') renderAbout();
+if (name === 'device') {
+if (!deviceWasShown) diag = V.statsShown(diag, now()); // opening the section reads the numbers; a click on the open tab does not
+renderAbout();
+renderHealth();
+if (!deviceWasShown) pollNow();
+}
 if (name === 'insights') {
 stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
 history = V.statsShown(history, now());
@@ -2807,6 +2996,37 @@ var note = view.rows.filter(function (row) { return row.id === 'confirm'; })[0].
 setText($('about-confirm-note'), note);
 setHidden($('about-confirm-note'), note === '');
 }
+var healthKey = '';
+function renderHealth() {
+if ($('panel-device').hidden) return;
+var view = V.diagnosticsView(diag, conn, now());
+setHidden($('health'), !view.visible);
+setText($('health-message'), view.message);
+setClass($('health-message'), 'is-problem', view.kind === 'error');
+setText($('health-note'), view.note);
+setHidden($('health-list'), view.rows.length === 0);
+var key = JSON.stringify(view.rows);
+if (key === healthKey) return;
+healthKey = key;
+var list = $('health-list');
+while (list.firstChild) list.removeChild(list.firstChild);
+view.rows.forEach(function (row) {
+var item = $('health-row').content.firstElementChild.cloneNode(true);
+item.querySelector('dt').textContent = row.label;
+var plain = row.level === 'plain'; // a level row shows its value as a badge (icon and word), never colour alone
+var badge = item.querySelector('.h-badge');
+var val = item.querySelector('.hp-val');
+badge.hidden = plain;
+val.hidden = !plain;
+if (plain) val.textContent = row.value;
+else {
+badge.classList.add(row.level);
+item.querySelector('.hp-badge-text').textContent = row.value;
+}
+item.querySelector('.about-note').textContent = row.note;
+list.appendChild(item);
+});
+}
 function render() {
 var t = now();
 var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -2870,6 +3090,7 @@ renderInsights();
 renderHistory();
 renderLastGrind();
 renderAbout();
+renderHealth();
 }
 function el(tag, className, text) {
 var e = document.createElement(tag);
@@ -3242,15 +3463,20 @@ online: conn.state === 'online', haveStatus: status !== null, hidden: document.h
 tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now(),
 lastGrindWaiting: lastGrindWaiting
 });
+var diagnosticsDue = V.diagnosticsDue(diag, {
+online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+tabShown: !$('panel-device').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+});
 var task = V.nextPollTask({
 haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
-online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue
+online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue,
+diagnosticsDue: diagnosticsDue
 });
 forceStatus = false;
 quickNext = false;
 var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
 task === 'info' ? client.getInfo() : task === 'stats' ? client.getStats() :
-task === 'history' ? client.getHistory() : client.getStatus();
+task === 'history' ? client.getHistory() : task === 'diagnostics' ? client.getDiagnostics() : client.getStatus();
 function finalize() {
 polling = false;
 try {
@@ -3293,6 +3519,8 @@ stats = V.statsLoaded(stats, doc, now());
 } else if (task === 'history') {
 history = V.historyLoaded(history, doc, now());
 track = V.grindTrackResolve(track, history, now());
+} else if (task === 'diagnostics') {
+diag = V.diagnosticsLoaded(diag, doc, now());
 } else {
 info = doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {}; // the whole document; the view checks every member
 setText($('name'), V.deviceName(info));
@@ -3303,6 +3531,7 @@ quickNext = next.quick;
 }, function (err) {
 var failed = V.pollFailed(task, err && err.code);
 if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
+if (task === 'diagnostics') diag = V.diagnosticsFailed(diag, err && err.code, now());
 if (task === 'history') {
 history = V.statsFailed(history, err && err.code, now());
 track = V.grindTrackResolve(track, history, now()); // a 404 ends the wait: the card shows the curve alone

@@ -267,6 +267,26 @@
         <div id="about-row-confirm" class="about-row is-wide" hidden><dt>Confirm on the grinder</dt><dd id="about-confirm">--</dd><dd id="about-confirm-note" class="about-note"></dd></div>
       </dl>
     </section>
+    <section id="health" class="card full" aria-labelledby="health-h" hidden>
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-pulse"></use></svg></span><h2 id="health-h">Health</h2></div>
+      <p id="health-message" class="muted"></p>
+      <dl id="health-list" class="about" hidden></dl>
+      <template id="health-row">
+        <div class="about-row">
+          <dt></dt>
+          <dd>
+            <span class="hp-val"></span>
+            <span class="h-badge">
+              <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <span class="hp-badge-text"></span>
+            </span>
+          </dd>
+          <dd class="about-note"></dd>
+        </div>
+      </template>
+      <p id="health-note" class="muted note-line"></p>
+    </section>
   </section>
 </main>
 <footer class="notice"><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span>Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</span></footer>

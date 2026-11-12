@@ -283,6 +283,8 @@
             getStats: function () { return request('GET', '/api/stats'); },
             // The recent grinds; a firmware from before it answers 404 (not_supported) and keeps the rest.
             getHistory: function () { return request('GET', '/api/history'); },
+            // Health numbers (chg021 G3); a firmware from before it answers 404 (not_supported), a stale snapshot 503 ui_busy.
+            getDiagnostics: function () { return request('GET', '/api/diagnostics'); },
             // Polling-friendly: a call while one is still waiting returns the same promise.
             getStatus: function () {
                 if (statusInFlight) return statusInFlight;

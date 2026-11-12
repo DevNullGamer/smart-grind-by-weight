@@ -486,10 +486,11 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 
 /* ---- device section: about card */
 .about { margin: 0; display: grid; gap: 12px; }
-.about-row { display: grid; gap: 2px; min-width: 0; }
+.about-row { display: grid; gap: 2px; min-width: 0; align-content: start; }
 .about-row dt { color: var(--muted); font-size: .875rem; }
 .about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
 .about-row dd.about-note { font-weight: 400; font-size: .875rem; color: var(--muted); }
+.about-row dd.about-note:empty { display: none; }
 .about-loading { margin-bottom: 12px; }
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {

@@ -274,6 +274,7 @@
         if (flags.needInfo) return 'info';
         if (flags.statsDue) return 'stats'; // see statsDue: one request at a time, in turn with the status requests
         if (flags.historyDue) return 'history';
+        if (flags.diagnosticsDue) return 'diagnostics'; // see diagnosticsDue: only while the Device section is shown
         return 'status';
     }
 
@@ -297,7 +298,7 @@
             else next.forceStatus = true;
         } else if (task === 'info') {
             next.needInfo = false;
-        } // 'stats' and 'history' change no need: they keep their own state (statsLoaded, historyLoaded)
+        } // 'stats', 'history' and 'diagnostics' change no need: they keep their own state (statsLoaded, historyLoaded, diagnosticsLoaded)
         // an unusable settings reply must not be asked again at once (a firmware/page mismatch would loop)
         next.quick = !next.forceStatus && (next.needSchema || next.needSettings || next.needInfo);
         return next;
@@ -307,8 +308,8 @@
     // lost connection; a failing settings, schema or info request must not starve status.
     function pollFailed(task, code) {
         if (task === 'schema' && code === 'not_supported') return { schemaMissing: true, connectionLost: false, forceStatus: false };
-        if (task === 'stats' || task === 'history') {
-            // Statistics and the list are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
+        if (task === 'stats' || task === 'history' || task === 'diagnostics') {
+            // Statistics, the list and the health numbers are optional: a 404, a busy screen or an unreadable reply say nothing about the connection
             var lost = code !== 'not_supported' && code !== 'ui_busy' && code !== 'bad_reply' && code !== 'http_error';
             return { schemaMissing: false, connectionLost: lost, forceStatus: true };
         }
@@ -1108,6 +1109,194 @@
         return { loading: info === null || info === undefined, rows: rows };
     }
 
+    // ------------------------------------------------------------------ Device: health card (chg021 G3c)
+    // GET /api/diagnostics (docs/PORTAL-API.md section 7, "Diagnostics"). The state object is the statistics' one
+    // (newStats; statsShown and statsRefresh work on it). Unlike the statistics it is fetched only while the Device
+    // section is shown (no probe elsewhere: the card lives only there), and a 404 removes the card. Every member is
+    // checked: a missing one, a null (the signal's null is "not connected"), one of the wrong type or one out of range
+    // hides its row, so "undefined", "NaN" and "null" never reach the page.
+
+    var DIAG_PERIOD_MS = 5000;     // refresh while the Device section is shown (the grinder republishes every 2 s)
+    var DIAG_RETRY_MS = 5000;      // after a failed request (a 503 right after the web interface went on lasts about 2 s)
+    var DIAG_NUMBER_LIMIT = 1e12;  // the API cuts at 1e9; anything beyond this is not a reading
+    var DIAG_BUSY_TEXT = 'The grinder screen is busy.';
+    var DIAG_NO_ROWS = 'The grinder sent no health values this page can read.';
+
+    // The six Bluetooth words of the contract; an unknown word (a later firmware) is shown as received, cut like a warning code.
+    var BLE_TEXT = {
+        off: 'Off',
+        advertising: 'On, waiting for a connection',
+        connected: 'On, connected',
+        link_listening: 'GaggiMate link, waiting for a client',
+        link_connected: 'GaggiMate link, client connected',
+        link_linked: 'GaggiMate link, client linked'
+    };
+
+    var BOARD_UNCONFIRMED_NOTE = 'The motor stays off until the board is detected or chosen.';
+    var BOARD_SOURCE_TEXT = {
+        probe: { text: 'Detected at start-up', note: '' },
+        user: { text: 'Chosen on the grinder', note: '' },
+        cached: { text: 'Remembered from an earlier start', note: BOARD_UNCONFIRMED_NOTE },
+        'default': { text: 'Not confirmed (default)', note: BOARD_UNCONFIRMED_NOTE },
+        none: { text: 'Not known yet', note: BOARD_UNCONFIRMED_NOTE }
+    };
+
+    // WiFi signal words and their limits in dBm: the same as the grinder's WiFi page (wifi_rssi_quality), so the page
+    // and the touchscreen never name one reading differently. A reading at or above `min` gets the word.
+    var WIFI_QUALITY = [
+        { min: -55, word: 'Excellent', level: 'ok' },
+        { min: -67, word: 'Good', level: 'ok' },
+        { min: -75, word: 'Fair', level: 'plain' },
+        { min: -Infinity, word: 'Weak', level: 'warning' }
+    ];
+
+    function wifiQuality(dbm) {
+        return WIFI_QUALITY.filter(function (q) { return dbm >= q.min; })[0];
+    }
+
+    function diagNumber(v) {
+        return typeof v === 'number' && isFinite(v) && Math.abs(v) <= DIAG_NUMBER_LIMIT ? v : null;
+    }
+
+    function diagNonNegative(v) {
+        var n = diagNumber(v);
+        return n !== null && n >= 0 ? n : null;
+    }
+
+    function diagWord(v) {
+        return typeof v === 'string' && v.trim() !== '' ? v.trim() : null;
+    }
+
+    function diagBool(v) {
+        return typeof v === 'boolean' ? v : null;
+    }
+
+    // The reply as plain values, null where a member is unusable. Not an object (or an array): not a diagnostics reply.
+    // The signal is a whole dBm from -127 to -1: null (not connected) and 0 (the firmware never sends it) hide the row.
+    function parseDiagnostics(doc) {
+        if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+        var rssi = diagNumber(doc.wifi_rssi_dbm);
+        rssi = rssi === null ? null : Math.round(rssi);
+        return {
+            calibrated: diagBool(doc.calibrated),
+            calFactor: diagNumber(doc.cal_factor),
+            stdDev: diagNonNegative(doc.std_dev_g),
+            noiseOk: diagBool(doc.noise_ok),
+            sampleRate: diagNonNegative(doc.sample_rate_sps),
+            latency: diagNonNegative(doc.motor_latency_ms),
+            rssi: rssi !== null && rssi >= -127 && rssi <= -1 ? rssi : null,
+            ble: diagWord(doc.ble),
+            boardSource: diagWord(doc.board_source),
+            pushArmed: diagBool(doc.push_armed)
+        };
+    }
+
+    // Fixed decimals with a comma every three digits; a value that rounds to zero has no minus sign.
+    function groupedFixed(v, decimals) {
+        var s = Math.abs(v).toFixed(decimals);
+        var parts = s.split('.');
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        return (v < 0 && /[1-9]/.test(s) ? '-' : '') + parts.join('.');
+    }
+
+    // The noise reading in grams: three decimals below 1 g, two below 100 g, one above.
+    function noiseText(g) {
+        return groupedFixed(g, g < 1 ? 3 : g < 100 ? 2 : 1) + ' g';
+    }
+
+    // The rows of the Health card in display order: {id, label, value, level ('ok' | 'warning' | 'plain'), note}. A row
+    // whose main member is unusable is left out. The board name is not here: the About card shows it.
+    function diagnosticsRows(p) {
+        var rows = [];
+        function add(id, label, value, level, note) {
+            rows.push({ id: id, label: label, value: value, level: level, note: note || '' });
+        }
+        if (p.calibrated !== null) {
+            var factor = p.calFactor !== null && p.calFactor !== 0 ? 'Calibration factor ' + groupedFixed(p.calFactor, 2) : '';
+            add('cal', 'Load cell', p.calibrated ? 'Calibrated' : 'Not calibrated', p.calibrated ? 'ok' : 'warning',
+                p.calibrated ? factor : 'Calibrate on the grinder: Menu, Tools, Calibrate.');
+        }
+        if (p.noiseOk !== null) {
+            add('noise', 'Noise', p.noiseOk ? 'OK' : 'Too high', p.noiseOk ? 'ok' : 'warning',
+                p.stdDev === null ? '' : 'Standard deviation ' + noiseText(p.stdDev));
+        } else if (p.stdDev !== null) {
+            add('noise', 'Noise', noiseText(p.stdDev), 'plain', 'Standard deviation');
+        }
+        if (p.sampleRate !== null && p.sampleRate > 0) add('rate', 'Sample rate', groupedFixed(p.sampleRate, 1) + ' samples/s', 'plain');
+        if (p.latency !== null) {
+            add('latency', 'Motor latency', formatCount(Math.round(p.latency)) + ' ms', 'plain',
+                'How long the motor takes to respond, as the grinder measured it.');
+        }
+        if (p.rssi !== null) {
+            var q = wifiQuality(p.rssi);
+            add('wifi', 'WiFi signal', q.word + ', ' + p.rssi + ' dBm', q.level);
+        }
+        if (p.ble !== null) add('ble', 'Bluetooth', has(BLE_TEXT, p.ble) ? BLE_TEXT[p.ble] : shortCode(p.ble), 'plain');
+        if (p.pushArmed !== null) {
+            add('push', 'Receive updates', p.pushArmed ? 'On' : 'Off', 'plain',
+                p.pushArmed ? 'A computer with the update token can send firmware; Confirm decides if a tap is needed.' : '');
+        }
+        if (p.boardSource !== null) {
+            var known = has(BOARD_SOURCE_TEXT, p.boardSource) ? BOARD_SOURCE_TEXT[p.boardSource] : null;
+            add('board', 'Board detection', known ? known.text : shortCode(p.boardSource), 'plain', known ? known.note : '');
+        }
+        return rows;
+    }
+
+    function diagnosticsLoaded(d, doc, nowMs) {
+        var parsed = parseDiagnostics(doc);
+        return parsed ? fetched(d, parsed, nowMs) : diagnosticsFailed(d, 'bad_reply', nowMs);
+    }
+
+    // A failed request: a 404 removes the card for good (statsFailed); anything else is asked again after DIAG_RETRY_MS.
+    function diagnosticsFailed(d, code, nowMs) {
+        var next = statsFailed(d, code, nowMs);
+        if (next.unavailable) return next;
+        if (code === 'ui_busy') next.error = DIAG_BUSY_TEXT;
+        next.retryAt = nowMs + DIAG_RETRY_MS;
+        return next;
+    }
+
+    // Whether the polling loop should fetch the health numbers now. ctx: {online, haveStatus, hidden, tabShown (the
+    // Device section), commandBusy, nowMs}. Only while the section is shown, never while the tab is hidden or a command
+    // is on the wire, never after a 404, and not before the status is known; then on request (statsShown) and every
+    // DIAG_PERIOD_MS.
+    function diagnosticsDue(d, ctx) {
+        if (d.unavailable || ctx.hidden || !ctx.tabShown || !ctx.online || !ctx.haveStatus || ctx.commandBusy) return false;
+        if (ctx.nowMs < d.retryAt) return false;
+        return d.fetchedAt === null || (d.refreshAt !== null && ctx.nowMs >= d.refreshAt) || ctx.nowMs - d.fetchedAt >= DIAG_PERIOD_MS;
+    }
+
+    // What the Health card shows. visible is false only when the firmware has no such route. kind: loading | error |
+    // empty | ready; `message` is the sentence in place of the rows, `note` says the rows are old or could not be refreshed.
+    function diagnosticsView(d, conn, nowMs) {
+        var online = !!conn && conn.state === 'online';
+        var view = { visible: !d.unavailable, kind: 'ready', message: '', note: '', rows: [] };
+        if (d.unavailable) return view;
+        if (!d.doc) {
+            if (!online && conn && conn.state !== 'connecting') {
+                view.kind = 'error';
+                view.message = 'The grinder is not reachable, so the health values cannot be read. This page tries again by itself.';
+            } else if (d.error) {
+                view.kind = 'error';
+                view.message = 'The health values could not be read. ' + d.error + ' This page tries again by itself.';
+            } else {
+                view.kind = 'loading';
+                view.message = 'Reading the health values.';
+            }
+            return view;
+        }
+        var age = formatAge(nowMs - d.fetchedAt);
+        if (!online) view.note = 'The grinder is not reachable. These values are from ' + age + ' ago.';
+        else if (d.error) view.note = 'The values could not be refreshed (' + d.error + ') and are from ' + age + ' ago.';
+        view.rows = diagnosticsRows(d.doc);
+        if (view.rows.length === 0) {
+            view.kind = 'empty';
+            view.message = DIAG_NO_ROWS;
+        }
+        return view;
+    }
+
     // ------------------------------------------------------------------ Grind: last grind card (chg021 G2)
     // The page watches the status while a grind runs and keeps the weights it sees (a "track"), draws them as a small
     // curve, and after the grind asks /api/history once for the result. State objects are never changed in place.
@@ -1816,6 +2005,17 @@
         msText: msText,
         historyErrorText: historyErrorText,
         historyView: historyView,
+        DIAG_PERIOD_MS: DIAG_PERIOD_MS,
+        DIAG_RETRY_MS: DIAG_RETRY_MS,
+        BLE_TEXT: BLE_TEXT,
+        BOARD_SOURCE_TEXT: BOARD_SOURCE_TEXT,
+        WIFI_QUALITY: WIFI_QUALITY,
+        parseDiagnostics: parseDiagnostics,
+        diagnosticsLoaded: diagnosticsLoaded,
+        diagnosticsFailed: diagnosticsFailed,
+        diagnosticsDue: diagnosticsDue,
+        diagnosticsRows: diagnosticsRows,
+        diagnosticsView: diagnosticsView,
         deviceName: deviceName,
         buildLine: buildLine,
         aboutView: aboutView,

@@ -10,12 +10,12 @@ tools for working on the page without a grinder.
 
 | File | What |
 |---|---|
-| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, status bar with STOP, name, state and weight, navigation (bottom bar, pill bar or sidebar), panels (Grind with the Last grind card, Settings, Insights, Device with the About card), and one marker per part below. |
+| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, status bar with STOP, name, state and weight, navigation (bottom bar, pill bar or sidebar), panels (Grind with the Last grind card, Settings, Insights, Device with the About and Health cards), and one marker per part below. |
 | `web/portal/portal.css` | Design tokens (light and dark via `prefers-color-scheme`) and layout for phone, tablet and desktop. Marker `/*@@PORTAL_CSS@@*/`. |
 | `web/portal/portal-client.js` | The API client (request queue, error mapping; `toCurl` is a tested helper the page does not use). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
-| `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
+| `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form, the Health card's rows and polling rules). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
 | `web/portal/portal-app.js` | DOM glue only (events, `textContent`); logic belongs in the view or client module. Marker `/*@@PORTAL_APP@@*/`. |
-| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; the limit in `test_page_fits_the_embed_budget` is 48 KB since chg021 V0; the page is about 35 KB gzip). |
+| `web/portal/index.html` | **Generated and committed**: the page with all parts inlined. This is the file the firmware embeds (`tools/build-scripts/embed_portal.py`, 64 KB gzip budget; the limit in `test_page_fits_the_embed_budget` is 48 KB since chg021 V0; the page is about 41 KB gzip). |
 | `tools/portal/build_page.py` | Builds `index.html` from the sources. Run it after editing any of them (`--check` only reports). It fails on a missing or duplicated marker and on `</script` / `</style` inside a part. A pytest fails when `index.html` is stale. The build strips full-line `//` comments (JS), `/* */` blocks (CSS, markers kept) and indentation from the parts; the sources keep them. `--no-strip` builds the unstripped page for debugging only (it writes `index.html` unless `--check`; rebuild without the flag before committing). |
 | `tools/portal/snap.py` | Dev tool, not run by CI: starts the dev server, sets a state, and takes headless Chrome/Edge screenshots per width, colour scheme and state (`--list`, `--step`, `--out`, `--widths`, `--schemes`, `--states`, `--reduced-motion`, `--browser`). Output goes to `<out>/<step>/`, default under `~/.claude/workspace/chgreq/smart-grind-by-weight/chg021/shots`, outside the repo. It opens the Grind section only; Edge headless cannot go below about 500 px, so true 320 and 360 px shots need Chrome with device-metrics emulation over the DevTools protocol. |
 | `tools/portal/portal_model.py` | The contract as pure Python (scanner, field table, clamping, guards, decisions). Tested against `tools/tests/portal_api_vectors.json`, the vectors the firmware tests use. |
@@ -149,6 +149,12 @@ above.
 | Last grind, stopped | Press Start, then STOP while it grinds (`{"history_fill":3}` first so there is an older grind). | The curve stays; after the second look at the history (about 6 s) a neutral "Not recorded" badge with "This grind did not finish, so the grinder did not record it. It was probably stopped." The older grind is never shown as the result. |
 | Last grind, no history route | `--no-history`, then a grind. | The curve stays with "This grinder firmware does not list finished grinds, so there is no result to show." |
 | Device, About card | Open the Device tab. The dev server answers `/api/info` with `board` "dev" and `confirm` true. | Rows Name, Address, Firmware, Build, Board, Uptime (counts, hidden while the grinder is not reachable) and "Confirm on the grinder: On" with a sentence. A member that is missing, null or of the wrong type hides its row (try it by intercepting `/api/info` in the browser's developer tools). |
+| Device, Health card | Open the Device tab. The page reads `/api/diagnostics` at once and then about every 5 s, only while that tab is shown. | A "Health" card below About: Load cell, Noise (with the standard deviation), Sample rate, Motor latency, WiFi signal (Excellent, Good, Fair or Weak with the dBm, the touchscreen's limits), Bluetooth, Receive updates and Board detection. The card takes one turn of the single poll loop about every 5 s, so while Device is shown the status gap is about 2 s instead of 1 s once per diagnostics turn (about 48 instead of 60 status requests per minute; other sections are unaffected, as with the statistics on Insights). Change values with the `diagnostics` key (`{"diagnostics":{"calibrated":false,"noise_ok":false}}`); rows only change text when a value changes. |
+| Health, no route | `--no-diagnostics`, or `{"diagnostics_route":false}`. | The card disappears (no placeholder, no error) and the page stops asking. |
+| Health, grinder screen busy | `{"ui_busy":true}` (back with `false`). | Before any data the busy sentence "The health values could not be read. The grinder screen is busy. This page tries again by itself." shows only when the card gets its turn; while the settings request is itself busy (it is asked first) the card stays on "Reading the health values.". After data: the rows stay with "The values could not be refreshed (...) and are from N s ago." The page asks again every 5 s. |
+| Health, no WiFi | `{"diagnostics":{"wifi_rssi_dbm":null}}`. | The WiFi signal row is gone; the other rows stay. |
+| Health, unknown Bluetooth word | The dev server only sends the six words; intercept `/api/diagnostics` in the browser's developer tools and change `ble`. | The word is shown as received, cut to 40 characters. The same for an unknown `board_source`. |
+| Health, odd values | `{"diagnostics":{"std_dev_g":NaN,"motor_latency_ms":1e30,"cal_factor":-5}}`. | The server bounds them as the firmware does (`0.0`, cut magnitudes); the page never shows "NaN", "undefined" or "null". |
 
 ## Manual browser check
 
@@ -181,7 +187,7 @@ usual.
 
 ```
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest tools/tests/test_portal_dev_server.py
-node --test tools/tests/portal-client.test.js tools/tests/portal-view.test.js tools/tests/portal-lastgrind.test.js
+node --test tools/tests/portal-client.test.js tools/tests/portal-view.test.js tools/tests/portal-lastgrind.test.js tools/tests/portal-health.test.js
 ```
 
 `test_portal_dev_server.py` also checks that every flag and every `/dev/state` key is documented here.

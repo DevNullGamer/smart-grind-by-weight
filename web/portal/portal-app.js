@@ -2,8 +2,9 @@
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
 // The Grind, Settings and Insights tabs are live (chg016 steps 2, 3, 9 and 12; the Insights tab shows once the
 // firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history). The Device
-// tab shows the About card from /api/info and the uptime (chg021 G1); the Grind tab has the Last grind card with
-// the weight curve the page collected during the grind (chg021 G2).
+// tab shows the About card from /api/info and the uptime (chg021 G1) and the Health card from /api/diagnostics
+// (G3c, fetched only while the Device section is shown); the Grind tab has the Last grind card with the weight curve
+// the page collected during the grind (chg021 G2).
 (function () {
   'use strict';
   var P = PortalClient;
@@ -35,6 +36,7 @@
   var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
   var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
   var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+  var diag = V.newStats(); // health numbers (GET /api/diagnostics): the same state shape, see V.diagnosticsLoaded
   var info = null; // the whole GET /api/info document (null until it has arrived), see V.aboutView
   var track = V.newGrindTrack(); // the weights seen during the latest grind and what became of it, see V.lastGrindView
   var polling = false;
@@ -49,6 +51,7 @@
   function showTab(requested) {
     requestedTab = requested;
     var name = V.tabForViewport(requested);
+    var deviceWasShown = !$('panel-device').hidden;
     V.TABS.forEach(function (tab) {
       setHidden($('panel-' + tab), tab !== name);
       var button = $('tab-' + tab);
@@ -56,7 +59,12 @@
       else button.removeAttribute('aria-current');
     });
     setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
-    if (name === 'device') renderAbout();
+    if (name === 'device') {
+      if (!deviceWasShown) diag = V.statsShown(diag, now()); // opening the section reads the numbers; a click on the open tab does not
+      renderAbout();
+      renderHealth();
+      if (!deviceWasShown) pollNow();
+    }
     if (name === 'insights') {
       stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
       history = V.statsShown(history, now());
@@ -306,6 +314,39 @@
     setHidden($('about-confirm-note'), note === '');
   }
 
+  // The Health card: its rows are rebuilt only when their content changes, so a poll with equal values writes nothing.
+  var healthKey = '';
+  function renderHealth() {
+    if ($('panel-device').hidden) return;
+    var view = V.diagnosticsView(diag, conn, now());
+    setHidden($('health'), !view.visible);
+    setText($('health-message'), view.message);
+    setClass($('health-message'), 'is-problem', view.kind === 'error');
+    setText($('health-note'), view.note);
+    setHidden($('health-list'), view.rows.length === 0);
+    var key = JSON.stringify(view.rows);
+    if (key === healthKey) return;
+    healthKey = key;
+    var list = $('health-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.rows.forEach(function (row) {
+      var item = $('health-row').content.firstElementChild.cloneNode(true);
+      item.querySelector('dt').textContent = row.label;
+      var plain = row.level === 'plain'; // a level row shows its value as a badge (icon and word), never colour alone
+      var badge = item.querySelector('.h-badge');
+      var val = item.querySelector('.hp-val');
+      badge.hidden = plain;
+      val.hidden = !plain;
+      if (plain) val.textContent = row.value;
+      else {
+        badge.classList.add(row.level);
+        item.querySelector('.hp-badge-text').textContent = row.value;
+      }
+      item.querySelector('.about-note').textContent = row.note;
+      list.appendChild(item);
+    });
+  }
+
   function render() {
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
@@ -383,6 +424,7 @@
     renderHistory();
     renderLastGrind();
     renderAbout();
+    renderHealth();
   }
 
   // --- settings form
@@ -787,15 +829,20 @@
       tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now(),
       lastGrindWaiting: lastGrindWaiting
     });
+    var diagnosticsDue = V.diagnosticsDue(diag, {
+      online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+      tabShown: !$('panel-device').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+    });
     var task = V.nextPollTask({
       haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
-      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue
+      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue,
+      diagnosticsDue: diagnosticsDue
     });
     forceStatus = false;
     quickNext = false;
     var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
       task === 'info' ? client.getInfo() : task === 'stats' ? client.getStats() :
-      task === 'history' ? client.getHistory() : client.getStatus();
+      task === 'history' ? client.getHistory() : task === 'diagnostics' ? client.getDiagnostics() : client.getStatus();
     // Runs after success and after failure, even if the handler or render() throws: polling must go on.
     function finalize() {
       polling = false;
@@ -841,6 +888,8 @@
       } else if (task === 'history') {
         history = V.historyLoaded(history, doc, now());
         track = V.grindTrackResolve(track, history, now());
+      } else if (task === 'diagnostics') {
+        diag = V.diagnosticsLoaded(diag, doc, now());
       } else {
         info = doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {}; // the whole document; the view checks every member
         setText($('name'), V.deviceName(info));
@@ -851,6 +900,7 @@
     }, function (err) {
       var failed = V.pollFailed(task, err && err.code);
       if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
+      if (task === 'diagnostics') diag = V.diagnosticsFailed(diag, err && err.code, now());
       if (task === 'history') {
         history = V.statsFailed(history, err && err.code, now());
         track = V.grindTrackResolve(track, history, now()); // a 404 ends the wait: the card shows the curve alone
