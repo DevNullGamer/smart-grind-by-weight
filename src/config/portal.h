@@ -35,7 +35,9 @@
 #define GRIND_HISTORY_FILE_RECORDS 16                                          // Records per history file (two files: /hist0.bin, /hist1.bin)
 #define PORTAL_HISTORY_REFRESH_MS 5000                                         // The UI task republishes the history snapshot this often (a changed ring is published at once, within one status tick)
 #define PORTAL_HISTORY_STALE_MS 15000                                          // A history snapshot older than this (UI task stuck) is answered 503 ui_busy
-#define PORTAL_SNAPSHOT_STALE_MS 5000                                         // A snapshot older than this (UI task stuck or UI off) is answered 503 ui_busy
+#define PORTAL_DIAGNOSTICS_REFRESH_MS 2000                                     // The UI task republishes the diagnostics snapshot this often (the load cell noise check is stateful and needs a steady cadence)
+#define PORTAL_DIAGNOSTICS_STALE_MS 15000                                      // A diagnostics snapshot older than this (UI task stuck) is answered 503 ui_busy
+#define PORTAL_SNAPSHOT_STALE_MS 5000                                        // A snapshot older than this (UI task stuck or UI off) is answered 503 ui_busy
 
 // Embedded page (built from web/portal/index.html by tools/build-scripts/embed_portal.py, gzip, served from flash)
 #define PORTAL_PAGE_SOURCE "web/portal/index.html"                             // Relative to the project root; the build fails if it is missing

@@ -43,6 +43,16 @@ bool PortalCommandGate::read_history(PortalHistory* history) {
     return true;
 }
 
+bool PortalCommandGate::read_diagnostics(PortalDiagnostics* diagnostics) {
+    Section section(&diagnostics_mux_);  // one struct copy (about 48 bytes), no call out
+    if (!ui_attached_ || !portal_snapshot_fresh(diagnostics_published_, diagnostics_published_ms_, millis(),
+                                                PORTAL_DIAGNOSTICS_STALE_MS)) {
+        return false;
+    }
+    if (diagnostics) *diagnostics = diagnostics_;
+    return true;
+}
+
 PortalError PortalCommandGate::submit_patch(const PortalPatch& patch, PortalMailboxResult* result) {
     if (!ui_attached_) return PortalError::UI_BUSY;
     {
@@ -113,6 +123,13 @@ void PortalCommandGate::publish_history(const PortalHistory& history) {
     history_published_ms_ = millis();
 }
 
+void PortalCommandGate::publish_diagnostics(const PortalDiagnostics& diagnostics) {
+    Section section(&diagnostics_mux_);
+    diagnostics_ = diagnostics;
+    diagnostics_published_ = true;
+    diagnostics_published_ms_ = millis();
+}
+
 void PortalCommandGate::attach_ui(bool attached) {
     {
         Section section(&mux_);
@@ -126,5 +143,9 @@ void PortalCommandGate::attach_ui(bool attached) {
     if (!attached) {
         Section section(&history_mux_);
         history_published_ = false;
+    }
+    if (!attached) {
+        Section section(&diagnostics_mux_);
+        diagnostics_published_ = false;
     }
 }

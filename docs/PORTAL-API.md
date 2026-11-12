@@ -458,10 +458,11 @@ Read-only health numbers of the grinder, the same ones its Diagnostics and WiFi 
 Gated by the Web interface switch like every other read (403 `web_interface_off`, `bad_host`, `bad_origin` as usual).
 Nothing here can be changed through the API; Receive, Bluetooth, the GaggiMate link and the board choice stay touch-only.
 The reply is a copy the UI task gathers about every 2 seconds while the Web interface is on; it has its own age limit of
-15 s, after which the route answers 503 `ui_busy` (all three planned, G3b: the route is not wired yet). A firmware without the route answers 404 from the HTTP server, which a
-page treats as "health not available". The route is additive: the contract version does not change. (The encoder and
-its vectors are defined first; the route itself is served from the firmware step that wires it, so an older firmware
-answers 404.)
+15 s (`PORTAL_DIAGNOSTICS_STALE_MS`; the UI task republishes every `PORTAL_DIAGNOSTICS_REFRESH_MS`, 2 s), after which the route answers 503
+`ui_busy`, as it does before the first publish. The HTTP task only copies the slot (own spinlock, plain data, no call out of
+the lock) and encodes into a heap `ReplyBuffer`; it logs its stack headroom once after the first reply, like the other
+read routes. A firmware without the route answers 404 from the HTTP server, which a page treats as "health not
+available". The route is additive: the contract version does not change.
 
 ```
 {"calibrated":true,"cal_factor":1234.56,"std_dev_g":0.012,"noise_ok":true,"sample_rate_sps":10.0,"motor_latency_ms":50,
@@ -540,6 +541,6 @@ UI task fills and the HTTP task only copies (own lock, own age limit, 503 `ui_bu
 `ReplyBuffer` and never a large local on the HTTP task's 6 KB stack, a pure encoder with a truncation test at every
 byte and a worst-case size margin, encoder vectors in `portal_api_vectors.json`, the Python mirror in
 `tools/portal/portal_model.py` and `dev_server.py`, a row in the gate table and the routes table above, and a free
-handler slot (`UPDATE_HTTP_MAX_URI_HANDLERS`, 12 of 16 used; `/api/diagnostics` will be the 13th when it is wired). The HTTP task never touches the filesystem, NVS, LVGL or the
+handler slot (`UPDATE_HTTP_MAX_URI_HANDLERS`, 13 of 16 used, `/api/diagnostics` being the 13th). The HTTP task never touches the filesystem, NVS, LVGL or the
 controllers for it. Additive members never change the contract version. Never add a token requirement, a CORS header, or a command that takes a free
 target weight or time without a new plan: the panel is open on the local network by design.

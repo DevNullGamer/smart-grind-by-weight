@@ -244,6 +244,20 @@ int portal_handle_history(httpd_req* req) {
     return sent;
 }
 
+int portal_handle_diagnostics(httpd_req* req) {
+    const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
+    if (refused != PortalError::NONE) return portal_send_error(req, refused);
+
+    PortalDiagnostics diagnostics;  // about 48 bytes
+    if (!portal_command_gate.read_diagnostics(&diagnostics)) return portal_send_error(req, PortalError::UI_BUSY);
+    ReplyBuffer json(PORTAL_DIAGNOSTICS_JSON_MAX);  // heap, not the 6 KB task stack
+    if (!json.data || !portal_encode_diagnostics(diagnostics, json.data, json.capacity)) return send_internal_error(req);
+    static bool stack_logged = false;
+    const int sent = send_json_ok(req, json.data);
+    log_stack_once(&stack_logged, "GET /api/diagnostics");
+    return sent;
+}
+
 int portal_handle_settings_get(httpd_req* req) {
     const PortalError refused = portal_route_admit(req, PortalRoute::API_READ);
     if (refused != PortalError::NONE) return portal_send_error(req, refused);
