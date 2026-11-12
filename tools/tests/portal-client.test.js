@@ -288,7 +288,10 @@ test('the module has no console, storage, cookie or token code, and the page inl
         assert.ok(!code.includes(word), word);
     }
     const page = fs.readFileSync(path.join(ROOT, 'web', 'portal', 'index.html'), 'utf8');
-    assert.ok(page.replace(/\r\n/g, '\n').includes(clientSource.replace(/\r\n/g, '\n').trimEnd()), 'index.html is out of date: run python3 tools/portal/build_page.py');
+    // build_page.py inlines the source without full-line // comments, indentation and empty lines (strip_js)
+    const stripped = clientSource.replace(/\r\n/g, '\n').split('\n').map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('//')).join('\n');
+    assert.ok(page.replace(/\r\n/g, '\n').includes(stripped), 'index.html is out of date: run python3 tools/portal/build_page.py');
     assert.ok(!page.includes('console.'));
 });
 

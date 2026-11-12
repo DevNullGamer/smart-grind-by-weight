@@ -167,10 +167,95 @@ def test_page_content_rules():
 
 def test_page_fits_the_embed_budget():
     import gzip
-    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, but the page reached 31.6 KB at step 7, so the
-    # target was raised deliberately to 40 KB. With the Insights tiles and the history list (step 12) it is 39.3 KB.
-    # Any further raise needs its own reason; trim duplication in the sources first.
-    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 40 * 1024
+    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, then raised the target to 40 KB (39.3 KB with the
+    # Insights tiles and the history list). chg021 V0 strips comments and indentation at build time (about 30 KB) and
+    # moves the cap to 48 KB to leave room for the redesign (plan: 46 KB after the V steps). Any further raise needs its
+    # own reason; trim duplication in the sources first.
+    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 48 * 1024
+
+
+def test_strip_js_drops_only_full_line_comments_and_indentation():
+    src = "  // a comment\n\n  var a = 'x';  // trailing stays\n    var b = '//x';\n  var c = \"/* y */\";\n"
+    assert build_page.strip_js(src) == "var a = 'x';  // trailing stays\nvar b = '//x';\nvar c = \"/* y */\";"
+
+
+def test_strip_js_keeps_a_regex_and_a_url_like_string_untouched():
+    src = "var r = /a\\/\\/b/;\nvar u = 'x//y';\n"
+    assert build_page.strip_js(src) == "var r = /a\\/\\/b/;\nvar u = 'x//y';"
+
+
+def test_strip_js_refuses_a_multi_line_template_literal():
+    with pytest.raises(build_page.PageBuildError, match="template literal"):
+        build_page.strip_js("var t = `one\ntwo`;\n")
+
+
+def test_strip_css_drops_comment_blocks_but_not_markers_or_strings():
+    src = ("/* head\n   more */\n.a { color: red; } /* tail */\n  .b::after { content: '/* keep */'; }\n"
+           "x/**/y\n/*@@PORTAL_CSS@@*/\n")
+    out = build_page.strip_css(src)
+    assert out == ".a { color: red; }\n.b::after { content: '/* keep */'; }\nx y\n/*@@PORTAL_CSS@@*/"
+
+
+def test_strip_css_refuses_an_unterminated_comment():
+    with pytest.raises(build_page.PageBuildError, match="unterminated"):
+        build_page.strip_css("a { } /* open\n")
+
+
+def test_render_page_strips_parts_unless_asked_not_to(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-app.js").write_text("// note\n  var app = '//x';\n", encoding="utf-8")
+    assert "// note" not in build_page.render_page(tmp_path)
+    assert "\nvar app = '//x';" in build_page.render_page(tmp_path)
+    assert "// note" in build_page.render_page(tmp_path, strip=False)
+
+
+def test_sources_have_no_multi_line_template_literals():
+    for _m, name, _c in build_page.PARTS:
+        if name.endswith(".js"):  # strip_js raises when it finds one
+            build_page.strip_js((ROOT / "web" / "portal" / name).read_text(encoding="utf-8"), name)
+
+
+def _node():
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    return node
+
+
+def test_every_inlined_script_of_the_built_page_passes_node_check(tmp_path):
+    import subprocess
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    assert len(scripts) == 3
+    for i, body in enumerate(scripts):
+        path = tmp_path / f"inline{i}.js"
+        path.write_text(body, encoding="utf-8")
+        done = subprocess.run([_node(), "--check", str(path)], capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+
+
+def test_node_tests_pass_against_the_stripped_parts(tmp_path):
+    """The behaviour tests re-run on the stripped modules in a scratch tree, so a bad strip cannot ship. One test that
+    reads the source text for its indentation is skipped there."""
+    import shutil
+    import subprocess
+    (tmp_path / "tools" / "tests").mkdir(parents=True)
+    (tmp_path / "tools" / "portal").mkdir()
+    (tmp_path / "web" / "portal").mkdir(parents=True)
+    for f in ("portal-client.test.js", "portal-view.test.js", "portal_api_vectors.json"):
+        shutil.copy(ROOT / "tools" / "tests" / f, tmp_path / "tools" / "tests" / f)
+    shutil.copy(PORTAL_TOOLS / "portal_model.py", tmp_path / "tools" / "portal" / "portal_model.py")
+    for f in ("page.src.html", "index.html"):
+        shutil.copy(ROOT / "web" / "portal" / f, tmp_path / "web" / "portal" / f)
+    for _m, name, _c in build_page.PARTS:
+        text = (ROOT / "web" / "portal" / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+        stripped = build_page.strip_css(text, name) if name.endswith(".css") else build_page.strip_js(text, name)
+        (tmp_path / "web" / "portal" / name).write_text(stripped, encoding="utf-8")
+    done = subprocess.run([_node(), "--test", "--test-skip-pattern=page source wires the stale-reply guard",
+                           "tools/tests/portal-client.test.js", "tools/tests/portal-view.test.js"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-1000:]
 
 
 def make_sources(directory):
