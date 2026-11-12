@@ -34,25 +34,30 @@
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 9a8 8 0 0 0-14-1.5M5 4v4h4M5 15a8 8 0 0 0 14 1.5M19 20v-4h-4"></path></symbol>
 </svg>
 <a class="skip-link" href="#main">Skip to content</a>
+<div class="app">
 <header class="header">
-  <div class="topbar">
-    <button id="stop" class="stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
-    <div class="brand">
-      <h1 id="name">Grinder</h1>
-      <div id="build" class="build"></div>
-    </div>
-    <span id="conn" class="chip" role="status"><svg class="icon" aria-hidden="true"><use id="conn-icon" href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
-  </div>
-  <div id="strip" class="strip" aria-hidden="true">
+  <button id="stop" class="stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
+  <h1 id="name">Grinder</h1>
+  <div id="strip" class="strip is-stale" aria-hidden="true">
+    <span class="dot"></span>
     <span id="strip-state" class="state">Connecting</span>
     <span id="strip-weight" class="weight">-- g</span>
   </div>
+  <span id="conn" class="chip" role="status"><svg class="icon" aria-hidden="true"><use id="conn-icon" href="#i-online"></use></svg><span id="conn-text">Connecting</span></span>
 </header>
-<nav id="tabs" class="tabbar" aria-label="Sections">
-  <button id="tab-grind" class="tab" type="button" data-tab="grind" aria-current="true"><svg class="icon" aria-hidden="true"><use href="#i-grind"></use></svg>Grind</button>
-  <button id="tab-settings" class="tab" type="button" data-tab="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg>Settings</button>
-  <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg>Insights</button>
-</nav>
+<div class="side">
+  <div class="side-brand" aria-hidden="true"><svg class="icon" aria-hidden="true"><use href="#i-bean"></use></svg><span>Grind by weight</span></div>
+  <nav id="tabs" class="tabbar" aria-label="Sections">
+    <button id="tab-grind" class="tab" type="button" data-tab="grind" aria-current="true"><span class="tab-icon"><svg class="icon" aria-hidden="true"><use href="#i-grind"></use></svg></span><span class="tab-label">Grind</span></button>
+    <button id="tab-settings" class="tab" type="button" data-tab="settings"><span class="tab-icon"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg></span><span class="tab-label">Settings</span></button>
+    <button id="tab-insights" class="tab" type="button" data-tab="insights" hidden><span class="tab-icon"><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg></span><span class="tab-label">Insights</span></button>
+    <button id="tab-device" class="tab" type="button" data-tab="device"><span class="tab-icon"><svg class="icon" aria-hidden="true"><use href="#i-device"></use></svg></span><span class="tab-label">Device</span></button>
+  </nav>
+  <div class="side-foot" aria-hidden="true">
+    <div id="side-name" class="side-name">Grinder</div>
+    <div id="build" class="build"></div>
+  </div>
+</div>
 <main id="main" class="content" tabindex="-1">
   <div class="messages">
     <div id="message" class="message" role="status" aria-live="polite"></div>
@@ -80,7 +85,6 @@
           <div id="readout-phase" class="phase"></div>
           <div id="readout-hint" class="muted"></div>
           <div id="readout-seen" class="muted"></div>
-          <button id="stop-pane" class="stop pane-stop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"></use></svg>STOP</button>
         </div>
         <div id="leadin" class="card leadin" hidden>
           <p id="leadin-text"></p>
@@ -199,9 +203,20 @@
         </template>
       </section>
     </section>
+    <section id="panel-device" class="panel" aria-label="Device" hidden>
+      <div class="card full">
+        <h2>About this grinder</h2>
+        <dl class="about">
+          <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
+          <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
+          <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+        </dl>
+      </div>
+    </section>
   </div>
 </main>
 <footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
+</div>
 <script>
 /*@@PORTAL_CLIENT@@*/
 </script>

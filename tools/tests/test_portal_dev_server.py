@@ -184,6 +184,45 @@ def test_strip_js_keeps_a_regex_and_a_url_like_string_untouched():
     assert build_page.strip_js(src) == "var r = /a\\/\\/b/;\nvar u = 'x//y';"
 
 
+# chg021 V0: comment-like text inside strings (and a regex) that the strip must leave exactly as written
+STRIP_FIXTURE_LINES = (
+    "var a = 'see // here';",
+    'var b = "a /* b */ c";',
+    "var c = '//x';",
+    'var d = "//" + \'/* not a comment */\';',
+    "var e = 'x'; var f = '// two on a line'; // trailing comment is kept too",
+    "'//starts the line inside a string';",
+    '"/* starts the line */";',
+    "var g = /\\/\\/.*$/.test('a//b');",
+    "var h = `// in a one-line template /* x */`;",
+)
+
+
+def test_strip_js_leaves_comment_markers_inside_strings_untouched():
+    src = "\n".join(STRIP_FIXTURE_LINES) + "\n"
+    assert build_page.strip_js(src).split("\n") == list(STRIP_FIXTURE_LINES)
+    # indented and between real comments: only the indentation and the full-line comments go
+    padded = "// head\n" + "".join(f"    {line}\n  // between\n\n" for line in STRIP_FIXTURE_LINES)
+    assert build_page.strip_js(padded).split("\n") == list(STRIP_FIXTURE_LINES)
+
+
+def test_strip_css_leaves_comment_markers_inside_strings_untouched():
+    lines = ('.a::before { content: "/* x */"; }', ".b::after { content: '//x'; }",
+             '.c::after { content: "it\\"s /* still */ a string"; }', ".d { background: none; }")
+    assert build_page.strip_css("\n".join(lines) + "\n").split("\n") == list(lines)
+
+
+def test_built_page_carries_the_string_fixture_untouched(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-view.js").write_text("// header comment\n" + "".join(f"  {line}\n" for line in STRIP_FIXTURE_LINES),
+                                             encoding="utf-8")
+    (tmp_path / "portal.css").write_text("/* note */\n.a::before { content: \"/* x */ //y\"; }\n", encoding="utf-8")
+    page = build_page.render_page(tmp_path)
+    assert "\n".join(STRIP_FIXTURE_LINES) in page
+    assert '.a::before { content: "/* x */ //y"; }' in page
+    assert "header comment" not in page and "/* note */" not in page
+
+
 def test_strip_js_refuses_a_multi_line_template_literal():
     with pytest.raises(build_page.PageBuildError, match="template literal"):
         build_page.strip_js("var t = `one\ntwo`;\n")
@@ -308,6 +347,55 @@ def test_stop_is_the_first_button_after_the_skip_link_and_never_disabled():
     assert 'id="stop"' in first and "disabled" not in first
     for tag in re.findall(r"<button\b[^>]*\bid=\"stop(?:-pane)?\"[^>]*>", body):
         assert "disabled" not in tag, tag
+
+
+def _page_body():
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    return page[page.index("<body>"):page.index("<script>")]
+
+
+def test_focus_order_in_the_markup_is_skip_link_stop_navigation_content():
+    """chg021 V3: the tab order follows the DOM (skip link, STOP, navigation, content) and nothing reorders it."""
+    body = _page_body()
+    order = [body.index('class="skip-link"'), body.index('id="stop"'), body.index("<nav"), body.index("<main")]
+    assert order == sorted(order), order
+    # nothing focusable between the skip link and STOP, or between STOP and the navigation
+    focusable = r"<(?:a|button|input|select|textarea)\b|tabindex="
+    assert not re.search(focusable, body[body.index("</a>", order[0]):body.index("<button", order[0])])
+    assert not re.search(focusable, body[body.index("</button>", order[1]):order[2]])
+    # a positive tabindex would jump the queue ahead of STOP
+    assert not re.search(r"tabindex=\"[1-9]", body)
+    for name in ("portal-app.js", "portal-view.js"):
+        assert not re.search(r"tabIndex\s*=\s*[1-9]", (ROOT / "web" / "portal" / name).read_text(encoding="utf-8")), name
+
+
+def test_navigation_has_four_sections_and_marks_the_current_one():
+    """chg021 V3: Grind, Settings, Insights, Device in one <nav>; the shown section carries aria-current."""
+    body = _page_body()
+    nav = body[body.index("<nav"):body.index("</nav>")]
+    assert re.search(r"<nav\b[^>]*aria-label=", nav)
+    tabs = re.findall(r"<button\b[^>]*>", nav)
+    assert [re.search(r'data-tab="([a-z]+)"', t).group(1) for t in tabs] == ["grind", "settings", "insights", "device"]
+    assert [re.search(r'id="([a-z-]+)"', t).group(1) for t in tabs] == ["tab-grind", "tab-settings", "tab-insights", "tab-device"]
+    current = [t for t in tabs if "aria-current" in t]
+    assert len(current) == 1 and 'id="tab-grind"' in current[0] and 'aria-current="true"' in current[0]
+    for tab in tabs:
+        assert "disabled" not in tab and 'type="button"' in tab
+    # each section has its panel; only the first is shown before the script runs
+    for name in ("grind", "settings", "insights", "device"):
+        panel = re.search(r'<section\b[^>]*id="panel-' + name + r'"[^>]*>', body)
+        assert panel, name
+        assert (" hidden" in panel.group(0)) is (name != "grind"), name
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    assert "setAttribute('aria-current', 'true')" in app and "removeAttribute('aria-current')" in app
+    assert "aria-selected" not in body and "aria-selected" not in app  # one way of marking the section, not two
+
+
+def test_device_section_placeholder_has_the_about_rows():
+    body = _page_body()
+    device = body[body.index('id="panel-device"'):]
+    for element_id in ("about-name", "about-address", "about-firmware"):
+        assert f'id="{element_id}"' in device, element_id
 
 
 @pytest.mark.parametrize("marker", [m for m, _f, _c in build_page.PARTS])
@@ -666,7 +754,7 @@ def test_app_only_uses_element_ids_the_page_has():
     ids = set(re.findall(r"\$\('([a-z0-9-]+)'\)", app))
     ids |= {f"{prefix}{i}" for prefix in ("start-", "target-", "badge-", "reason-start-") for i in range(3)} \
         if "'start-' + i" in app else set()
-    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights")}
+    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights", "device")}
     ids = {i for i in ids if not i.endswith("-")}
     missing = sorted(i for i in ids if f'id="{i}"' not in page)
     assert not missing, f"portal-app.js uses ids that page.src.html lacks: {missing}"

@@ -1,7 +1,8 @@
 // DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
 // The Grind, Settings and Insights tabs are live (chg016 steps 2, 3, 9 and 12; the Insights tab shows once the
-// firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history).
+// firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history). The Device
+// tab (chg021 V3) shows the name, address and firmware the page already knows.
 (function () {
   'use strict';
   var P = PortalClient;
@@ -39,13 +40,11 @@
   var forceStatus = false; // the last settings or info request failed: status goes next
   var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 
-  // matchMedia may be missing in old browsers: then the narrow layout (one tab at a time) is assumed.
-  var wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 900px)') : null;
   var requestedTab = 'grind';
 
   function showTab(requested) {
     requestedTab = requested;
-    var name = V.tabForViewport(requested, !!(wide && wide.matches));
+    var name = V.tabForViewport(requested);
     V.TABS.forEach(function (tab) {
       $('panel-' + tab).hidden = tab !== name;
       var button = $('tab-' + tab);
@@ -239,6 +238,7 @@
     setText($('readout-seen'), readout.seen);
     setClass($('readout'), 'is-stale', readout.stale);
     setText($('strip-state'), readout.state);
+    if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the bar cuts a long state word
     setText($('strip-weight'), readout.weight);
     setClass($('strip'), 'is-stale', readout.stale);
 
@@ -252,7 +252,7 @@
 
     // STOP: never disabled; emphasised while something runs
     setClass($('stop'), 'is-busy', controls.stop.emphasis);
-    setClass($('stop-pane'), 'is-busy', controls.stop.emphasis);
+    setClass($('strip'), 'is-busy', controls.stop.emphasis);
 
     // lead-in card
     var li = V.leadInView(leadIn, t);
@@ -718,8 +718,12 @@
       } else if (task === 'history') {
         history = V.historyLoaded(history, doc, now());
       } else {
+        var firmware = 'Firmware ' + doc.version + ', build ' + doc.build;
         setText($('name'), doc.name);
-        setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
+        setText($('side-name'), doc.name);
+        setText($('build'), firmware);
+        setText($('about-name'), doc.name);
+        setText($('about-firmware'), doc.version + ', build ' + doc.build);
       }
       quickNext = next.quick;
     }, function (err) {
@@ -784,7 +788,6 @@
     $('tab-' + tab).addEventListener('click', function () { showTab(tab); });
   });
   $('stop').addEventListener('click', stop);
-  $('stop-pane').addEventListener('click', stop);
   [0, 1, 2].forEach(function (i) {
     $('start-' + i).addEventListener('click', function () { startProfile(i); });
   });
@@ -798,14 +801,10 @@
   $('save').addEventListener('click', saveSettings);
   $('discard').addEventListener('click', discardSettings);
 
+  setText($('about-address'), window.location.host);
   showTab('grind');
   // The save bar wraps differently at another width: keep the scroll padding in step.
   window.addEventListener('resize', setSavebarHeight);
-  // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
-  if (wide) {
-    if (typeof wide.addEventListener === 'function') wide.addEventListener('change', function () { showTab(requestedTab); });
-    else if (typeof wide.addListener === 'function') wide.addListener(function () { showTab(requestedTab); });
-  }
 
   // Polling pauses while the page is hidden and resumes at once when it is shown again.
   document.addEventListener('visibilitychange', function () {

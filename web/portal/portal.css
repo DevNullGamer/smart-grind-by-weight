@@ -32,8 +32,9 @@
   --r-pill: 999px;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --gutter: 16px;
-  --dock-h: 56px;
+  --dock-h: 52px;
   --tabbar-h: 56px;
+  --side-w: 232px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -65,10 +66,11 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-/* focused elements must not hide behind the sticky header or the fixed dock and tab bar (phones) */
+/* focused elements must not hide behind the sticky status bar or the fixed dock and nav (phones). The bar is two
+   one-line rows (87 px plus the top safe area) below 900 px and never grows: its texts are cut, not wrapped. */
 html {
   -webkit-text-size-adjust: 100%;
-  scroll-padding-top: 104px;
+  scroll-padding-top: calc(104px + env(safe-area-inset-top, 0px));
   scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + var(--savebar-h, 0px) + 8px);
 }
 
@@ -78,7 +80,7 @@ body {
   color: var(--text);
   font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-variant-numeric: tabular-nums;
-  /* room for the fixed STOP dock and the tab bar on phones */
+  /* room for the fixed STOP dock and the nav on phones */
   padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 16px);
 }
 
@@ -101,19 +103,30 @@ h2 { font-size: 1rem; line-height: 1.4; }
 }
 .skip-link:focus { top: 8px; }
 
-/* ---- header: top bar plus the compact status strip (phones and tablets) */
+/* ---- status bar (every section, every width): name, state dot and word, weight, connection chip.
+   Phones: two rows (name and chip, then state and weight). 600 px: the same two rows with STOP at the right.
+   900 px: one row. Desktop: one row beside the sidebar. Every text is one line, so the height never changes. */
 .header {
   position: sticky; top: 0; z-index: 10;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px;
   background: var(--surface); border-bottom: 1px solid var(--hairline);
-  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
 }
-.topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; }
-.brand { flex: 1 1 auto; min-width: 0; }
-.brand h1 { overflow-wrap: break-word; }
-.brand .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.strip { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0 10px; }
-.strip .state { color: var(--muted); }
-.strip .weight { font-size: 1.5rem; font-weight: 700; }
+/* one line, cut with an ellipsis when the chip needs the room: the full name is in the page text and under Device */
+.header h1 { grid-column: 1; grid-row: 1; min-width: 0; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header .chip { grid-column: 2; grid-row: 1; margin-top: 8px; }
+.strip { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* the state word is the part that gives way: one line, cut with an ellipsis (the full words are in its title and
+   in the Grind section); the weight is never cut */
+.strip .state { flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .weight { flex: none; margin-left: auto; font-size: 1.5rem; font-weight: 700; white-space: nowrap; }
+/* the dot repeats the state word: green idle, blue while something runs, grey while the numbers are old or missing */
+.dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--success); }
+.strip.is-busy .dot { background: var(--primary); }
+.strip.is-stale .dot { background: var(--muted); }
+
+/* the sidebar parts only exist from 1024 px */
+.side-brand, .side-foot { display: none; }
 
 .chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px;
@@ -138,29 +151,32 @@ h2 { font-size: 1rem; line-height: 1.4; }
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
 }
 .stop.is-busy { background: var(--error); color: var(--on-error); }
-/* phones: a fixed dock above the tab bar */
+/* phones: a fixed dock above the nav (STOP stays first in the DOM and in the tab order) */
 .header .stop {
   position: fixed; left: 0; right: 0; width: 100%; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 20;
-  min-height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
+  height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
 }
 /* the dock is full-bleed: an outside ring would be clipped at the screen edges, so draw it inside the box;
    on the solid (busy) fill the ring takes the text-on-fill colour */
 .header .stop:focus-visible { outline-offset: -6px; }
 .header .stop.is-busy:focus-visible { outline-color: var(--on-error); }
-.pane-stop { display: none; }
 
-/* ---- tab bar: fixed at the bottom on phones */
+/* ---- navigation: one markup, three layouts. Phones: bottom bar, the active item gets a pill behind its icon. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: flex; background: var(--surface); border-top: 1px solid var(--hairline);
+  display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface); border-top: 1px solid var(--hairline);
   padding-bottom: var(--safe-bottom);
 }
 .tab {
-  flex: 1 1 0; min-height: var(--tabbar-h); padding: 6px 4px;
+  flex: 1 1 0; min-width: 0; height: var(--tabbar-h); padding: 4px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  background: none; border: 0; color: var(--muted); font: inherit; font-size: .8125rem; cursor: pointer;
+  background: none; border: 0; color: var(--muted); font: inherit; font-size: .75rem; line-height: 1.3; cursor: pointer;
 }
-.tab[aria-current="true"] { color: var(--primary); font-weight: 700; box-shadow: inset 0 3px 0 var(--primary); }
+.tab .icon { width: 20px; height: 20px; }
+.tab-label { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 28px; border-radius: var(--r-pill); }
+.tab[aria-current="true"] { color: var(--primary); font-weight: 700; }
+.tab[aria-current="true"] .tab-icon { background: var(--tint-info); }
 /* edge-to-edge tabs: draw the ring inside the box so the screen edges do not clip it */
 .tab:focus-visible { outline-offset: -6px; }
 
@@ -192,7 +208,6 @@ h2 { font-size: 1rem; line-height: 1.4; }
 .banner.warning .icon { color: var(--warning); }
 .banner.error .icon { color: var(--error); }
 .readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
-.readout .stop { margin-top: 12px; }
 .leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
 .profiles { display: grid; gap: 12px; }
 .profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); }
@@ -346,34 +361,49 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 .savebar .btn { flex: none; }
 .rename .addr { font-weight: 700; overflow-wrap: anywhere; }
 
+/* ---- device section: about card */
+.about { margin: 0; display: grid; gap: 12px; }
+.about-row { display: grid; gap: 2px; min-width: 0; }
+.about-row dt { color: var(--muted); font-size: .875rem; }
+.about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
   .tab { flex-direction: row; gap: 6px; padding: 2px 4px; }
+  .tab-icon { width: 40px; }
   .stop { font-size: 1rem; }
-  html { scroll-padding-top: 64px; }
 }
 
-/* ---- tablet: tabs on top as a segmented control, STOP in the header */
+/* ---- tablet: the two-row status bar with STOP at the right over both rows, the nav as a pill segmented control
+   under it. The state row has the full width left of STOP, so a long state word never pushes STOP out. */
 @media (min-width: 600px) {
   :root { --gutter: 24px; }
   .card { padding: 20px; }
-  .topbar { min-height: 60px; }  /* room for the 3 px ring plus 2 px offset around the 48 px STOP */
-  html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
+  html { scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
   body { padding-bottom: 24px; }
-  /* last in the header on the right; DOM and keyboard order keep STOP first */
-  .header .stop { order: 3; position: static; width: auto; flex: none; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: var(--r-field); }
+  .header { grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  .header h1 { padding-top: 0; }
+  .header .chip { margin-top: 0; }
+  .strip { grid-column: 1 / 3; }
+  /* the right column, never shrinks; DOM and keyboard order keep STOP first */
+  .header .stop { grid-column: 3; grid-row: 1 / 3; position: static; width: auto; flex: none; height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: var(--r-field); }
   /* static again: the normal outside ring on the page background */
   .header .stop:focus-visible, .header .stop.is-busy:focus-visible { outline-offset: 2px; outline-color: var(--focus); }
-  .strip { display: none; }
+  .side { display: contents; }
   .tabbar {
-    position: static; display: flex; width: max-content; max-width: 100%; margin: 16px auto 0; padding: 4px;
+    position: static; width: max-content; max-width: 100%; height: auto; margin: 16px auto 0; padding: 4px;
     background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-row);
   }
   .tab:focus-visible { outline-offset: 2px; }
-  .tab { flex-direction: row; gap: 8px; min-width: 112px; min-height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab { flex-direction: row; gap: 8px; min-width: 112px; height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab .icon { width: 24px; height: 24px; }
+  .tab-icon { width: auto; height: auto; }
   .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
-  .content { max-width: 688px; margin: 0 auto; }
+  .tab[aria-current="true"] .tab-icon { background: none; }
+  .content, .notice { max-width: 688px; margin-inline: auto; }
+  .content { padding-inline: var(--gutter); }
+  .notice { padding-inline: var(--gutter); }
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
   .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -384,29 +414,61 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   }
 }
 
-/* ---- desktop: two panes, live controls on the left */
+/* ---- wide tablet: one row (name, state and weight, chip, STOP). The state takes what is left and is cut first;
+   the name keeps its width until the state and weight are down to their 10 rem floor. */
 @media (min-width: 900px) {
-  .header { padding-inline: max(var(--gutter), calc((100% - 1120px) / 2)); }
-  .tabbar { margin: 16px max(var(--gutter), calc((100% - 1120px) / 2)) 0 auto; }
-  .content { max-width: 1120px; padding-inline: var(--gutter); }
-  .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; align-items: start; }
-  /* the left pane scrolls by itself when it is taller than the window; padding keeps focus rings inside */
-  #panel-grind {
-    position: sticky; top: 88px; display: grid; grid-template-columns: minmax(0, 1fr);
-    max-height: calc(100vh - 104px); overflow-y: auto; padding: 4px; margin: -4px;
-  }
-  #panel-grind[hidden] { display: grid !important; }
-  #tab-grind { display: none; }
-  .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
-  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
-  .profiles { grid-template-columns: minmax(0, 1fr); }
+  html { scroll-padding-top: calc(80px + env(safe-area-inset-top, 0px)); }
+  /* 68 px: room for the 3 px ring plus 2 px offset around the 48 px STOP */
+  .header { display: flex; gap: 16px; min-height: 68px; }
+  .header h1 { flex: 0 1 auto; }
+  .strip { order: 2; flex: 1 1 0; min-width: 10rem; gap: 12px; }
+  .strip .weight { margin-left: 0; }
+  .header .chip { order: 3; }
+  .header .stop { order: 4; }
 }
 
-/* wide enough for the centred 1120 px column: the header and the cards share the same edge */
-@media (min-width: 1168px) {
-  .content { padding-inline: 0; }
+/* ---- desktop: fixed 232 px sidebar (brand, STOP, four nav rows, name and firmware), status bar and content beside it.
+   STOP sits at fixed offsets under the brand: the brand is one 48 px line, so they cannot drift apart.
+   STOP lives in the sticky header (z-index 10, a stacking context), so the sidebar must stay BELOW the header's
+   level (9), or it would paint over STOP and swallow its clicks (found in the V3 audit).
+   Only the nav scrolls in a short window, inside its own box below STOP, so a row never slides under STOP. */
+@media (min-width: 1024px) {
+  .app { padding-left: var(--side-w); }
+  .side {
+    position: fixed; z-index: 9; left: 0; top: 0; bottom: 0; width: var(--side-w);
+    display: flex; flex-direction: column; padding: 16px; overflow: hidden;
+    background: var(--surface); border-right: 1px solid var(--hairline);
+  }
+  .side-brand { display: flex; flex: none; align-items: center; gap: 10px; height: 48px; min-width: 0; font-size: 1.125rem; font-weight: 800; white-space: nowrap; }
+  .side-brand span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .side-brand .icon { width: 28px; height: 28px; color: var(--primary); }
+  .header .stop { position: fixed; z-index: 13; left: 16px; top: 76px; width: calc(var(--side-w) - 32px); height: 52px; }
+  /* 70 px margin + 6 px padding = the 76 px STOP slot; the padding (pulled back by the side margins) keeps the
+     focus ring of a row inside the scrolling box */
+  .tabbar {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; flex-direction: column; gap: 4px;
+    width: auto; max-width: none; margin: 70px -6px -6px; padding: 6px; background: none; border: 0; border-radius: 0;
+  }
+  .tab { flex: none; width: 100%; height: 48px; padding: 0 14px; justify-content: flex-start; gap: 12px; border-radius: var(--r-row); color: var(--text); }
+  .tab:hover { background: var(--tint-info); }
+  .tab[aria-current="true"], .tab[aria-current="true"]:hover { background: var(--primary); color: var(--on-primary); box-shadow: none; }
+  .side-foot { display: block; flex: none; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+  .side-name { font-weight: 700; overflow-wrap: anywhere; }
+  .side-foot .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+  html { scroll-padding-top: 88px; }
+  /* the name is in the sidebar: keep the h1 for screen readers only */
+  .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
+  .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
+  /* two cards per row (Settings); the Grind cards span the full row until V4 */
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+}
+
+/* a short window: the name and firmware block gives way so the four rows stay reachable */
+@media (min-width: 1024px) and (max-height: 520px) {
+  .side-foot { display: none; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .stop, .tab { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+  .btn, .stop, .tab, .tab-icon { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
 }

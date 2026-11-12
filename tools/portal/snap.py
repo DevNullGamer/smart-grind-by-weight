@@ -9,9 +9,9 @@ Chrome or Edge screenshot per width x colour scheme x state. Standard library on
   python3 tools/portal/snap.py --list
 
 Output: <out>/<step>/<state>_<width>_<scheme>.png, default out
-~/.claude/workspace/chgreq/smart-grind-by-weight/chg021/shots (outside the repo). The page opens on
-its default tab for the width (a screenshot cannot click), so the Settings and Insights tabs show at 1280 px only
-(there Settings replaces Grind) or by hand. Reduced motion is forced with --reduced-motion.
+~/.claude/workspace/chgreq/smart-grind-by-weight/chg021/shots (outside the repo). The page always opens
+on the Grind section (a screenshot cannot click), at every width; the Settings, Insights and Device sections have to
+be checked by hand. Reduced motion is forced with --reduced-motion.
 """
 
 import argparse

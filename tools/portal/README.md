@@ -10,7 +10,7 @@ tools for working on the page without a grinder.
 
 | File | What |
 |---|---|
-| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, header with STOP and the status strip, tab bar, panels, and one marker per part below. |
+| `web/portal/page.src.html` | The page shell: landmarks, skip link, inline SVG icon sprite, status bar with STOP, name, state and weight, navigation (bottom bar, pill bar or sidebar), panels (Grind, Settings, Insights, Device), and one marker per part below. |
 | `web/portal/portal.css` | Design tokens (light and dark via `prefers-color-scheme`) and layout for phone, tablet and desktop. Marker `/*@@PORTAL_CSS@@*/`. |
 | `web/portal/portal-client.js` | The API client (request queue, error mapping, curl export). Tested by `node --test`. Never logs, never touches storage, no token. Marker `/*@@PORTAL_CLIENT@@*/`. |
 | `web/portal/portal-view.js` | Pure view logic (formatting, controls and their reasons, banners, the lead-in, the settings form). Loadable by node and tested there. Marker `/*@@PORTAL_VIEW@@*/`. |
@@ -149,7 +149,7 @@ A human pass after changing the page (the automated tests do not render it). Sta
    dark scheme (browser or OS setting). Nothing overflows sideways, text is readable, STOP is always reachable.
 2. Walk every page state in the table above at each of the six combinations; the chip, banner and disabled reasons
    match the "What to expect" column.
-3. Keyboard only: Tab through the page in order (skip link, STOP, tabs, controls, save bar). Every focus ring is
+3. Keyboard only: Tab through the page in order (skip link, STOP, navigation, controls, save bar). Every focus ring is
    visible, including on the checked segmented control and on a busy STOP; Enter and Space activate buttons.
 4. Offline recovery: stop the server (Ctrl+C), see "Offline" and the stale readout, restart it, press "Retry now" and
    check the page recovers without a reload.

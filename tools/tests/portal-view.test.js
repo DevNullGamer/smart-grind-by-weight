@@ -6,19 +6,54 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const PV = require('../../web/portal/portal-view.js');
 
-test('tabForViewport keeps the picked tab on narrow screens', () => {
-    for (const tab of PV.TABS) assert.equal(PV.tabForViewport(tab, false), tab);
+test('the page has four sections, Device last', () => {
+    assert.deepEqual(PV.TABS, ['grind', 'settings', 'insights', 'device']);
 });
 
-test('tabForViewport replaces Grind by Settings from 900 px', () => {
-    assert.equal(PV.tabForViewport('grind', true), 'settings');
+test('tabForViewport keeps the picked tab at every width', () => {
+    for (const tab of PV.TABS) {
+        assert.equal(PV.tabForViewport(tab, false), tab);
+        assert.equal(PV.tabForViewport(tab, true), tab); // a second argument (the old wide flag) changes nothing
+    }
+});
+
+test('tabForViewport no longer replaces Grind by Settings on a wide screen', () => {
+    assert.equal(PV.tabForViewport('grind', true), 'grind');
     assert.equal(PV.tabForViewport('settings', true), 'settings');
     assert.equal(PV.tabForViewport('insights', true), 'insights');
 });
 
-test('tabForViewport falls back for an unknown tab', () => {
+test('tabForViewport falls back to Grind for an unknown tab', () => {
     assert.equal(PV.tabForViewport('nope', false), 'grind');
-    assert.equal(PV.tabForViewport(undefined, true), 'settings');
+    assert.equal(PV.tabForViewport(undefined, true), 'grind');
+});
+
+test('tabForViewport keeps Device, the new fourth section, at every width', () => {
+    assert.equal(PV.tabForViewport('device'), 'device');
+    assert.equal(PV.tabForViewport('device', false), 'device');
+    assert.equal(PV.tabForViewport('device', true), 'device');
+});
+
+test('tabForViewport always answers one of the four sections, Grind for anything else', () => {
+    const odd = [null, undefined, '', ' ', 0, 1, 3, NaN, true, false, {}, [], ['settings'], 'Grind', 'SETTINGS', ' device',
+        'device ', 'tab-device', 'panel-grind', 'length', 'constructor', '__proto__', 'toString', 'indexOf'];
+    for (const value of odd) {
+        for (const wide of [undefined, false, true]) {
+            assert.equal(PV.tabForViewport(value, wide), 'grind', String(value));
+        }
+    }
+    assert.equal(PV.tabForViewport(), 'grind');
+    for (const value of odd.concat(PV.TABS)) {
+        assert.ok(PV.TABS.includes(PV.tabForViewport(value)));
+    }
+});
+
+test('tabForViewport does not change the list of sections', () => {
+    const before = PV.TABS.slice();
+    PV.tabForViewport('device', true);
+    PV.tabForViewport('nope', true);
+    assert.deepEqual(PV.TABS, before);
+    assert.equal(PV.TABS.length, 4);
 });
 
 test('formatWeight shows one decimal and a placeholder without a number', () => {
@@ -391,6 +426,25 @@ test('readoutView: normal, null weight, hints, stale and unknown states', () => 
     assert.equal(PV.readoutView(null, offlineConn, 0).state, 'Offline');
     assert.equal(PV.readoutView(null, offlineConn, 0).weight, '-- g');
     assert.equal(PV.readoutView(status({ ui_state: 'new_thing' }), online(), 0).state, 'new_thing');
+});
+
+test('readoutView: stale without a status and while the web interface is off, live only online with a status', () => {
+    // before any status arrives the bar must not show a live (green) dot
+    assert.equal(PV.readoutView(null, PV.newConnection(), 0).stale, true);
+    assert.equal(PV.readoutView(null, online(), 0).stale, true);
+    assert.equal(PV.readoutView(null, offlineConn, 0).stale, true);
+    // web interface switched off: the last values stay but are marked old, without a "last seen" line
+    const webOff = PV.connectionFailed(online(), 'web_interface_off', 5000);
+    assert.equal(webOff.state, 'web_off');
+    let r = PV.readoutView(status({ weight_g: 18 }), webOff, 9000);
+    assert.deepEqual([r.state, r.weight, r.stale, r.seen], ['Ready', '18.0 g', true, '']);
+    r = PV.readoutView(null, webOff, 9000);
+    assert.deepEqual([r.state, r.weight, r.stale, r.seen], ['Web interface off', '-- g', true, '']);
+    // a lost connection stays stale; back online with a status it is live again, also while the screen is busy
+    assert.equal(PV.readoutView(status(), PV.connectionFailed(online(), 'network', 2), 3).stale, true);
+    assert.equal(PV.readoutView(status(), PV.connectionOk(webOff, 9500), 9600).stale, false);
+    assert.equal(PV.readoutView(status(), PV.connectionFailed(online(), 'ui_busy', 2), 3).stale, false);
+    assert.equal(PV.readoutView(status({ ui_state: 'grinding', busy: true }), online(), 0).stale, false);
 });
 
 test('profileCards: targets follow the grind mode, the selected profile is flagged', () => {
@@ -1284,7 +1338,7 @@ test('the Insights tab is wired in the page: definition lists, a named region, n
     assert.match(app, /client\.getStats\(\)/);
     assert.match(app, /commandBusy: commandPending \|\| client\.pending\(\) > 0/);
     assert.equal(app.includes('innerHTML'), false);
-    // the warnings card sits above Profiles and Tools in the left pane, so it is not behind a long scroll at 900 px and up
+    // the warnings card sits above Profiles and Tools in the Grind section, so it is not behind a long scroll
     assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<section id="warnings"'));
     assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<h2>Profiles</h2>') < html.indexOf('<h2>Tools</h2>'));

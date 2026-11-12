@@ -15,7 +15,7 @@
 }(typeof self !== 'undefined' ? self : this, function (PC) {
 
     // The sections of the page in tab order. Insights stays hidden until the firmware has sent statistics.
-    var TABS = ['grind', 'settings', 'insights'];
+    var TABS = ['grind', 'settings', 'insights', 'device'];
 
     var PROFILE_NAMES = ['Single', 'Double', 'Custom'];
     var PROFILE_KEYS = ['single', 'double', 'custom'];
@@ -170,12 +170,10 @@
         return 'The grinder cannot do this now (' + code + ').';
     }
 
-    // Which tab to show for the tab the user picked. From 900 px the live pane sits beside the tabs, so the Grind tab
-    // does not exist there and Settings takes its place; an unknown name also falls back to Grind or Settings.
-    function tabForViewport(requested, isWide) {
-        var name = TABS.indexOf(requested) >= 0 ? requested : 'grind';
-        if (name === 'grind' && isWide) return 'settings';
-        return name;
+    // Which tab to show for the tab the user picked. Every width has all four sections (chg021 V3: the desktop
+    // sidebar replaced the two-pane layout, so Grind no longer vanishes); an unknown name falls back to Grind.
+    function tabForViewport(requested) {
+        return TABS.indexOf(requested) >= 0 ? requested : 'grind';
     }
 
     // ------------------------------------------------------------------ connection state machine
@@ -534,11 +532,14 @@
         return { visible: rows.length > 0, rows: rows };
     }
 
-    // Texts of the readout card. While the connection is lost the last values stay, marked stale.
+    // Texts of the readout card and the status bar. While the connection is lost the last values stay, marked stale.
+    // `stale` (grey dot, muted texts) is true whenever the values are not live: no status yet, connection lost, or
+    // the web interface switched off (the grinder answers, but it sends no status).
     function readoutView(status, conn, nowMs) {
-        var stale = !!conn && (conn.state === 'offline' || conn.state === 'reconnecting');
+        var lost = !!conn && (conn.state === 'offline' || conn.state === 'reconnecting');
+        var stale = !status || lost || (!!conn && conn.state === 'web_off');
         var seen = '';
-        if (stale && conn.lastOkAt !== null) seen = 'Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago';
+        if (lost && conn.lastOkAt !== null) seen = 'Last seen ' + formatAge(nowMs - conn.lastOkAt) + ' ago';
         if (!status) {
             var label = 'Connecting';
             if (conn && conn.state === 'offline') label = 'Offline';
