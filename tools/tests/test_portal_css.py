@@ -12,8 +12,8 @@ import pytest
 CSS_PATH = Path(__file__).resolve().parent.parent.parent / "web" / "portal" / "portal.css"
 CSS = CSS_PATH.read_text(encoding="utf-8")
 
-SURFACES = ("bg", "surface", "raised")
-# text on every surface (4.5:1). The coloured tokens are used as text (tab, badge, messages, STOP label).
+SURFACES = ("bg", "surface", "raised", "tint-info", "tint-warning", "tint-error", "tint-success")
+# text on every surface, tint fills included (4.5:1). The coloured tokens are used as text (tab, badge, messages, STOP label).
 TEXT_TOKENS = ("text", "muted", "primary", "accent", "success", "warning", "error")
 # control borders, icons, focus ring and switch parts against every surface (3:1)
 COMPONENT_TOKENS = ("border", "primary", "accent", "warning", "error", "focus", "muted")

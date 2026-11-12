@@ -89,8 +89,9 @@ def shoot(browser, url, width, scheme, reduced_motion, target):
     with tempfile.TemporaryDirectory() as profile:
         cmd = [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--user-data-dir={profile}",
                f"--window-size={width},{HEIGHT}", "--virtual-time-budget=4000", f"--screenshot={target}"]
-        if scheme == "dark":
-            cmd.append("--blink-settings=preferredColorScheme=1")
+        # always explicit: without a flag the page follows the OS scheme. Edge headless=new reads the value inverted
+        # (1 gives light, 0 gives dark), checked on screenshots 2026-11-12
+        cmd.append(f"--blink-settings=preferredColorScheme={0 if scheme == 'dark' else 1}")
         if reduced_motion:
             cmd.append("--force-prefers-reduced-motion")
         try:
