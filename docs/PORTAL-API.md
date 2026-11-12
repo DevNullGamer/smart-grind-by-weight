@@ -27,7 +27,7 @@ firmware sources (menu tables, `UiSettings`, `user.h`, `ProfileController`).
 |---|---|---|
 | `GET /api/info` | nothing (open, unchanged) | answers |
 | `GET /` (the page) | Web interface | 403 `web_interface_off` |
-| `GET /api/status`, `GET /api/settings`, `GET /api/schema`, `GET /api/stats`, `GET /api/history` | Web interface | 403 `web_interface_off` |
+| `GET /api/status`, `GET /api/settings`, `GET /api/schema`, `GET /api/stats`, `GET /api/history`, `GET /api/diagnostics` | Web interface | 403 `web_interface_off` |
 | `PATCH /api/settings` | Web interface | 403 `web_interface_off` |
 | `POST /api/command` (including `stop`) | Web interface | 403 `web_interface_off` |
 | `/api/update/begin`, `/api/update/data` | Receive (+ the existing token and Accept dialog) | 403 `receive_off` (the update routes check Receive themselves because the server also runs for the web interface alone) |
@@ -65,6 +65,7 @@ which the grinder never answers.
 | `GET /api/status` | | status object (section 7) |
 | `GET /api/stats` | | lifetime statistics object (section 7, "Statistics") |
 | `GET /api/history` | | the newest finished grinds (section 7, "Recent grinds") |
+| `GET /api/diagnostics` | | read-only health numbers: load cell, motor latency, signal, Bluetooth, board, firmware push (section 7, "Diagnostics") |
 | `GET /api/schema` | | `{"fields":[...],"profiles":[...]}`: everything a page needs to render the settings form |
 | `GET /api/settings` | | `{"values":{<20 keys>},"current_profile":N}` |
 | `PATCH /api/settings` | flat JSON object, see 4 and 5 | 200 `{"ok":true,"values":{...},"current_profile":N,"adjusted":["key",...]}` (the applied state); with a changed `device_name` also `"address":"<name>.local"` |
@@ -72,13 +73,13 @@ which the grinder never answers.
 
 All four commands are served by `POST /api/command`: `stop`, `tare`, `start` and `motor_test`.
 
-The reads (`/api/status`, `/api/settings`, `/api/stats`, `/api/history`) copy a snapshot the UI task publishes (see section 7); with no fresh
+The reads (`/api/status`, `/api/settings`, `/api/stats`, `/api/history`, `/api/diagnostics`) copy a snapshot the UI task publishes (see section 7); with no fresh
 snapshot (the UI task is stuck, for example during a long blocking screen operation) they answer 503 `ui_busy`. `GET /api/schema` is constant and
 needs no snapshot.
 
 Any error is `{"error":"<code>","reason":"<text>"}` with the HTTP status of section 8. Unknown paths and wrong
 methods are answered by the HTTP server (404 / 405) before any of this applies. The buffer sizes the firmware
-needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes), 512 bytes for the statistics (the longest possible reply is 334 bytes) and 2560 bytes for the history (ten worst-case entries are about 2 KB).
+needs are 1 KB for the values and patch reply, 4 KB for the schema, 640 bytes for the status (the longest possible status is 470 bytes), 512 bytes for the statistics (the longest possible reply is 334 bytes), 2560 bytes for the history (ten worst-case entries are about 2 KB) and 320 bytes for the diagnostics (the longest possible reply is 253 bytes).
 
 ## 4. Settings and profile fields
 
@@ -451,6 +452,45 @@ were recorded before the cut in the older file (the newest ones in the active fi
 `docs/DESIGN-NOTES.md`, "Persistent history (chg016)"). A filesystem that is not available at boot keeps the history in
 memory only (`persistent` is `false`).
 
+### Diagnostics (`GET /api/diagnostics`)
+
+Read-only health numbers of the grinder, the same ones its Diagnostics and WiFi pages show, for a Health card on the page.
+Gated by the Web interface switch like every other read (403 `web_interface_off`, `bad_host`, `bad_origin` as usual).
+Nothing here can be changed through the API; Receive, Bluetooth, the GaggiMate link and the board choice stay touch-only.
+The reply is a copy the UI task gathers about every 2 seconds while the Web interface is on; it has its own age limit of
+15 s, after which the route answers 503 `ui_busy` (all three planned, G3b: the route is not wired yet). A firmware without the route answers 404 from the HTTP server, which a
+page treats as "health not available". The route is additive: the contract version does not change. (The encoder and
+its vectors are defined first; the route itself is served from the firmware step that wires it, so an older firmware
+answers 404.)
+
+```
+{"calibrated":true,"cal_factor":1234.56,"std_dev_g":0.012,"noise_ok":true,"sample_rate_sps":10.0,"motor_latency_ms":50,
+ "wifi_rssi_dbm":-58,"ble":"off","board":"V2","board_source":"probe","push_armed":false}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `calibrated` | bool | the load cell has been calibrated |
+| `cal_factor` | number | the load cell calibration factor; may be negative, `0.0` when unknown |
+| `std_dev_g` | number | load cell noise as a standard deviation in grams over the default 500 ms window (`get_standard_deviation_g()`), never negative |
+| `noise_ok` | bool | `noise_level_diagnostic()`, the stateful sustained-2 s noise check; the same verdict the Diagnostics page words as "OK" against "Too High" |
+| `sample_rate_sps` | number | the load cell sample rate detected at init (`get_detected_sample_rate_sps()`), never negative |
+| `motor_latency_ms` | int | the grinder's measured motor response latency in whole milliseconds (0 to 1000000) |
+| `wifi_rssi_dbm` | int or null | WiFi signal strength in dBm (-127 to 0); `null` while the grinder is not connected to WiFi (the firmware's `rssi()` reads 0 then; 0 dBm is never sent for "not connected") |
+| `ble` | string | one word for the Bluetooth state, see below |
+| `board` | string | the detected board: `V1`, `V2` or `UNKNOWN` (the word `/api/info` reports as `board`) |
+| `board_source` | string | how the board was established: `none`, `probe`, `user`, `cached` or `default` |
+| `push_armed` | bool | the Receive toggle (firmware push) is on; read-only here |
+
+`ble` is one of `off`, `advertising`, `connected` (the plain Bluetooth modes) and `link_listening`, `link_connected`,
+`link_linked` (the GaggiMate link mode: waiting, a client connected, a client linked). A client shows a word it does not
+know as received (a later firmware may add one). The numbers follow the number rule of section 4 (at most 3 decimals,
+one kept) and are bounded so a reply is always valid JSON: a value that is not finite is `0.0`, a negative `std_dev_g` or
+`sample_rate_sps` is `0.0`, magnitudes are cut at 1000000000, a value under 0.0005 is `0.0` (never `-0.0`), the latency is
+rounded and cut to 0..1000000, the signal is cut to -127..0. `board` and `board_source` only ever carry the words above.
+The grinder sends no SSID, address or other free text. Everything is additive: a client ignores members it does not know
+and treats a missing one as unknown.
+
 ## 8. Error codes
 
 Every refusal, with its HTTP status. `status` is what the client sees; `error` is the stable machine-readable code.
@@ -494,12 +534,12 @@ Adding a setting means: the menu table and `UiSettings` first, then one row in t
 `portal_api.cpp`, the vectors, the tables above (the pytest guard fails until all agree). Never rename a key or an
 error code, pages rely on them.
 
-Adding a **read route** (like `/api/stats` and `/api/history`) means: `GET` only, `PortalRoute::API_READ` (the Web
+Adding a **read route** (like `/api/stats`, `/api/history` and `/api/diagnostics`) means: `GET` only, `PortalRoute::API_READ` (the Web
 interface gate, the Host and Origin guards and `Cache-Control: no-store` come with it), its own snapshot slot that the
 UI task fills and the HTTP task only copies (own lock, own age limit, 503 `ui_busy` when stale), a reply buffer from
 `ReplyBuffer` and never a large local on the HTTP task's 6 KB stack, a pure encoder with a truncation test at every
 byte and a worst-case size margin, encoder vectors in `portal_api_vectors.json`, the Python mirror in
 `tools/portal/portal_model.py` and `dev_server.py`, a row in the gate table and the routes table above, and a free
-handler slot (`UPDATE_HTTP_MAX_URI_HANDLERS`, 12 of 16 used). The HTTP task never touches the filesystem, NVS, LVGL or the
+handler slot (`UPDATE_HTTP_MAX_URI_HANDLERS`, 12 of 16 used; `/api/diagnostics` will be the 13th when it is wired). The HTTP task never touches the filesystem, NVS, LVGL or the
 controllers for it. Additive members never change the contract version. Never add a token requirement, a CORS header, or a command that takes a free
 target weight or time without a new plan: the panel is open on the local network by design.

@@ -47,6 +47,7 @@ What it simulates:
   `not_ready` meanwhile) and returns to `ready`. `motor_test` keeps the motor busy for 1.5 s (firmware: 1.0 s).
   `tare` zeroes the weight.
 - Insights: `/api/stats` and `/api/history` follow the simulated grinds (a finished grind adds an entry with its target, a final weight 0.1 g over in two pulses, result `complete`; a stopped grind adds nothing; the newest 10 are kept). The history lives in memory only.
+- `/api/diagnostics` answers fixed example values (a calibrated V2 board found by probe, 10 samples per second, Bluetooth off, signal -58 dBm); change them with the `diagnostics` key of `/dev/state`.
 - Settings live in memory only; a restart resets them.
 
 Not simulated: STOP bypassing `latency_ms` (the grinder's STOP skips the UI task mailbox), real timing, hardware faults, gzip (the page is sent plain), the mDNS rename (only the reply), the
@@ -68,6 +69,7 @@ changes what the route reports).
 | `--legacy-status` | off | `GET /api/status` leaves out the `warnings` member, like a firmware from before it existed. The page then shows no warnings list; the `warnings` key of `/dev/state` still holds its value. |
 | `--no-insights` | off | `GET /api/stats` and `GET /api/history` answer 404 from the server (no JSON), like a firmware from before they existed. The page keeps the Insights tab hidden and shows no error. |
 | `--no-history` | off | Only `GET /api/history` answers 404, like a firmware from before chg016 step 12: the Insights tiles work, the recent-grinds list is hidden. |
+| `--no-diagnostics` | off | Only `GET /api/diagnostics` answers 404 from the server (no JSON), like a firmware from before chg021 step G3. Everything else is unchanged. |
 
 The default listens on `127.0.0.1` only.
 
@@ -95,7 +97,7 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `start_block` | `null` or a block code | The start refusal the status reports and a start answers with. |
 | `motor_test_block` | `null` or a block code | The same for the motor test. |
 | `drop_start` | bool | Every remote start is dropped when its lead-in ends (`--drop-start`). |
-| `ui_busy` | bool | `GET` and `PATCH /api/settings`, `GET /api/stats` and `GET /api/history` answer 503 `ui_busy`. |
+| `ui_busy` | bool | `GET` and `PATCH /api/settings`, `GET /api/stats`, `GET /api/history` and `GET /api/diagnostics` answer 503 `ui_busy`. |
 | `store_failed` | bool | A `PATCH` that would change a value answers 500 `store_failed` and stores nothing. A `PATCH` that changes nothing still succeeds. |
 | `latency_ms` | whole number 0 to 30000 | Every reply except `/dev/state` waits this long before it is answered. This delays STOP too; on the grinder STOP bypasses the UI task mailbox and is not slowed (a known simulator difference). |
 | `warnings` | list of warning codes, `[]` for none | The active grinder warnings the status reports in `warnings`, always in priority order and without duplicates: `board_unrecognized`, `motor_fault`, `motor_disabled`, `hx711_not_connected`, `hx711_no_data`, `hx711_sample_rate_invalid`, `mechanical_instability`, `load_cell_noisy`, `load_cell_not_calibrated`. The Grind tab lists them, highest priority first. |
@@ -107,6 +109,8 @@ A `POST` answers the whole state. An unknown key, a wrong type or an out-of-rang
 | `history_restart` | `true` | Marks every entry as recorded before the last restart, as a reboot does: `age_s` becomes `null` (the page says "before the last restart"). |
 | `stats` | object of statistics members | Sets any of the 13 members of `/api/stats` (numbers from 0 to 1e12; `motor_runtime_s` and `powered_minutes` keep growing from the value set) to see unusual numbers. The `GET` shows the current document under `stats`. |
 | `stats_reset` | `true` | Zeroes every statistic, as after a reset on the grinder (`false` is refused). The next finished grind is the first one. |
+| `diagnostics_route` | bool | `false` is `--no-diagnostics`: only `/api/diagnostics` answers 404 (back on with `true`). |
+| `diagnostics` | object of diagnostics members | Sets any of the 11 members of `/api/diagnostics` (`calibrated`, `noise_ok`, `push_armed`: bool; `cal_factor`, `std_dev_g`, `sample_rate_sps`, `motor_latency_ms`: any number, also `NaN`, `Infinity` and huge values, which the reply bounds like the firmware; `wifi_rssi_dbm`: `null` or a whole number; `ble`, `board`, `board_source`: one of the fixed words). The `GET` shows the document the route would answer under `diagnostics`. |
 | `weight` | `null` or a number from -1000 to 1000 | Holds the weight the status reports at this value (`null` releases it). A tare sets the held value to 0. |
 
 ## Reproduce each page state

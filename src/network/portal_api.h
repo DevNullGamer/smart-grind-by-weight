@@ -243,3 +243,44 @@ bool portal_encode_stats(const PortalStats& stats, char* out, size_t cap);
 // target_s and a null target_g, weight-mode grinds the reverse. No text from the device other than fixed names.
 constexpr double PORTAL_HISTORY_WEIGHT_MAX = 1000000.0;
 bool portal_encode_history(const PortalHistory& history, uint32_t now_s, char* out, size_t cap);
+
+// GET /api/diagnostics: read-only health numbers the UI task gathered (load cell, motor latency, WiFi signal, Bluetooth
+// state, board, firmware push). Nothing here is writable. Every number is bounded when encoded, so the reply is always
+// valid JSON a page can show: floats that are not finite become 0.0 (cal_factor keeps its sign, std_dev_g and
+// sample_rate_sps are never negative), magnitudes are cut at PORTAL_DIAGNOSTICS_FLOAT_MAX and a value under half a
+// thousandth is 0.0; motor_latency_ms is a whole number from 0 to PORTAL_DIAGNOSTICS_LATENCY_MAX_MS; the RSSI is cut to
+// PORTAL_DIAGNOSTICS_RSSI_MIN_DBM..0 and is null while unknown. No text from the device other than fixed words.
+constexpr double PORTAL_DIAGNOSTICS_FLOAT_MAX = 1000000000.0;
+constexpr float PORTAL_DIAGNOSTICS_LATENCY_MAX_MS = 1000000.0f;
+constexpr int32_t PORTAL_DIAGNOSTICS_RSSI_MIN_DBM = -127;
+// Bluetooth state in one word: the plain Bluetooth modes, then the GaggiMate link modes (LINK_ONLY)
+enum class PortalBleState : uint8_t {
+    OFF,
+    ADVERTISING,
+    CONNECTED,
+    LINK_LISTENING,
+    LINK_CONNECTED,
+    LINK_LINKED,
+    COUNT
+};
+constexpr size_t PORTAL_BLE_STATE_COUNT = static_cast<size_t>(PortalBleState::COUNT);
+// "off", "advertising", "connected", "link_listening", "link_connected", "link_linked"; "off" for anything else
+const char* portal_ble_state_name(PortalBleState state);
+struct PortalDiagnostics {
+    bool calibrated = false;
+    float cal_factor = 0.0f;
+    float std_dev_g = 0.0f;           // load cell noise, grams
+    bool noise_ok = true;
+    float sample_rate_sps = 0.0f;
+    float motor_latency_ms = 0.0f;    // encoded as whole milliseconds
+    bool wifi_rssi_known = false;     // false encodes "wifi_rssi_dbm":null; false when not connected to WiFi
+                                      // (WiFiManager::rssi() reads 0 then: never send 0 dBm for "not connected")
+    int32_t wifi_rssi_dbm = 0;
+    PortalBleState ble = PortalBleState::OFF;
+    // BoardConfig::name() ("V1", "V2", "UNKNOWN") and BoardConfig::source_name() ("none", "probe", "user", "cached",
+    // "default"); any other text is encoded as "UNKNOWN" / "none" so the reply stays bounded
+    const char* board = "UNKNOWN";
+    const char* board_source = "none";
+    bool push_armed = false;          // Receive toggle (firmware push), read-only here
+};
+bool portal_encode_diagnostics(const PortalDiagnostics& diagnostics, char* out, size_t cap);

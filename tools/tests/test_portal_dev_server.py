@@ -1102,6 +1102,80 @@ def test_no_insights_answers_404_like_a_firmware_without_the_route(server):
     assert call(server, "POST", "/dev/state", '{"insights":true}')[1]["insights"] is True
 
 
+# ------------------------------------------------------------------------------------------ diagnostics (chg021 G3a)
+def _vector_input(case):
+    """The vector input as Python values (the JSON strings "nan"/"inf"/"-inf" stand for the non-finite floats)."""
+    return {k: float(v) if isinstance(v, str) and v in ("nan", "inf", "-inf") else v for k, v in case["input"].items()}
+
+
+def test_diagnostics_vectors():
+    assert len(VECTORS["diagnostics_cases"]) >= 20
+    for c in VECTORS["diagnostics_cases"]:
+        doc = model.diagnostics_document(_vector_input(c))
+        assert list(doc) == list(model.DIAGNOSTICS_KEYS), c["name"]
+        assert model.encode_json(doc) == c["json"], c["name"]
+        assert len(c["json"]) < 320, c["name"]
+
+
+def test_diagnostics_document_replaces_words_outside_the_vocabulary_and_defaults_missing_members():
+    doc = model.diagnostics_document({"ble": "wifi", "board": "v2", "board_source": None})
+    assert (doc["ble"], doc["board"], doc["board_source"]) == ("off", "UNKNOWN", "none")
+    assert doc["wifi_rssi_dbm"] is None and doc["calibrated"] is False and doc["noise_ok"] is True
+    assert doc["motor_latency_ms"] == 0 and doc["cal_factor"] == 0.0
+
+
+def test_diagnostics_route_shape_headers_and_gates(server):
+    status, doc, res = call(server, "GET", "/api/diagnostics")
+    assert status == 200 and list(doc) == list(model.DIAGNOSTICS_KEYS)
+    assert doc == model.diagnostics_document(dev.START_DIAGNOSTICS)
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "GET", "/dev/state")[1]["diagnostics"] == doc
+    assert call(server, "GET", "/api/diagnostics", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/diagnostics", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+    assert call(server, "POST", "/api/diagnostics", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/diagnostics", "{}")[0] == 405
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/diagnostics")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/diagnostics")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_no_diagnostics_answers_404_like_a_firmware_without_the_route(server):
+    server.sim.diagnostics_route = False
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/diagnostics", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/api/stats")[0] == 200 and call(server, "GET", "/api/history")[0] == 200
+    assert call(server, "GET", "/dev/state")[1]["diagnostics_route"] is False
+    assert call(server, "POST", "/dev/state", '{"diagnostics_route":true}')[1]["diagnostics_route"] is True
+    args = dev.build_parser().parse_args(["--no-diagnostics"])
+    assert dev.make_simulator(args).diagnostics_route is False
+    assert dev.make_simulator(dev.build_parser().parse_args([])).diagnostics_route is True
+
+
+def test_dev_state_overrides_diagnostics_members_and_bounds_the_reply(server):
+    body = ('{"diagnostics":{"cal_factor":NaN,"std_dev_g":Infinity,"sample_rate_sps":-5,"motor_latency_ms":1e30,'
+            '"wifi_rssi_dbm":null,"ble":"link_linked","board":"V1","board_source":"user","calibrated":false,'
+            '"noise_ok":false,"push_armed":true}}')
+    status, state, _ = call(server, "POST", "/dev/state", body)
+    assert status == 200
+    doc = call(server, "GET", "/api/diagnostics")[1]
+    assert doc == {"calibrated": False, "cal_factor": 0.0, "std_dev_g": 0.0, "noise_ok": False, "sample_rate_sps": 0.0,
+                   "motor_latency_ms": 1000000, "wifi_rssi_dbm": None, "ble": "link_linked", "board": "V1",
+                   "board_source": "user", "push_armed": True}
+    assert state["diagnostics"] == doc
+    for bad in ('{"diagnostics":{"ble":"wifi"}}', '{"diagnostics":{"board":"V3"}}', '{"diagnostics":{"nope":1}}',
+                '{"diagnostics":{"calibrated":1}}', '{"diagnostics":{"cal_factor":"1"}}',
+                '{"diagnostics":{"wifi_rssi_dbm":-50.5}}', '{"diagnostics":{"cal_factor":1' + "0" * 400 + '}}',
+                '{"diagnostics":[]}'):
+        status, err, _ = call(server, "POST", "/dev/state", bad)
+        assert status == 400 and err["error"] == "dev_state", bad
+    assert call(server, "GET", "/api/diagnostics")[1] == doc  # a refused body changes nothing
+
+
 def test_a_finished_grind_joins_the_statistics_and_a_stopped_one_does_not(server):
     before = call(server, "GET", "/api/stats")[1]
     call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')  # 9 g in weight mode
@@ -1300,3 +1374,39 @@ def test_no_history_answers_404_but_keeps_the_statistics(server):
     args = dev.build_parser().parse_args(["--no-history"])
     assert dev.make_simulator(args).history_route is False
     assert dev.make_simulator(dev.build_parser().parse_args([])).history_route is True
+
+
+# ------------------------------------------------------------------------------------ diagnostics edge cases (G3a tester)
+def test_diagnostics_g3a_model_edges_are_strict_json_in_contract_order():
+    import json as _json
+    inf, nan = float("inf"), float("nan")
+    for rssi in (None, 0, 99, -127, -128, 5, -(2 ** 31), 2 ** 31 - 1):
+        for ble in model.BLE_STATES:
+            doc = model.diagnostics_document({"wifi_rssi_dbm": rssi, "ble": ble})
+            text = model.encode_json(doc)
+            assert len(text) < 320
+            assert list(_json.loads(text, parse_constant=lambda c: pytest.fail(c))) == list(model.DIAGNOSTICS_KEYS)
+            assert doc["wifi_rssi_dbm"] is None if rssi is None else -127 <= doc["wifi_rssi_dbm"] <= 0
+    for v, want in ((nan, 0), (inf, 0), (-inf, 0), (-0.0, 0), (1e9, 1e9), (-1e9, -1e9), (1e10, 1e9), (-1e10, -1e9), (1e-9, 0)):
+        d = model.diagnostics_document({"cal_factor": v})
+        assert d["cal_factor"] == want and "-0.0" not in model.encode_json(d)
+    for v, want in ((-5, 0), (0, 0), (0.4999, 0), (0.5, 1), (1e6, 1000000), (1e7, 1000000), (nan, 0), (inf, 0)):
+        assert model.diagnostics_document({"motor_latency_ms": v})["motor_latency_ms"] == want
+    d = model.diagnostics_document({"std_dev_g": -1, "sample_rate_sps": 1e30})
+    assert d["std_dev_g"] == 0.0 and d["sample_rate_sps"] == 1e9
+    for bad in ("", '"', "\\", 'a"b' + chr(92) + 'c', None, "v2"):
+        d = model.diagnostics_document({"board": bad, "board_source": bad, "ble": bad})
+        assert (d["board"], d["board_source"], d["ble"]) == ("UNKNOWN", "none", "off")
+
+
+def test_diagnostics_g3a_dev_state_extremes_stay_valid_json_under_320_bytes(server):
+    import json as _json
+    for body in ('{"diagnostics":{"cal_factor":-Infinity,"std_dev_g":NaN,"sample_rate_sps":1e308,"motor_latency_ms":-1e308,'
+                 '"wifi_rssi_dbm":-2147483648,"ble":"link_connected","board_source":"default","board":"UNKNOWN"}}',
+                 '{"diagnostics":{"wifi_rssi_dbm":99,"cal_factor":-0.0,"motor_latency_ms":0.4999}}'):
+        assert call(server, "POST", "/dev/state", body)[0] == 200
+        status, doc, res = call(server, "GET", "/api/diagnostics")
+        assert status == 200 and list(doc) == list(model.DIAGNOSTICS_KEYS)
+        raw = model.encode_json(doc)
+        _json.loads(raw, parse_constant=lambda c: pytest.fail(c))
+        assert len(raw) < 320

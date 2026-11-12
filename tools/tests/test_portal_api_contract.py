@@ -494,6 +494,65 @@ def test_history_route_members_and_sources_follow_the_document():
     assert "portal_history_result_name(" in encoder and "portal_encode_history(" in handler
 
 
+def test_diagnostics_route_members_words_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/diagnostics`" in doc
+    assert "`GET /api/diagnostics`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert "| `GET /api/diagnostics` |" in doc.split("## 3.")[1].split("## 4.")[0], "routes table row"
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_diagnostics\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == list(portal_model.DIAGNOSTICS_KEYS), "the encoder's members and their order equal the Python mirror"
+    assert len(members) == 11
+    for name in members:
+        assert f"`{name}`" in doc, f"diagnostics member {name} missing in PORTAL-API.md"
+    # ble: exactly six words, in the order of the enum, the Python mirror and the document
+    header = read("src/network/portal_api.h")
+    enum_words = [m.lower() for m in enum_members(header, "PortalBleState") if m != "COUNT"]
+    table = re.search(r"kBleStateNames\[PORTAL_BLE_STATE_COUNT\] = \{(.*?)\};", api, re.S).group(1)
+    assert re.findall(r'"([a-z_]+)"', table) == enum_words == list(portal_model.BLE_STATES)
+    assert enum_words == ["off", "advertising", "connected", "link_listening", "link_connected", "link_linked"]
+    for word in enum_words:
+        assert f"`{word}`" in doc, f"ble word {word} missing in PORTAL-API.md"
+    # board and board_source: the words BoardConfig::name() / source_name() return, nothing invented
+    board = read("src/config/board_config.h")
+    name_fn = re.search(r"const char\* name\(\) const \{(.*?)\n    \}", board, re.S).group(1)
+    source_fn = re.search(r"const char\* source_name\(\) const \{(.*?)\n    \}", board, re.S).group(1)
+    firmware_boards = re.findall(r'return "(\w+)";', name_fn)
+    firmware_sources = re.findall(r'return "(\w+)";', source_fn)
+    assert sorted(firmware_boards) == sorted(portal_model.BOARD_NAMES) == sorted(["V1", "V2", "UNKNOWN"])
+    assert sorted(firmware_sources) == sorted(portal_model.BOARD_SOURCES)
+    assert re.findall(r'"(\w+)"', re.search(r"kBoardNames\[\] = \{(.*?)\};", api, re.S).group(1)) == list(portal_model.BOARD_NAMES)
+    assert re.findall(r'"(\w+)"', re.search(r"kBoardSourceNames\[\] = \{(.*?)\};", api, re.S).group(1)) == list(portal_model.BOARD_SOURCES)
+    for word in firmware_boards + firmware_sources:
+        assert f"`{word}`" in doc, f"board word {word} missing in PORTAL-API.md"
+    # /api/info reports the same board name
+    assert "board().name()" in read("src/network/update_server.cpp")
+    # bounds: the constants of the encoder, the mirror and the document agree
+    assert re.search(r"PORTAL_DIAGNOSTICS_FLOAT_MAX\s*=\s*1000000000\.0;", header)
+    assert portal_model.DIAGNOSTICS_FLOAT_MAX == 1e9
+    assert re.search(r"PORTAL_DIAGNOSTICS_LATENCY_MAX_MS\s*=\s*1000000\.0f;", header)
+    assert portal_model.DIAGNOSTICS_LATENCY_MAX_MS == 1e6
+    assert re.search(r"PORTAL_DIAGNOSTICS_RSSI_MIN_DBM\s*=\s*-127;", header)
+    assert portal_model.DIAGNOSTICS_RSSI_MIN_DBM == -127
+    # vectors: every word, the unknown signal and the non-finite inputs are covered; the longest reply fits its buffer
+    cases = VECTORS["diagnostics_cases"]
+    for case in cases:
+        assert list(case["input"]) == members and list(json.loads(case["json"])) == members, case["name"]
+    assert {c["input"]["ble"] for c in cases} == set(enum_words)
+    assert {c["input"]["board"] for c in cases} == set(firmware_boards)
+    assert {c["input"]["board_source"] for c in cases} == set(firmware_sources)
+    assert any(json.loads(c["json"])["wifi_rssi_dbm"] is None for c in cases)
+    assert any(c["input"]["cal_factor"] == "nan" for c in cases)
+    buffer_size = macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_JSON_MAX")
+    assert buffer_size == 320 and max(len(c["json"]) for c in cases) < buffer_size
+    assert f"{max(len(c['json']) for c in cases)} bytes" in doc, "the document names the longest reply"
+    # the route is read-only and additive: no write member, no new error code, the contract version is unchanged
+    assert VECTORS["version"] == 1
+
+
 def test_http_task_code_stays_off_the_ui_side():
     # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
     # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
