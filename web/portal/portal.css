@@ -164,6 +164,8 @@ h2 { font-size: 1rem; line-height: 1.4; }
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
 }
 .stop.is-busy { background: var(--error); color: var(--on-error); }
+/* STOP sent and not yet answered: a steady inner ring (no size change); the motion block makes it breathe */
+.stop.is-sending { box-shadow: inset 0 0 0 3px currentColor; }
 /* phones: a fixed dock above the nav (STOP stays first in the DOM and in the tab order) */
 .header .stop {
   position: fixed; left: 0; right: 0; width: 100%; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 20;
@@ -299,9 +301,11 @@ p.alert-body { font-weight: 600; }
 .tile dd { margin: 0; }
 .tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
 .tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-/* loading placeholders: the same boxes as the tiles and rows, so nothing moves when the data arrives (shimmer: V7) */
-.skeleton { min-height: 96px; }
-.h-row.skeleton { min-height: 88px; }
+/* loading placeholders: the same boxes as the tiles and rows, so nothing moves when the data arrives (shimmer: V7).
+   The tile placeholders reuse .tiles, so they have the real grid and spanning rule */
+/* heights follow the measured real tiles and rows (text wrapping makes the real ones vary a little with the width) */
+.tile.skeleton { min-height: 160px; }
+.h-row.skeleton { min-height: 134px; }
 .mix-bar { display: flex; height: 14px; border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 14px; background: var(--raised); }
 .mix-bar .seg { min-width: 0; }
 .mix-bar .seg + .seg { border-left: 2px solid var(--surface); }
@@ -486,6 +490,8 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .tiles > :last-child:nth-child(odd) { grid-column: auto; }
   .tiles > :last-child:nth-child(4n+3) { grid-column: span 2; }
+  .tile.skeleton { min-height: 172px; }
+  .h-row.skeleton { min-height: 111px; }
   .h-bars { gap: 10px; }
   .h-col { max-width: 36px; }
   .tabbar { box-shadow: none; }
@@ -568,6 +574,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
   .tools-card { grid-column: 1; grid-row: 2; }
   .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
+  .tile.skeleton { min-height: 134px; }
 }
 
 /* a short window: the name and firmware block gives way so the four rows stay reachable */
@@ -575,6 +582,33 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .side-foot { display: none; }
 }
 
+/* ---- motion (chg021 V7). Every animation, transition and keyframe sits in this one block: with reduced motion
+   nothing moves. Nothing animates on text that changes with a poll (weight, state words, "Updated Ns ago"); the
+   fade runs when a card is shown, the pulses only while their state lasts (skeleton, STOP sent, reconnecting). */
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .stop, .tab, .tab-icon, .seg-opts span, input.switch, input.switch::before { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+  .btn, .stop, .tab, .tab-icon, .seg-opts span, input.switch { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+  input.switch::before { transition: left .15s var(--ease), background-color .15s var(--ease); }
+  .dot, .profile { transition: background-color .2s var(--ease), border-color .2s var(--ease); }
+  /* the countdown ring glides between the 250 ms ticks */
+  .ring-arc { transition: stroke-dashoffset .25s linear; }
+
+  /* a card fades in (and rises 4 px) when it is shown: page load, tab change, a card that appears. No fill after the
+     end, so no transform is left on the card */
+  .card { animation: card-in .22s var(--ease) backwards; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(4px); } }
+
+  /* loading placeholders: a soft light band passes over the raised fill */
+  .is-loading > .skeleton {
+    background: linear-gradient(100deg, var(--raised) 30%, color-mix(in srgb, var(--border) 38%, var(--raised)) 50%, var(--raised) 70%) 100% 0 / 300% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: 0 0; } }
+
+  /* STOP sent and not yet answered: an inner ring breathes; the button stays enabled and keeps its label */
+  .stop.is-sending { animation: stop-ring 1.1s ease-in-out infinite; }
+  @keyframes stop-ring { 50% { box-shadow: inset 0 0 0 6px currentColor; } }
+
+  /* lost contact, trying again: the state dots breathe */
+  .is-reconnecting .dot { animation: dot-pulse 1.4s ease-in-out infinite; }
+  @keyframes dot-pulse { 50% { opacity: .35; } }
 }

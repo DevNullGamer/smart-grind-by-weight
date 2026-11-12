@@ -371,3 +371,135 @@ def test_muted_keeps_a_margin_over_the_text_minimum_on_every_surface(scheme):
     tokens = scheme_tokens(CSS)[scheme]
     for bg in SURFACES:
         assert contrast(tokens["muted"], tokens[bg]) >= 4.5, f"{scheme}: muted on {bg}"
+
+
+# ---- chg021 V7: motion lives in one prefers-reduced-motion: no-preference block ----
+
+MOTION_QUERY = "(prefers-reduced-motion: no-preference)"
+MOTION_PROPERTY = re.compile(r"^(animation|transition)(-[a-z-]+)?$")
+
+
+def _strip_comments_and_strings(css):
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return re.sub(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'", '""', css)
+
+
+def motion_findings(css):
+    """Walk the stylesheet by brace depth. Returns (outside, inside): lists of 'where: what' strings for every
+    animation*/transition* declaration, @keyframes and scroll-behavior: smooth, split by whether an enclosing
+    @media (prefers-reduced-motion: no-preference) block exists."""
+    outside, inside = [], []
+    stack = []
+    segment = ""
+    for ch in _strip_comments_and_strings(css):
+        if ch == "{":
+            stack.append(" ".join(segment.split()))
+            segment = ""
+        elif ch in ";}":
+            text = " ".join(segment.split())
+            segment = ""
+            if text and ":" in text and stack:
+                prop, _, value = text.partition(":")
+                prop, value = prop.strip().lower(), value.strip().lower()
+                if MOTION_PROPERTY.match(prop) or (prop == "scroll-behavior" and value == "smooth"):
+                    in_motion = any(h.startswith("@media") and MOTION_QUERY in h for h in stack)
+                    (inside if in_motion else outside).append(f"{stack[-1]}: {prop}: {value}")
+            if ch == "}" and stack:
+                stack.pop()
+        else:
+            segment += ch
+    return outside, inside
+
+
+def keyframes_outside_motion(css):
+    """Names of @keyframes whose enclosing blocks do not include the no-preference media query."""
+    bad, stack, segment = [], [], ""
+    for ch in _strip_comments_and_strings(css):
+        if ch == "{":
+            header = " ".join(segment.split())
+            if re.match(r"@(-webkit-)?keyframes\b", header) and not any(
+                    h.startswith("@media") and MOTION_QUERY in h for h in stack):
+                bad.append(header)
+            stack.append(header)
+            segment = ""
+        elif ch == "}":
+            if stack:
+                stack.pop()
+            segment = ""
+        elif ch == ";":
+            segment = ""
+        else:
+            segment += ch
+    return bad
+
+
+def test_every_animation_transition_and_keyframes_sits_in_the_no_preference_block():
+    outside, inside = motion_findings(CSS)
+    assert not outside, "motion outside @media (prefers-reduced-motion: no-preference):\n" + "\n".join(outside)
+    assert not keyframes_outside_motion(CSS)
+    assert any("animation:" in s for s in inside) and any("transition:" in s for s in inside), \
+        "the parser found no motion at all: it is broken or the motion block was removed"
+    assert len(re.findall(r"@keyframes\b", CSS)) >= 3
+
+
+def test_motion_check_fails_when_a_transition_or_keyframes_leaves_the_block():
+    moved = CSS.replace(".ring-arc { transition: stroke-dashoffset .25s linear; }", "", 1)
+    moved += "\n.ring-arc { transition: stroke-dashoffset .25s linear; }\n"
+    assert moved != CSS
+    outside, _ = motion_findings(moved)
+    assert outside and "transition" in outside[0]
+    no_block = CSS.replace("@keyframes shimmer { to { background-position: 0 0; } }", "", 1)
+    no_block += "\n@keyframes shimmer { to { background-position: 0 0; } }\n"
+    assert keyframes_outside_motion(no_block) == ["@keyframes shimmer"]
+    # an animation in a different media block (min-width) is outside too
+    other = CSS + "\n@media (min-width: 600px) { .x { animation: a 1s; } }\n"
+    assert motion_findings(other)[0]
+
+
+def test_no_smooth_scrolling_outside_the_no_preference_block():
+    outside, _ = motion_findings(CSS)
+    assert not [s for s in outside if "scroll-behavior" in s]
+    assert motion_findings(CSS + "\nhtml { scroll-behavior: smooth; }\n")[0]
+
+
+def _rule_declarations(css, selector):
+    """Declarations of every top-level (depth 0) rule whose selector list is exactly `selector`."""
+    stripped = _strip_comments_and_strings(css)
+    out = []
+    for m in re.finditer(r"(?:^|\})\s*([^{}@]+?)\s*\{([^{}]*)\}", stripped):
+        if " ".join(m.group(1).split()) == selector:
+            out.append(m.group(2))
+    return out
+
+
+def test_stop_sending_cue_is_static_outside_motion_and_changes_no_layout():
+    before_motion = CSS.split("@media (prefers-reduced-motion: no-preference)")[0]
+    bodies = _rule_declarations(before_motion, ".stop.is-sending")
+    assert len(bodies) == 1, "the static .stop.is-sending rule must exist at top level (outside the motion block)"
+    body = bodies[0]
+    assert re.search(r"box-shadow:\s*inset\b", body), "the ring must be an inset box-shadow"
+    assert not re.search(r"animation|transition", body)
+    props = set(re.findall(r"([a-z-]+)\s*:", body))
+    layout = {"width", "height", "padding", "border", "display", "margin", "min-width", "min-height", "border-width",
+              "font-size", "font-weight", "letter-spacing", "gap", "position"}
+    assert not [p for p in props if p in layout or p.startswith(("padding", "border", "margin"))], props
+    # the animated variant in the motion block also only touches box-shadow
+    assert re.search(r"@keyframes stop-ring\s*\{\s*50%\s*\{\s*box-shadow:[^;}]*;?\s*\}\s*\}", CSS)
+
+
+def _mix_srgb(a, b, pct_a):
+    """color-mix(in srgb, a pct_a%, b) as #rrggbb."""
+    return _blend(a, b, pct_a / 100)
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_skeleton_shimmer_band_differs_visibly_from_the_skeleton_fill(scheme):
+    """The band is color-mix(--border N%, --raised) over --raised. Threshold: WCAG contrast of band vs fill >= 1.15:1
+    (visible but calm: a 1.0x ratio would be invisible, the 3:1 of a component border would be harsh)."""
+    m = re.search(r"linear-gradient\(100deg,\s*var\(--raised\)\s*30%,\s*color-mix\(in srgb,\s*var\(--border\)\s*(\d+)%,\s*var\(--raised\)\)\s*50%", CSS)
+    assert m, "the shimmer gradient was not found"
+    tokens = scheme_tokens(CSS)[scheme]
+    band = _mix_srgb(tokens["border"], tokens["raised"], int(m.group(1)))
+    ratio = contrast(band, tokens["raised"])
+    assert ratio >= 1.15, f"{scheme}: shimmer band {band} vs fill {tokens['raised']} is {ratio:.3f}:1"
+    assert ratio <= 3.0, f"{scheme}: shimmer band is harsh ({ratio:.2f}:1)"
