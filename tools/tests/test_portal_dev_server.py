@@ -777,6 +777,42 @@ def test_every_start_tare_and_motor_test_button_has_visible_reason_text():
         tag = re.search(rf'<button id="{button}"[^>]*>', page).group(0)
         assert f'aria-describedby="{reason}"' in tag
         assert f'id="{reason}"' in page
+    # the Start reason is shown once, visibly, under the Profiles heading (the per-button ones are screen-reader only)
+    visible = re.search(r'<[a-z]+ id="reason-start"[^>]*>', page)
+    assert visible, "page lacks #reason-start"
+    assert not re.search(r'sr-only|hidden', visible.group(0)), visible.group(0)
+    assert page.index("<h2>Profiles</h2>") < visible.start() < page.index('id="profile-0"')
+
+
+def test_round_start_buttons_are_named_and_described_by_existing_ids():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for i, name in enumerate(("Single", "Double", "Custom")):
+        tag = re.search(rf'<button id="start-{i}"[^>]*>', page).group(0)
+        assert f'aria-label="Start {name}"' in tag and 'class="btn primary round"' in tag
+        described = re.search(r'aria-describedby="([^"]+)"', tag).group(1)
+        for ident in described.split():
+            assert page.count(f'id="{ident}"') == 1, ident
+
+
+def test_weight_is_not_inside_a_live_region():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for ident in ("readout-weight", "strip-weight"):
+        pos = page.index(f'id="{ident}"')
+        # walk the open tags before the weight: none that is still open may carry a live role
+        open_stack = []
+        for m in re.finditer(r"<(/?)([a-z0-9]+)([^>]*)>", page[:pos]):
+            closing, tag, attrs = m.groups()
+            if tag in ("meta", "link", "br", "img", "input", "use", "circle", "path", "rect", "source"):
+                continue
+            if attrs.endswith("/"):
+                continue
+            if closing:
+                if open_stack and open_stack[-1][0] == tag:
+                    open_stack.pop()
+            else:
+                open_stack.append((tag, attrs))
+        for tag, attrs in open_stack:
+            assert "aria-live" not in attrs and 'role="status"' not in attrs and 'role="alert"' not in attrs, (ident, tag, attrs)
 
 
 def test_real_page_is_served_and_drives_a_remote_start(server):

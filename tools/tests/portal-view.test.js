@@ -447,6 +447,77 @@ test('readoutView: stale without a status and while the web interface is off, li
     assert.equal(PV.readoutView(status({ ui_state: 'grinding', busy: true }), online(), 0).stale, false);
 });
 
+test('leadInView: the ring fraction runs from 0 to 1 over the lead-in, with the seconds as its count', () => {
+    const li = PV.leadInStart(1, 3000, 10000);
+    assert.deepEqual([PV.leadInView(li, 10000).fraction, PV.leadInView(li, 10000).count], [0, '3']);
+    assert.deepEqual([PV.leadInView(li, 11500).fraction, PV.leadInView(li, 11500).count], [0.5, '2']);
+    assert.deepEqual([PV.leadInView(li, 13000).fraction, PV.leadInView(li, 13000).count], [1, '']);
+    assert.equal(PV.leadInView(li, 99999).fraction, 1);
+    assert.equal(PV.leadInView(li, 9000).fraction, 0); // a clock that stepped back never gives a negative ring
+    const watching = PV.leadInView(PV.leadInTick(li, status(), 13000), 13500);
+    assert.deepEqual([watching.fraction, watching.count, watching.dropped], [1, '', false]);
+    const dropped = PV.leadInView(PV.leadInTick(li, status(), 15000, 14000), 15000);
+    assert.deepEqual([dropped.fraction, dropped.count, dropped.dropped], [0, '', true]);
+    assert.deepEqual(PV.leadInView(null, 1), { visible: false, seconds: 0, fraction: 0, count: '', dropped: false, text: '' });
+    assert.equal(PV.leadInView(PV.leadInStart(0, 0, 0), 0).fraction, 1); // no lead-in time: full at once
+});
+
+test('readoutView: short words for the status bar, the full words as detail, the weight without its unit', () => {
+    let r = PV.readoutView(status({ weight_g: 12.34 }), online(), 0);
+    assert.deepEqual([r.short, r.detail, r.value], ['Ready', '', '12.3']);
+    r = PV.readoutView(status({ ui_state: 'menu' }), online(), 0);
+    assert.deepEqual([r.short, r.detail, r.state], ['Menu open', 'Menu open on the grinder screen', 'Menu open on the grinder screen']);
+    r = PV.readoutView(status({ ui_state: 'confirm' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['Confirm on grinder', 'Waiting for a confirmation on the grinder screen']);
+    // a hint already says where to look: no second sentence
+    r = PV.readoutView(status({ ui_state: 'grind_complete', grind_phase: 'completed' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['Grind complete', '']);
+    assert.notEqual(r.hint, '');
+    // an unknown state is shown as it came, in both places
+    r = PV.readoutView(status({ ui_state: 'new_thing' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['new_thing', '']);
+    r = PV.readoutView(status({ weight_g: null }), online(), 0);
+    assert.equal(r.value, '--');
+    r = PV.readoutView(null, offlineConn, 0);
+    assert.deepEqual([r.short, r.detail, r.value], ['Offline', '', '--']);
+    // every known state has short words that are no longer than the full ones
+    for (const ui of Object.keys(PC.STATE_TEXT)) {
+        const short = PV.shortStateLabel(ui);
+        assert.ok(short.length > 0 && short.length <= 18 && short.length <= PC.STATE_TEXT[ui].length, ui);
+    }
+    // the lead-in of a remote start: the grinder still says ready, the short words say what happens
+    r = PV.readoutView(status(), online(), 0, { leadIn: true });
+    assert.deepEqual([r.short, r.state, r.detail], ['Starting', 'Ready', '']);
+});
+
+test('readoutView: the tone of the state dot is ready, busy, neutral or stale', () => {
+    const tone = (st, conn, extra) => PV.readoutView(st, conn, 0, extra).tone;
+    assert.equal(tone(status(), online()), 'ready');
+    assert.equal(tone(status({ ui_state: 'grinding', busy: true }), online()), 'busy');
+    assert.equal(tone(status({ busy: true }), online()), 'busy'); // a motor test on the main screen
+    assert.equal(tone(status(), online(), { leadIn: true }), 'busy');
+    assert.equal(tone(status(), online(), { leadIn: false }), 'ready');
+    // neither ready nor running: never the green dot
+    for (const ui of ['menu', 'confirm', 'edit', 'calibration', 'grind_complete', 'grind_timeout', 'purge_confirm',
+        'autotuning', 'ota_update', 'ota_update_failed', 'new_thing']) {
+        assert.equal(tone(status({ ui_state: ui }), online()), 'neutral', ui);
+    }
+    // the main screen, but a start would be refused: not green under the red banner
+    for (const over of [{ start_block: 'motor_fault' }, { start_block: 'motor_disabled' }, { start_block: 'load_cell_no_data' },
+        { start_block: 'update_in_progress' }, { motor_test_block: 'motor_fault' }, { motor_test_block: 'motor_disabled' },
+        { motor_available: false }, { warnings: ['motor_fault'] }, { warnings: ['motor_disabled'] }]) {
+        assert.equal(tone(status(over), online()), 'neutral', JSON.stringify(over));
+    }
+    // a warning that does not stop a start keeps the green dot; a running grind stays busy whatever is blocked
+    assert.equal(tone(status({ warnings: ['load_cell_not_calibrated'] }), online()), 'ready');
+    assert.equal(tone(status({ start_block: 'busy', busy: true }), online()), 'busy');
+    assert.equal(tone(null, PV.newConnection()), 'stale');
+    assert.equal(tone(null, online()), 'stale');
+    assert.equal(tone(status(), offlineConn), 'stale');
+    assert.equal(tone(status({ busy: true }), offlineConn, { leadIn: true }), 'stale');
+    assert.equal(tone(status(), PV.connectionFailed(online(), 'web_interface_off', 1)), 'stale');
+});
+
 test('profileCards: targets follow the grind mode, the selected profile is flagged', () => {
     const values = { grind_mode: 'weight', single_weight_g: 9, double_weight_g: 18, custom_weight_g: 21.5,
         single_time_s: 5, double_time_s: 10, custom_time_s: 12 };
@@ -1338,8 +1409,11 @@ test('the Insights tab is wired in the page: definition lists, a named region, n
     assert.match(app, /client\.getStats\(\)/);
     assert.match(app, /commandBusy: commandPending \|\| client\.pending\(\) > 0/);
     assert.equal(app.includes('innerHTML'), false);
-    // the warnings card sits above Profiles and Tools in the Grind section, so it is not behind a long scroll
-    assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<section id="warnings"'));
+    // the warnings sit above the readout, Profiles and Tools in the Grind section (chg021 V4: alerts first), so they
+    // are not behind a long scroll
+    assert.ok(html.indexOf('<section id="warnings"') > 0 && html.indexOf('<div id="readout"') > 0);
+    assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<div id="readout"'));
+    assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<h2>Profiles</h2>') < html.indexOf('<h2>Tools</h2>'));
 });

@@ -87,6 +87,7 @@ h2 { font-size: 1rem; line-height: 1.4; }
 .micro { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 [hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 .skip-link {
@@ -105,9 +106,10 @@ padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-ri
 .strip { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .strip .state { flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strip .weight { flex: none; margin-left: auto; font-size: 1.5rem; font-weight: 700; white-space: nowrap; }
-.dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--success); }
-.strip.is-busy .dot { background: var(--primary); }
-.strip.is-stale .dot { background: var(--muted); }
+.dot { flex: none; width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; background: var(--muted); }
+.is-ready .dot { border-color: var(--success); background: var(--success); }
+.is-busy .dot { border-color: var(--primary); background: var(--primary); }
+.is-stale .dot { background: none; }
 .side-brand, .side-foot { display: none; }
 .chip {
 display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px;
@@ -121,7 +123,13 @@ background: var(--raised); color: var(--text); border: 1px solid var(--border); 
 font: inherit; font-weight: 600; cursor: pointer;
 }
 .btn:disabled { opacity: .55; cursor: default; }
+.btn .icon { width: 20px; height: 20px; }
 .btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+.btn.ghost { background: none; }
+.btn.ghost:hover:enabled { background: var(--raised); }
+.btn.round { width: 56px; height: 56px; min-height: 56px; padding: 0; border-radius: 50%; box-shadow: var(--shadow); }
+.btn.round .icon { width: 24px; height: 24px; fill: currentColor; }
+.btn.round:disabled { box-shadow: none; }
 .stop {
 background: var(--surface); color: var(--error); border: 3px solid var(--error); border-radius: var(--r-field);
 font: inherit; font-size: 1.125rem; font-weight: 800; letter-spacing: .04em;
@@ -136,7 +144,8 @@ height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
 .header .stop.is-busy:focus-visible { outline-color: var(--on-error); }
 .tabbar {
 position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface); border-top: 1px solid var(--hairline);
+display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface);
+box-shadow: inset 0 1px 0 var(--hairline);
 padding-bottom: var(--safe-bottom);
 }
 .tab {
@@ -151,52 +160,77 @@ background: none; border: 0; color: var(--muted); font: inherit; font-size: .75r
 .tab[aria-current="true"] .tab-icon { background: var(--tint-info); }
 .tab:focus-visible { outline-offset: -6px; }
 .content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
-.layout { display: block; }
 .panel { display: grid; gap: 16px; align-content: start; }
 .card { background: var(--surface); border: 1px solid var(--card-edge); border-radius: var(--r-card); padding: 16px; box-shadow: var(--shadow); }
 .card h2 { margin-bottom: 8px; }
 .muted { color: var(--muted); }
-.readout .state { color: var(--muted); }
-.readout .weight { font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700; line-height: 1.05; }
-.readout .phase { min-height: 1.5em; }
 .notice {
 margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
 color: var(--muted); font-size: .875rem;
 }
-.messages { display: grid; }
+.messages { display: grid; margin-bottom: 8px; }
 .message { grid-area: 1 / 1; min-height: 1.5em; }
 .message.error { color: var(--error); }
 .live { display: contents; }
 .note p + .btn { margin-top: 12px; }
-.banner { display: flex; gap: 12px; align-items: flex-start; border-width: 2px; }
-.banner.warning { border-color: var(--warning); }
-.banner.error { border-color: var(--error); }
-.banner.warning .icon { color: var(--warning); }
-.banner.error .icon { color: var(--error); }
-.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
-.leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
+.grind-grid { display: grid; gap: 16px; }
+.alert { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 12px 12px; border-left: 4px solid var(--border); border-radius: var(--r-row); background: var(--raised); }
+.alert.warning { border-left-color: var(--warning); background: var(--tint-warning); }
+.alert.error { border-left-color: var(--error); background: var(--tint-error); }
+.alert.warning .icon, .alert.warning .warn-tag { color: var(--warning); }
+.alert.error .icon, .alert.error .warn-tag { color: var(--error); }
+.alert.error .icon-warning, .alert.warning .icon-error { display: none; }
+.alert-body { min-width: 0; overflow-wrap: anywhere; }
+p.alert-body { font-weight: 600; }
+.alert-title { font-weight: 700; }
+.warn-tag { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+.warn-action { margin-top: 2px; }
+.alerts, .alert-list { display: grid; gap: 8px; }
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alerts h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; padding: 20px; }
+.hero-state {
+justify-self: start; display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 4px 14px 4px 12px;
+border-radius: 16px; background: var(--raised); font-size: .875rem; font-weight: 600; overflow-wrap: anywhere;
+}
+.hero-state span + span { min-width: 0; }
+.hero.is-ready .hero-state { background: var(--tint-success); color: var(--success); }
+.hero.is-busy .hero-state { background: var(--tint-info); color: var(--primary); }
+.hero-weight { margin-top: 12px; font-size: clamp(3.5rem, 16vw, 6rem); font-weight: 700; line-height: 1.05; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hero-weight .unit { font-size: .4em; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.hero-phase { min-height: 1.5em; margin-top: 4px; font-weight: 600; }
+.hero-line { color: var(--muted); font-size: .875rem; }
+.hero-line:empty { display: none; }
+.hero.is-stale .hero-state, .hero.is-stale .hero-weight, .hero.is-stale .hero-phase,
+.strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
+.leadin { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px; border-radius: var(--r-row); background: var(--tint-info); font-weight: 600; }
+.leadin p { min-width: 0; overflow-wrap: anywhere; }
+.leadin .icon-error { display: none; color: var(--error); }
+.leadin.is-dropped { background: var(--tint-error); }
+.leadin.is-dropped .ring { display: none; }
+.leadin.is-dropped .icon-error { display: block; }
+.ring { flex: none; position: relative; display: grid; place-items: center; width: 48px; height: 48px; color: var(--primary); }
+.ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); fill: none; stroke-width: 4; }
+.ring-track { stroke: var(--border); opacity: .3; }
+.ring-arc { stroke: currentColor; stroke-dasharray: 100px; stroke-dashoffset: calc(100px - var(--ring, 0) * 100px); }
+.ring-count { font-size: 1.25rem; font-weight: 700; line-height: 1; }
+.ring-go { display: none; width: 20px; height: 20px; fill: currentColor; }
+.ring-count:empty + .ring-go { display: block; }
 .profiles { display: grid; gap: 12px; }
-.profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); }
-.p-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.p-target { font-size: 1.5rem; font-weight: 700; }
-.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; }
-.profile .btn { width: 100%; }
-.actions { display: flex; flex-wrap: wrap; gap: 16px; }
-.action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
-.reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
-.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: var(--r-row); background: var(--raised); }
-.warn-row.error { border-left-color: var(--error); }
-.warn-row.warning { border-left-color: var(--warning); }
-.warn-row.error .icon { color: var(--error); }
-.warn-row.warning .icon { color: var(--warning); }
-.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
-.warn-body { min-width: 0; display: grid; gap: 4px; }
-.warn-title { font-weight: 700; overflow-wrap: anywhere; }
-.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
-.warn-row.error .warn-tag { color: var(--error); }
-.warn-row.warning .warn-tag { color: var(--warning); }
-.warn-action { color: var(--text); overflow-wrap: anywhere; }
+.profile {
+display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 12px 12px 12px 16px;
+border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised);
+}
+.profile.is-selected { border-color: var(--accent); }
+.p-head { grid-column: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.p-target { grid-column: 1; font-size: 1.75rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.profile .btn { grid-column: 2; grid-row: 1 / span 2; }
+.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; white-space: nowrap; }
+.reason { color: var(--muted); font-size: .875rem; }
+.reason:empty { display: none; }
+.profiles-card .reason { margin: -4px 0 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
+.action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
 .note-line { font-size: .875rem; margin-top: 12px; }
 .note-line:empty { display: none; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 12px; margin: 12px 0 0; }
@@ -343,13 +377,20 @@ background: var(--raised); border: 1px solid var(--hairline); border-radius: var
 .content { padding-inline: var(--gutter); }
 .notice { padding-inline: var(--gutter); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
-.panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
-.profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
+.tabbar { box-shadow: none; }
+.hero { padding: 24px; }
 #panel-settings { padding-bottom: 24px; }
 .savebar {
 position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: var(--r-card);
 padding: 8px 12px; box-shadow: var(--shadow);
 }
+}
+@media (min-width: 600px) and (max-width: 1023px) {
+.profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.profile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto auto; justify-items: center; gap: 8px; padding: 16px 12px; text-align: center; }
+.p-head { align-self: start; flex-direction: column; }
+.profile .btn { grid-column: 1; grid-row: auto; margin-top: 4px; }
 }
 @media (min-width: 900px) {
 html { scroll-padding-top: calc(80px + env(safe-area-inset-top, 0px)); }
@@ -386,6 +427,11 @@ html { scroll-padding-top: 88px; }
 .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
 .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+.grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
+.hero { grid-column: 1; grid-row: 1; }
+.profiles-card { grid-column: 2; grid-row: 1 / span 2; }
+.tools-card { grid-column: 1; grid-row: 2; }
+.hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
 }
 @media (min-width: 1024px) and (max-height: 520px) {
 .side-foot { display: none; }
@@ -447,157 +493,166 @@ html { scroll-padding-top: 88px; }
     <div id="message" class="message" role="status" aria-live="polite"></div>
     <div id="alert" class="message error" role="alert"></div>
   </div>
-  <div class="layout">
-    <section id="panel-grind" class="panel" aria-label="Grind">
-      <div id="conn-note" class="card note" hidden>
-        <p id="conn-detail"></p>
-        <button id="retry" class="btn" type="button" hidden>Retry now</button>
+  <section id="panel-grind" class="panel" aria-label="Grind">
+    <div id="conn-note" class="card note" hidden>
+      <p id="conn-detail"></p>
+      <button id="retry" class="btn" type="button" hidden>Retry now</button>
+    </div>
+    <div id="weboff" class="card note" hidden>
+      <h2>The web interface is off</h2>
+      <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
+    </div>
+    <div id="live" class="live">
+      <div id="banner" class="alert" hidden>
+        <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+        <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+        <p id="banner-text" class="alert-body"></p>
       </div>
-      <div id="weboff" class="card note" hidden>
-        <h2>The web interface is off</h2>
-        <p>The web interface is switched off on the grinder. Turn it on: Menu, WiFi, Web interface. This page reconnects by itself.</p>
-      </div>
-      <div id="live" class="live">
-        <div id="banner" class="card banner" hidden>
-          <svg class="icon" aria-hidden="true"><use href="#i-warning"></use></svg>
-          <p id="banner-text"></p>
+      <section id="warnings" class="alerts" aria-labelledby="warnings-h" hidden>
+        <h2 id="warnings-h">Grinder warnings</h2>
+        <ul id="warnings-list" class="alert-list" role="list"></ul>
+        <template id="warning-row">
+          <li class="alert">
+            <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+            <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+            <div class="alert-body">
+              <p class="alert-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
+              <p class="warn-action"></p>
+            </div>
+          </li>
+        </template>
+      </section>
+      <div class="grind-grid">
+        <div id="readout" class="card hero is-stale">
+          <h2 class="sr-only">Now</h2>
+          <p class="hero-state"><span class="dot"></span><span id="readout-state">Connecting</span></p>
+          <p class="hero-weight"><span id="readout-weight">--</span><span class="unit"> g</span></p>
+          <p id="readout-phase" class="hero-phase"></p>
+          <p id="readout-detail" class="hero-line"></p>
+          <p id="readout-hint" class="hero-line"></p>
+          <p id="readout-seen" class="hero-line"></p>
+          <div id="leadin" class="leadin" hidden>
+            <span id="ring" class="ring" aria-hidden="true">
+              <svg class="ring-svg" viewBox="0 0 48 48"><circle class="ring-track" cx="24" cy="24" r="20"></circle><circle class="ring-arc" cx="24" cy="24" r="20" pathLength="100"></circle></svg>
+              <span id="ring-count" class="ring-count"></span>
+              <svg class="icon ring-go"><use href="#i-play"></use></svg>
+            </span>
+            <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+            <p id="leadin-text"></p>
+          </div>
         </div>
-        <div id="readout" class="card readout">
-          <h2>Now</h2>
-          <div id="readout-state" class="state">Connecting</div>
-          <div id="readout-weight" class="weight">-- g</div>
-          <div id="readout-phase" class="phase"></div>
-          <div id="readout-hint" class="muted"></div>
-          <div id="readout-seen" class="muted"></div>
-        </div>
-        <div id="leadin" class="card leadin" hidden>
-          <p id="leadin-text"></p>
-        </div>
-        <section id="warnings" class="card warnings" aria-labelledby="warnings-h" hidden>
-          <h2 id="warnings-h">Grinder warnings</h2>
-          <ul id="warnings-list" class="warn-list" role="list"></ul>
-          <template id="warning-row">
-            <li class="warn-row">
-              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
-              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
-              <div class="warn-body">
-                <p class="warn-title"><span class="warn-tag"></span> <span class="warn-name"></span></p>
-                <p class="warn-action"></p>
-              </div>
-            </li>
-          </template>
-        </section>
-        <div class="card">
+        <div class="card profiles-card">
           <h2>Profiles</h2>
+          <p id="reason-start" class="reason" aria-hidden="true"></p>
           <div class="profiles">
-          <div id="profile-0" class="profile">
-            <div class="p-head"><strong>Single</strong><span id="badge-0" class="badge" hidden>Selected on grinder</span></div>
-            <div id="target-0" class="p-target">--</div>
-            <button id="start-0" class="btn primary" type="button" aria-label="Start Single" aria-describedby="reason-start-0">Start</button>
-            <p id="reason-start-0" class="reason"></p>
-          </div>
-          <div id="profile-1" class="profile">
-            <div class="p-head"><strong>Double</strong><span id="badge-1" class="badge" hidden>Selected on grinder</span></div>
-            <div id="target-1" class="p-target">--</div>
-            <button id="start-1" class="btn primary" type="button" aria-label="Start Double" aria-describedby="reason-start-1">Start</button>
-            <p id="reason-start-1" class="reason"></p>
-          </div>
-          <div id="profile-2" class="profile">
-            <div class="p-head"><strong>Custom</strong><span id="badge-2" class="badge" hidden>Selected on grinder</span></div>
-            <div id="target-2" class="p-target">--</div>
-            <button id="start-2" class="btn primary" type="button" aria-label="Start Custom" aria-describedby="reason-start-2">Start</button>
-            <p id="reason-start-2" class="reason"></p>
-          </div>
+            <div id="profile-0" class="profile">
+              <div class="p-head"><strong>Single</strong><span id="badge-0" class="badge" hidden>Selected on grinder</span></div>
+              <div id="target-0" class="p-target">--</div>
+              <button id="start-0" class="btn primary round" type="button" aria-label="Start Single" aria-describedby="reason-start-0"><svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
+              <p id="reason-start-0" class="sr-only"></p>
+            </div>
+            <div id="profile-1" class="profile">
+              <div class="p-head"><strong>Double</strong><span id="badge-1" class="badge" hidden>Selected on grinder</span></div>
+              <div id="target-1" class="p-target">--</div>
+              <button id="start-1" class="btn primary round" type="button" aria-label="Start Double" aria-describedby="reason-start-1"><svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
+              <p id="reason-start-1" class="sr-only"></p>
+            </div>
+            <div id="profile-2" class="profile">
+              <div class="p-head"><strong>Custom</strong><span id="badge-2" class="badge" hidden>Selected on grinder</span></div>
+              <div id="target-2" class="p-target">--</div>
+              <button id="start-2" class="btn primary round" type="button" aria-label="Start Custom" aria-describedby="reason-start-2"><svg class="icon" aria-hidden="true"><use href="#i-play"></use></svg></button>
+              <p id="reason-start-2" class="sr-only"></p>
+            </div>
           </div>
         </div>
-        <div class="card">
+        <div class="card tools-card">
           <h2>Tools</h2>
           <div class="actions">
             <div class="action">
-              <button id="tare" class="btn" type="button" aria-describedby="reason-tare">Tare</button>
+              <button id="tare" class="btn ghost" type="button" aria-describedby="reason-tare"><svg class="icon" aria-hidden="true"><use href="#i-scale"></use></svg>Tare</button>
               <p id="reason-tare" class="reason"></p>
             </div>
             <div class="action">
-              <button id="motor-test" class="btn" type="button" aria-describedby="reason-motor-test">Motor test</button>
+              <button id="motor-test" class="btn ghost" type="button" aria-describedby="reason-motor-test"><svg class="icon" aria-hidden="true"><use href="#i-motor"></use></svg>Motor test</button>
               <p id="reason-motor-test" class="reason"></p>
             </div>
           </div>
         </div>
       </div>
+    </div>
+  </section>
+  <section id="panel-settings" class="panel" aria-label="Settings" hidden>
+    <div id="settings-status" class="card full"><p id="settings-status-text" class="muted">Loading the settings.</p></div>
+    <div id="rename" class="card full note rename" hidden>
+      <h2>Device name changed</h2>
+      <p id="rename-text"></p>
+      <p><a id="rename-link" class="addr" href="#main" hidden></a></p>
+    </div>
+    <div id="settings-notice" class="card full note" hidden>
+      <p id="settings-notice-text"></p>
+    </div>
+    <div id="settings-form" class="settings-form" hidden></div>
+    <div id="savebar" class="savebar" hidden>
+      <div class="save-info">
+        <strong id="save-count" aria-live="polite">0 changes</strong>
+        <p id="save-reason" class="reason"></p>
+        <p id="save-error" class="field-msg error"></p>
+      </div>
+      <button id="discard" class="btn" type="button">Discard</button>
+      <button id="save" class="btn primary" type="button" aria-describedby="save-reason">Save</button>
+    </div>
+  </section>
+  <section id="panel-insights" class="panel" aria-label="Insights" hidden>
+    <div class="card full">
+      <h2 id="insights-h">Lifetime statistics</h2>
+      <p id="insights-message" class="muted"></p>
+      <dl id="tiles" class="tiles" hidden></dl>
+      <p id="insights-note" class="muted note-line"></p>
+    </div>
+    <section id="mix" class="card full" aria-labelledby="mix-h" hidden>
+      <h2 id="mix-h">Grinds by final weight</h2>
+      <div id="mix-bar" class="mix-bar" aria-hidden="true"></div>
+      <dl id="mix-list" class="mix-list"></dl>
+      <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
     </section>
-    <section id="panel-settings" class="panel" aria-label="Settings" hidden>
-      <div id="settings-status" class="card full"><p id="settings-status-text" class="muted">Loading the settings.</p></div>
-      <div id="rename" class="card full note rename" hidden>
-        <h2>Device name changed</h2>
-        <p id="rename-text"></p>
-        <p><a id="rename-link" class="addr" href="#main" hidden></a></p>
+    <section id="history" class="card full" aria-labelledby="history-h" hidden>
+      <h2 id="history-h">Recent grinds</h2>
+      <p id="history-message" class="muted"></p>
+      <p id="history-notice" class="h-notice" hidden></p>
+      <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
+        <p id="history-caption" class="muted h-caption"></p>
+        <div id="history-bars" class="h-bars"></div>
       </div>
-      <div id="settings-notice" class="card full note" hidden>
-        <p id="settings-notice-text"></p>
-      </div>
-      <div id="settings-form" class="settings-form" hidden></div>
-      <div id="savebar" class="savebar" hidden>
-        <div class="save-info">
-          <strong id="save-count" aria-live="polite">0 changes</strong>
-          <p id="save-reason" class="reason"></p>
-          <p id="save-error" class="field-msg error"></p>
-        </div>
-        <button id="discard" class="btn" type="button">Discard</button>
-        <button id="save" class="btn primary" type="button" aria-describedby="save-reason">Save</button>
-      </div>
+      <ul id="history-list" class="h-list" role="list" aria-labelledby="history-h"></ul>
+      <p id="history-note" class="muted note-line"></p>
+      <template id="history-row">
+        <li class="h-row">
+          <div class="h-head"><strong class="h-name"></strong><span class="h-age muted"></span></div>
+          <div class="h-main"><span class="h-final"></span><span class="h-target muted"></span></div>
+          <div class="h-meta">
+            <span class="h-badge">
+              <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
+              <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
+              <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
+              <span class="h-result"></span>
+            </span>
+            <span class="h-error"></span>
+            <span class="h-detail muted"></span>
+          </div>
+        </li>
+      </template>
     </section>
-    <section id="panel-insights" class="panel" aria-label="Insights" hidden>
-      <div class="card full">
-        <h2 id="insights-h">Lifetime statistics</h2>
-        <p id="insights-message" class="muted"></p>
-        <dl id="tiles" class="tiles" hidden></dl>
-        <p id="insights-note" class="muted note-line"></p>
-      </div>
-      <section id="mix" class="card full" aria-labelledby="mix-h" hidden>
-        <h2 id="mix-h">Grinds by final weight</h2>
-        <div id="mix-bar" class="mix-bar" aria-hidden="true"></div>
-        <dl id="mix-list" class="mix-list"></dl>
-        <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
-      </section>
-      <section id="history" class="card full" aria-labelledby="history-h" hidden>
-        <h2 id="history-h">Recent grinds</h2>
-        <p id="history-message" class="muted"></p>
-        <p id="history-notice" class="h-notice" hidden></p>
-        <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
-          <p id="history-caption" class="muted h-caption"></p>
-          <div id="history-bars" class="h-bars"></div>
-        </div>
-        <ul id="history-list" class="h-list" role="list" aria-labelledby="history-h"></ul>
-        <p id="history-note" class="muted note-line"></p>
-        <template id="history-row">
-          <li class="h-row">
-            <div class="h-head"><strong class="h-name"></strong><span class="h-age muted"></span></div>
-            <div class="h-main"><span class="h-final"></span><span class="h-target muted"></span></div>
-            <div class="h-meta">
-              <span class="h-badge">
-                <svg class="icon icon-ok" aria-hidden="true"><use href="#i-check"></use></svg>
-                <svg class="icon icon-warning" aria-hidden="true"><use href="#i-warning"></use></svg>
-                <svg class="icon icon-error" aria-hidden="true"><use href="#i-error"></use></svg>
-                <span class="h-result"></span>
-              </span>
-              <span class="h-error"></span>
-              <span class="h-detail muted"></span>
-            </div>
-          </li>
-        </template>
-      </section>
-    </section>
-    <section id="panel-device" class="panel" aria-label="Device" hidden>
-      <div class="card full">
-        <h2>About this grinder</h2>
-        <dl class="about">
-          <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
-          <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
-          <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
-        </dl>
-      </div>
-    </section>
-  </div>
+  </section>
+  <section id="panel-device" class="panel" aria-label="Device" hidden>
+    <div class="card full">
+      <h2>About this grinder</h2>
+      <dl class="about">
+        <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
+        <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
+        <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
+      </dl>
+    </div>
+  </section>
 </main>
 <footer class="notice">Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</footer>
 </div>
@@ -976,6 +1031,20 @@ grind_complete: 'Waiting on the grinder screen: tap there to continue.',
 grind_timeout: 'Waiting on the grinder screen: tap there to continue.',
 purge_confirm: 'Waiting on the grinder screen: tap there so the grind can go on.'
 };
+var STATE_SHORT = {
+ready: 'Ready',
+grinding: 'Grinding',
+grind_complete: 'Grind complete',
+grind_timeout: 'Grind timed out',
+edit: 'Editing on grinder',
+menu: 'Menu open',
+calibration: 'Calibrating',
+confirm: 'Confirm on grinder',
+purge_confirm: 'Waiting for a tap',
+autotuning: 'Autotuning',
+ota_update: 'Updating firmware',
+ota_update_failed: 'Update failed'
+};
 function has(obj, key) {
 return Object.prototype.hasOwnProperty.call(obj, key);
 }
@@ -997,6 +1066,9 @@ return Math.floor(s / 3600) + ' h';
 function stateLabel(uiState) {
 if (has(PC.STATE_TEXT, uiState)) return PC.STATE_TEXT[uiState];
 return typeof uiState === 'string' && uiState ? uiState : '';
+}
+function shortStateLabel(uiState) {
+return has(STATE_SHORT, uiState) ? STATE_SHORT[uiState] : stateLabel(uiState);
 }
 function phaseLabel(phase) {
 if (phase === 'idle') return '';
@@ -1167,19 +1239,22 @@ function profileName(index) {
 return PROFILE_NAMES[index] || 'Profile';
 }
 function leadInView(leadIn, nowMs) {
-if (!leadIn) return { visible: false, seconds: 0, text: '' };
+if (!leadIn) return { visible: false, seconds: 0, fraction: 0, count: '', dropped: false, text: '' };
 var name = profileName(leadIn.profile).toUpperCase();
 if (leadIn.phase === 'dropped') {
-return { visible: true, seconds: 0, dropped: true, text: 'The start was dropped on the grinder (check its screen).' };
+return { visible: true, seconds: 0, fraction: 0, count: '', dropped: true, text: 'The start was dropped on the grinder (check its screen).' };
 }
 if (leadIn.phase === 'watching') {
-return { visible: true, seconds: 0, text: 'Starting ' + name + ' now. Waiting for the grinder.' };
+return { visible: true, seconds: 0, fraction: 1, count: '', dropped: false, text: 'Starting ' + name + ' now. Waiting for the grinder.' };
 }
 var remaining = Math.max(0, leadIn.startedAt + leadIn.leadInMs - nowMs);
 var seconds = Math.ceil(remaining / 1000);
 return {
 visible: true,
 seconds: seconds,
+fraction: leadIn.leadInMs > 0 ? Math.min(1, Math.max(0, 1 - remaining / leadIn.leadInMs)) : 1,
+count: seconds > 0 ? String(seconds) : '',
+dropped: false,
 text: 'Starting ' + name + ' in ' + seconds + ' s. Touch the grinder or press STOP to cancel.'
 };
 }
@@ -1289,7 +1364,15 @@ return all.findIndex(function (r) { return r.code === row.code; }) === i;
 });
 return { visible: rows.length > 0, rows: rows };
 }
-function readoutView(status, conn, nowMs) {
+function stateTone(status, stale, extra) {
+if (stale || !status) return 'stale';
+if (status.busy || status.ui_state === 'grinding' || (extra && extra.leadIn)) return 'busy';
+if (status.ui_state !== 'ready') return 'neutral';
+var blocked = !!status.start_block || status.motor_available === false || motorWarningBlock(status) !== '' ||
+status.motor_test_block === 'motor_fault' || status.motor_test_block === 'motor_disabled';
+return blocked ? 'neutral' : 'ready';
+}
+function readoutView(status, conn, nowMs, extra) {
 var lost = !!conn && (conn.state === 'offline' || conn.state === 'reconnecting');
 var stale = !status || lost || (!!conn && conn.state === 'web_off');
 var seen = '';
@@ -1299,14 +1382,23 @@ var label = 'Connecting';
 if (conn && conn.state === 'offline') label = 'Offline';
 else if (conn && conn.state === 'reconnecting') label = 'Reconnecting';
 else if (conn && conn.state === 'web_off') label = 'Web interface off';
-return { state: label, weight: formatWeight(null), phase: '', hint: '', stale: stale, seen: seen };
+return { state: label, short: label, detail: '', weight: formatWeight(null), value: '--', phase: '', hint: '',
+stale: stale, tone: 'stale', seen: seen };
 }
+var state = stateLabel(status.ui_state);
+var shortText = extra && extra.leadIn && status.ui_state === 'ready' ? 'Starting' : shortStateLabel(status.ui_state);
+var hint = has(HINT_TEXT, status.ui_state) ? HINT_TEXT[status.ui_state] : '';
+var weight = formatWeight(status.weight_g);
 return {
-state: stateLabel(status.ui_state),
-weight: formatWeight(status.weight_g),
+state: state,
+short: shortText,
+detail: state !== shortStateLabel(status.ui_state) && !hint ? state : '',
+weight: weight,
+value: weight.slice(0, -2), // without the " g"
 phase: phaseLabel(status.grind_phase),
-hint: has(HINT_TEXT, status.ui_state) ? HINT_TEXT[status.ui_state] : '',
+hint: hint,
 stale: stale,
+tone: stateTone(status, stale, extra),
 seen: seen
 };
 }
@@ -1984,6 +2076,7 @@ formatWeight: formatWeight,
 formatSeconds: formatSeconds,
 formatAge: formatAge,
 stateLabel: stateLabel,
+shortStateLabel: shortStateLabel,
 phaseLabel: phaseLabel,
 blockText: blockText,
 newConnection: newConnection,
@@ -2120,8 +2213,7 @@ function setText(el, text) {
 if (el.textContent !== text) el.textContent = text;
 }
 function setClass(el, name, on) {
-if (on) el.classList.add(name);
-else el.classList.remove(name);
+if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
 }
 var sayTimer = null;
 function say(text, isError) {
@@ -2141,6 +2233,11 @@ function setControl(button, reasonEl, control) {
 button.disabled = !control.enabled;
 setText(reasonEl, control.enabled ? '' : control.reason);
 }
+function setTone(el, tone) {
+setClass(el, 'is-ready', tone === 'ready');
+setClass(el, 'is-busy', tone === 'busy');
+}
+var ringValue = ''; // the last value written to the countdown ring
 var warningsKey = '';
 function renderWarnings() {
 var view = V.warningsView(status, conn);
@@ -2255,7 +2352,7 @@ function render() {
 var t = now();
 var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
 var view = V.connectionView(conn, t);
-var readout = V.readoutView(status, conn, t);
+var readout = V.readoutView(status, conn, t, { leadIn: leadInIsActive() });
 setText($('conn-text'), view.label);
 var icon = '#i-' + view.icon;
 if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
@@ -2265,16 +2362,19 @@ $('live').hidden = webOff;
 $('conn-note').hidden = webOff || view.detail === '';
 setText($('conn-detail'), view.detail);
 $('retry').hidden = !view.retry;
-setText($('readout-state'), readout.state);
-setText($('readout-weight'), readout.weight);
+setText($('readout-state'), readout.short);
+setText($('readout-weight'), readout.value);
 setText($('readout-phase'), readout.phase);
+setText($('readout-detail'), readout.detail);
 setText($('readout-hint'), readout.hint);
 setText($('readout-seen'), readout.seen);
 setClass($('readout'), 'is-stale', readout.stale);
-setText($('strip-state'), readout.state);
-if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the bar cuts a long state word
+setTone($('readout'), readout.tone);
+setText($('strip-state'), readout.short);
+if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the full words, for a pointer
 setText($('strip-weight'), readout.weight);
 setClass($('strip'), 'is-stale', readout.stale);
+setTone($('strip'), readout.tone);
 $('banner').hidden = !controls.banner;
 if (controls.banner) {
 setText($('banner-text'), controls.banner.text);
@@ -2282,15 +2382,23 @@ setClass($('banner'), 'error', controls.banner.level === 'error');
 setClass($('banner'), 'warning', controls.banner.level === 'warning');
 }
 setClass($('stop'), 'is-busy', controls.stop.emphasis);
-setClass($('strip'), 'is-busy', controls.stop.emphasis);
 var li = V.leadInView(leadIn, t);
 $('leadin').hidden = !li.visible;
 setText($('leadin-text'), li.text);
+setText($('ring-count'), li.count);
+setClass($('leadin'), 'is-dropped', li.dropped);
+var ring = li.fraction.toFixed(3);
+if (ring !== ringValue) {
+ringValue = ring;
+$('ring').style.setProperty('--ring', ring);
+}
 V.profileCards(settings).forEach(function (card) {
 setText($('target-' + card.index), card.target);
 $('badge-' + card.index).hidden = !card.selected;
+setClass($('profile-' + card.index), 'is-selected', card.selected);
 setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
 });
+setText($('reason-start'), controls.start.enabled ? '' : controls.start.reason);
 setControl($('tare'), $('reason-tare'), controls.tare);
 setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
 renderWarnings();

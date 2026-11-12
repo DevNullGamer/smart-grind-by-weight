@@ -1,4 +1,4 @@
-/* Web panel styles (chg016). Mobile first; min-width queries only. All colours are the custom properties below:
+/* Web panel styles (chg016). Mobile first; min-width queries, plus two bounded ones (phone landscape, tablet-only profile cards). All colours are the custom properties below:
    light values by default, one prefers-color-scheme block switches them. Final values are checked by the contrast
    test (step 4). Hard rules of the page: no url(), no @import, no external fonts (CSP default-src 'self'). */
 
@@ -93,6 +93,8 @@ h2 { font-size: 1rem; line-height: 1.4; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 [hidden] { display: none !important; }
+/* text for screen readers only (a heading the layout already shows, a reason that is visible once for a group) */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
@@ -116,14 +118,17 @@ h2 { font-size: 1rem; line-height: 1.4; }
 .header h1 { grid-column: 1; grid-row: 1; min-width: 0; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .header .chip { grid-column: 2; grid-row: 1; margin-top: 8px; }
 .strip { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
-/* the state word is the part that gives way: one line, cut with an ellipsis (the full words are in its title and
-   in the Grind section); the weight is never cut */
+/* the state is a few words that fit beside the weight on a 320 px screen (the full words are in the Grind section
+   and in its title); an unknown state from a later firmware gives way: one line, cut with an ellipsis. The weight
+   is never cut */
 .strip .state { flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .strip .weight { flex: none; margin-left: auto; font-size: 1.5rem; font-weight: 700; white-space: nowrap; }
-/* the dot repeats the state word: green idle, blue while something runs, grey while the numbers are old or missing */
-.dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--success); }
-.strip.is-busy .dot { background: var(--primary); }
-.strip.is-stale .dot { background: var(--muted); }
+/* the dot repeats the state word (status bar and Grind section; the tone is decided in portal-view.js): green
+   ready, blue while something runs, grey on any other screen, a hollow ring while the numbers are old or missing */
+.dot { flex: none; width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; background: var(--muted); }
+.is-ready .dot { border-color: var(--success); background: var(--success); }
+.is-busy .dot { border-color: var(--primary); background: var(--primary); }
+.is-stale .dot { background: none; }
 
 /* the sidebar parts only exist from 1024 px */
 .side-brand, .side-foot { display: none; }
@@ -142,7 +147,15 @@ h2 { font-size: 1rem; line-height: 1.4; }
   font: inherit; font-weight: 600; cursor: pointer;
 }
 .btn:disabled { opacity: .55; cursor: default; }
+.btn .icon { width: 20px; height: 20px; }
 .btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+/* ghost: no fill, for secondary actions */
+.btn.ghost { background: none; }
+.btn.ghost:hover:enabled { background: var(--raised); }
+/* round: the primary action of a card, icon only (the button carries an aria-label) */
+.btn.round { width: 56px; height: 56px; min-height: 56px; padding: 0; border-radius: 50%; box-shadow: var(--shadow); }
+.btn.round .icon { width: 24px; height: 24px; fill: currentColor; }
+.btn.round:disabled { box-shadow: none; }
 
 /* STOP: outlined while idle, solid while busy or in a lead-in (class is-busy). Same weight at every width. */
 .stop {
@@ -164,7 +177,9 @@ h2 { font-size: 1rem; line-height: 1.4; }
 /* ---- navigation: one markup, three layouts. Phones: bottom bar, the active item gets a pill behind its icon. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface); border-top: 1px solid var(--hairline);
+  display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface);
+  /* the top line is a shadow, not a border: a border would take 1 px from the box and push the buttons past the bottom */
+  box-shadow: inset 0 1px 0 var(--hairline);
   padding-bottom: var(--safe-bottom);
 }
 .tab {
@@ -182,57 +197,92 @@ h2 { font-size: 1rem; line-height: 1.4; }
 
 /* ---- content */
 .content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
-.layout { display: block; }
 .panel { display: grid; gap: 16px; align-content: start; }
 .card { background: var(--surface); border: 1px solid var(--card-edge); border-radius: var(--r-card); padding: 16px; box-shadow: var(--shadow); }
 .card h2 { margin-bottom: 8px; }
 .muted { color: var(--muted); }
-.readout .state { color: var(--muted); }
-.readout .weight { font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700; line-height: 1.05; }
-.readout .phase { min-height: 1.5em; }
 
 .notice {
   margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
   color: var(--muted); font-size: .875rem;
 }
-.messages { display: grid; }
+.messages { display: grid; margin-bottom: 8px; }
 .message { grid-area: 1 / 1; min-height: 1.5em; }
 .message.error { color: var(--error); }
 
-/* ---- grind tab: live cards */
+/* ---- grind section: alerts (banner and warnings), hero, profiles, tools */
 .live { display: contents; }
 .note p + .btn { margin-top: 12px; }
-.banner { display: flex; gap: 12px; align-items: flex-start; border-width: 2px; }
-.banner.warning { border-color: var(--warning); }
-.banner.error { border-color: var(--error); }
-.banner.warning .icon { color: var(--warning); }
-.banner.error .icon { color: var(--error); }
-.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
-.leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
-.profiles { display: grid; gap: 12px; }
-.profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); }
-.p-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.p-target { font-size: 1.5rem; font-weight: 700; }
-.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; }
-.profile .btn { width: 100%; }
-.actions { display: flex; flex-wrap: wrap; gap: 16px; }
-.action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
-.reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
+.grind-grid { display: grid; gap: 16px; }
 
-/* warnings list: icon shape, a text tag and the words carry the severity, the colour only supports them */
-.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: var(--r-row); background: var(--raised); }
-.warn-row.error { border-left-color: var(--error); }
-.warn-row.warning { border-left-color: var(--warning); }
-.warn-row.error .icon { color: var(--error); }
-.warn-row.warning .icon { color: var(--warning); }
-.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
-.warn-body { min-width: 0; display: grid; gap: 4px; }
-.warn-title { font-weight: 700; overflow-wrap: anywhere; }
-.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
-.warn-row.error .warn-tag { color: var(--error); }
-.warn-row.warning .warn-tag { color: var(--warning); }
-.warn-action { color: var(--text); overflow-wrap: anywhere; }
+/* soft alert: tinted fill, a leading bar, an icon of its own shape and a text tag; the colour only supports them */
+.alert { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 12px 12px; border-left: 4px solid var(--border); border-radius: var(--r-row); background: var(--raised); }
+.alert.warning { border-left-color: var(--warning); background: var(--tint-warning); }
+.alert.error { border-left-color: var(--error); background: var(--tint-error); }
+.alert.warning .icon, .alert.warning .warn-tag { color: var(--warning); }
+.alert.error .icon, .alert.error .warn-tag { color: var(--error); }
+.alert.error .icon-warning, .alert.warning .icon-error { display: none; }
+.alert-body { min-width: 0; overflow-wrap: anywhere; }
+p.alert-body { font-weight: 600; }
+.alert-title { font-weight: 700; }
+.warn-tag { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+.warn-action { margin-top: 2px; }
+.alerts, .alert-list { display: grid; gap: 8px; }
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alerts h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+/* hero: state with its dot, the weight, what the grinder is doing, the lead-in of a remote start */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; padding: 20px; }
+.hero-state {
+  justify-self: start; display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 4px 14px 4px 12px;
+  border-radius: 16px; background: var(--raised); font-size: .875rem; font-weight: 600; overflow-wrap: anywhere;
+}
+.hero-state span + span { min-width: 0; }
+.hero.is-ready .hero-state { background: var(--tint-success); color: var(--success); }
+.hero.is-busy .hero-state { background: var(--tint-info); color: var(--primary); }
+.hero-weight { margin-top: 12px; font-size: clamp(3.5rem, 16vw, 6rem); font-weight: 700; line-height: 1.05; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hero-weight .unit { font-size: .4em; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+/* one line is always kept for the phase, so the cards below do not move when a grind starts */
+.hero-phase { min-height: 1.5em; margin-top: 4px; font-weight: 600; }
+.hero-line { color: var(--muted); font-size: .875rem; }
+.hero-line:empty { display: none; }
+.hero.is-stale .hero-state, .hero.is-stale .hero-weight, .hero.is-stale .hero-phase,
+.strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
+
+/* lead-in of a remote start: a ring that fills while the text counts down; --ring (0 to 1) is set by the page */
+.leadin { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px; border-radius: var(--r-row); background: var(--tint-info); font-weight: 600; }
+.leadin p { min-width: 0; overflow-wrap: anywhere; }
+.leadin .icon-error { display: none; color: var(--error); }
+.leadin.is-dropped { background: var(--tint-error); }
+.leadin.is-dropped .ring { display: none; }
+.leadin.is-dropped .icon-error { display: block; }
+.ring { flex: none; position: relative; display: grid; place-items: center; width: 48px; height: 48px; color: var(--primary); }
+.ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); fill: none; stroke-width: 4; }
+.ring-track { stroke: var(--border); opacity: .3; }
+.ring-arc { stroke: currentColor; stroke-dasharray: 100px; stroke-dashoffset: calc(100px - var(--ring, 0) * 100px); }
+.ring-count { font-size: 1.25rem; font-weight: 700; line-height: 1; }
+.ring-go { display: none; width: 20px; height: 20px; fill: currentColor; }
+.ring-count:empty + .ring-go { display: block; }
+
+/* profiles: compact rows (name and target left, round Start right); three cards side by side on tablets */
+.profiles { display: grid; gap: 12px; }
+.profile {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 12px 12px 12px 16px;
+  border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised);
+}
+.profile.is-selected { border-color: var(--accent); }
+.p-head { grid-column: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.p-target { grid-column: 1; font-size: 1.75rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.profile .btn { grid-column: 2; grid-row: 1 / span 2; }
+.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; white-space: nowrap; }
+.reason { color: var(--muted); font-size: .875rem; }
+.reason:empty { display: none; }
+/* the one reason for the three Start buttons sits under the heading, on screen with the dimmed buttons */
+.profiles-card .reason { margin: -4px 0 12px; }
+
+/* tools: ghost buttons with an icon, each with its reason beneath */
+.actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
+.action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
 
 /* ---- insights tab: statistic tiles and the weight split */
 .note-line { font-size: .875rem; margin-top: 12px; }
@@ -405,13 +455,23 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .content { padding-inline: var(--gutter); }
   .notice { padding-inline: var(--gutter); }
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
-  .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
-  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
+  .tabbar { box-shadow: none; }
+  .hero { padding: 24px; }
   #panel-settings { padding-bottom: 24px; }
   .savebar {
     position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: var(--r-card);
     padding: 8px 12px; box-shadow: var(--shadow);
   }
+}
+
+/* ---- tablet only: the three profiles side by side as cards (name, target, round Start), the Start buttons on one
+   line whatever the badge does to the first row */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .profile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto auto; justify-items: center; gap: 8px; padding: 16px 12px; text-align: center; }
+  .p-head { align-self: start; flex-direction: column; }
+  .profile .btn { grid-column: 1; grid-row: auto; margin-top: 4px; }
 }
 
 /* ---- wide tablet: one row (name, state and weight, chip, STOP). The state takes what is left and is cut first;
@@ -460,8 +520,15 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
   .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
-  /* two cards per row (Settings); the Grind cards span the full row until V4 */
+  /* two cards per row (Settings) */
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+  /* Grind: the hero and the tools on the left, the profiles on the right. The DOM order (hero, profiles, tools)
+     stays the tab order. The weight follows the column, not the whole window */
+  .grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
+  .hero { grid-column: 1; grid-row: 1; }
+  .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
+  .tools-card { grid-column: 1; grid-row: 2; }
+  .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
 }
 
 /* a short window: the name and firmware block gives way so the four rows stay reachable */

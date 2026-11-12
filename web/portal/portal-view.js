@@ -127,6 +127,23 @@
         purge_confirm: 'Waiting on the grinder screen: tap there so the grind can go on.'
     };
 
+    // The state in a few words for the status bar, which shows one line on every section (the full words of
+    // PC.STATE_TEXT are in the Grind section). Short enough to fit a 320 px screen beside the weight.
+    var STATE_SHORT = {
+        ready: 'Ready',
+        grinding: 'Grinding',
+        grind_complete: 'Grind complete',
+        grind_timeout: 'Grind timed out',
+        edit: 'Editing on grinder',
+        menu: 'Menu open',
+        calibration: 'Calibrating',
+        confirm: 'Confirm on grinder',
+        purge_confirm: 'Waiting for a tap',
+        autotuning: 'Autotuning',
+        ota_update: 'Updating firmware',
+        ota_update_failed: 'Update failed'
+    };
+
     function has(obj, key) {
         return Object.prototype.hasOwnProperty.call(obj, key);
     }
@@ -157,6 +174,11 @@
     function stateLabel(uiState) {
         if (has(PC.STATE_TEXT, uiState)) return PC.STATE_TEXT[uiState];
         return typeof uiState === 'string' && uiState ? uiState : '';
+    }
+
+    // The short words for a ui_state (status bar); an unknown state is shown as it came.
+    function shortStateLabel(uiState) {
+        return has(STATE_SHORT, uiState) ? STATE_SHORT[uiState] : stateLabel(uiState);
     }
 
     function phaseLabel(phase) {
@@ -379,21 +401,26 @@
         return PROFILE_NAMES[index] || 'Profile';
     }
 
-    // Words for the lead-in card; `visible` is false when there is nothing to show.
+    // Words for the lead-in block; `visible` is false when there is nothing to show. `fraction` is how far the
+    // countdown ring is filled: 0 at the start, 1 when the lead-in is over and while the page waits for the grind
+    // (0 for a dropped start, which shows no ring). `count` is the number inside the ring ('' when there is none).
     function leadInView(leadIn, nowMs) {
-        if (!leadIn) return { visible: false, seconds: 0, text: '' };
+        if (!leadIn) return { visible: false, seconds: 0, fraction: 0, count: '', dropped: false, text: '' };
         var name = profileName(leadIn.profile).toUpperCase();
         if (leadIn.phase === 'dropped') {
-            return { visible: true, seconds: 0, dropped: true, text: 'The start was dropped on the grinder (check its screen).' };
+            return { visible: true, seconds: 0, fraction: 0, count: '', dropped: true, text: 'The start was dropped on the grinder (check its screen).' };
         }
         if (leadIn.phase === 'watching') {
-            return { visible: true, seconds: 0, text: 'Starting ' + name + ' now. Waiting for the grinder.' };
+            return { visible: true, seconds: 0, fraction: 1, count: '', dropped: false, text: 'Starting ' + name + ' now. Waiting for the grinder.' };
         }
         var remaining = Math.max(0, leadIn.startedAt + leadIn.leadInMs - nowMs);
         var seconds = Math.ceil(remaining / 1000);
         return {
             visible: true,
             seconds: seconds,
+            fraction: leadIn.leadInMs > 0 ? Math.min(1, Math.max(0, 1 - remaining / leadIn.leadInMs)) : 1,
+            count: seconds > 0 ? String(seconds) : '',
+            dropped: false,
             text: 'Starting ' + name + ' in ' + seconds + ' s. Touch the grinder or press STOP to cancel.'
         };
     }
@@ -532,10 +559,28 @@
         return { visible: rows.length > 0, rows: rows };
     }
 
-    // Texts of the readout card and the status bar. While the connection is lost the last values stay, marked stale.
-    // `stale` (grey dot, muted texts) is true whenever the values are not live: no status yet, connection lost, or
-    // the web interface switched off (the grinder answers, but it sends no status).
-    function readoutView(status, conn, nowMs) {
+    // What the state dot says, in the status bar and in the Grind section: 'stale' (the values are not live),
+    // 'busy' (a grind or motor run, or a remote start counting down), 'ready' (the main screen, idle), or
+    // 'neutral' for every other screen (a menu, a dialog, an update): the grinder is neither ready nor running.
+    // The main screen with a start the grinder would refuse (a block, a motor fault, a disabled motor) is neutral
+    // too: a green "Ready" under the red banner would contradict it.
+    function stateTone(status, stale, extra) {
+        if (stale || !status) return 'stale';
+        if (status.busy || status.ui_state === 'grinding' || (extra && extra.leadIn)) return 'busy';
+        if (status.ui_state !== 'ready') return 'neutral';
+        var blocked = !!status.start_block || status.motor_available === false || motorWarningBlock(status) !== '' ||
+            status.motor_test_block === 'motor_fault' || status.motor_test_block === 'motor_disabled';
+        return blocked ? 'neutral' : 'ready';
+    }
+
+    // Texts of the Grind section's readout and the status bar. While the connection is lost the last values stay,
+    // marked stale. `stale` (hollow dot, muted texts) is true whenever the values are not live: no status yet,
+    // connection lost, or the web interface switched off (the grinder answers, but it sends no status).
+    // `extra` (optional): {leadIn: a remote start is counting down or being watched}.
+    // state: the full words; short: the same in a few words (status bar, the label beside the dot); detail: the full
+    // words where they say more than the short ones and no hint says it already; value: the weight without its
+    // unit; tone: see stateTone.
+    function readoutView(status, conn, nowMs, extra) {
         var lost = !!conn && (conn.state === 'offline' || conn.state === 'reconnecting');
         var stale = !status || lost || (!!conn && conn.state === 'web_off');
         var seen = '';
@@ -545,14 +590,24 @@
             if (conn && conn.state === 'offline') label = 'Offline';
             else if (conn && conn.state === 'reconnecting') label = 'Reconnecting';
             else if (conn && conn.state === 'web_off') label = 'Web interface off';
-            return { state: label, weight: formatWeight(null), phase: '', hint: '', stale: stale, seen: seen };
+            return { state: label, short: label, detail: '', weight: formatWeight(null), value: '--', phase: '', hint: '',
+                stale: stale, tone: 'stale', seen: seen };
         }
+        var state = stateLabel(status.ui_state);
+        // during the lead-in of a remote start the grinder still reports "ready": the short words say what is going on
+        var shortText = extra && extra.leadIn && status.ui_state === 'ready' ? 'Starting' : shortStateLabel(status.ui_state);
+        var hint = has(HINT_TEXT, status.ui_state) ? HINT_TEXT[status.ui_state] : '';
+        var weight = formatWeight(status.weight_g);
         return {
-            state: stateLabel(status.ui_state),
-            weight: formatWeight(status.weight_g),
+            state: state,
+            short: shortText,
+            detail: state !== shortStateLabel(status.ui_state) && !hint ? state : '',
+            weight: weight,
+            value: weight.slice(0, -2), // without the " g"
             phase: phaseLabel(status.grind_phase),
-            hint: has(HINT_TEXT, status.ui_state) ? HINT_TEXT[status.ui_state] : '',
+            hint: hint,
             stale: stale,
+            tone: stateTone(status, stale, extra),
             seen: seen
         };
     }
@@ -1400,6 +1455,7 @@
         formatSeconds: formatSeconds,
         formatAge: formatAge,
         stateLabel: stateLabel,
+        shortStateLabel: shortStateLabel,
         phaseLabel: phaseLabel,
         blockText: blockText,
         newConnection: newConnection,

@@ -64,9 +64,9 @@
     if (el.textContent !== text) el.textContent = text;
   }
 
+  // Touches the class list only when the class really changes, so a poll leaves the element alone.
   function setClass(el, name, on) {
-    if (on) el.classList.add(name);
-    else el.classList.remove(name);
+    if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
   }
 
   // A repeated text is announced again: the region is emptied first and filled on the next tick.
@@ -93,6 +93,14 @@
     button.disabled = !control.enabled;
     setText(reasonEl, control.enabled ? '' : control.reason);
   }
+
+  // The colour of the state dot (see V.readoutView): ready and busy have a class, neutral has none, stale is is-stale.
+  function setTone(el, tone) {
+    setClass(el, 'is-ready', tone === 'ready');
+    setClass(el, 'is-busy', tone === 'busy');
+  }
+
+  var ringValue = ''; // the last value written to the countdown ring
 
   // The warnings card is rebuilt only when its rows change, so a poll does not re-announce an unchanged list.
   var warningsKey = '';
@@ -217,7 +225,7 @@
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     var view = V.connectionView(conn, t);
-    var readout = V.readoutView(status, conn, t);
+    var readout = V.readoutView(status, conn, t, { leadIn: leadInIsActive() });
 
     // connection chip, explanation, empty state
     setText($('conn-text'), view.label);
@@ -230,17 +238,20 @@
     setText($('conn-detail'), view.detail);
     $('retry').hidden = !view.retry;
 
-    // readout
-    setText($('readout-state'), readout.state);
-    setText($('readout-weight'), readout.weight);
+    // readout (Grind section) and status bar: the bar has the short state words, the readout the full ones
+    setText($('readout-state'), readout.short);
+    setText($('readout-weight'), readout.value);
     setText($('readout-phase'), readout.phase);
+    setText($('readout-detail'), readout.detail);
     setText($('readout-hint'), readout.hint);
     setText($('readout-seen'), readout.seen);
     setClass($('readout'), 'is-stale', readout.stale);
-    setText($('strip-state'), readout.state);
-    if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the bar cuts a long state word
+    setTone($('readout'), readout.tone);
+    setText($('strip-state'), readout.short);
+    if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the full words, for a pointer
     setText($('strip-weight'), readout.weight);
     setClass($('strip'), 'is-stale', readout.stale);
+    setTone($('strip'), readout.tone);
 
     // banner
     $('banner').hidden = !controls.banner;
@@ -252,19 +263,27 @@
 
     // STOP: never disabled; emphasised while something runs
     setClass($('stop'), 'is-busy', controls.stop.emphasis);
-    setClass($('strip'), 'is-busy', controls.stop.emphasis);
 
-    // lead-in card
+    // lead-in block: the ring is drawn by the stylesheet from one custom property
     var li = V.leadInView(leadIn, t);
     $('leadin').hidden = !li.visible;
     setText($('leadin-text'), li.text);
+    setText($('ring-count'), li.count);
+    setClass($('leadin'), 'is-dropped', li.dropped);
+    var ring = li.fraction.toFixed(3);
+    if (ring !== ringValue) {
+      ringValue = ring;
+      $('ring').style.setProperty('--ring', ring);
+    }
 
-    // profile cards
+    // profile cards: the three Start buttons share one reason, shown once under the cards
     V.profileCards(settings).forEach(function (card) {
       setText($('target-' + card.index), card.target);
       $('badge-' + card.index).hidden = !card.selected;
+      setClass($('profile-' + card.index), 'is-selected', card.selected);
       setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
     });
+    setText($('reason-start'), controls.start.enabled ? '' : controls.start.reason);
     setControl($('tare'), $('reason-tare'), controls.tare);
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
     renderWarnings();
