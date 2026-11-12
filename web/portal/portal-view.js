@@ -1035,21 +1035,21 @@
 
     var SETTINGS_GROUPS = [
         {
-            id: 'profiles', title: 'Profiles',
+            id: 'profiles', title: 'Profiles', icon: 'bean',
             hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
             keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
         },
         {
-            id: 'display', title: 'Display', hint: '',
+            id: 'display', title: 'Display', icon: 'display', hint: '',
             keys: ['brightness_normal', 'brightness_screensaver', 'screen_dim_min', 'screen_off_min']
         },
         {
-            id: 'grinding', title: 'Grinding', hint: '',
+            id: 'grinding', title: 'Grinding', icon: 'motor', hint: '',
             keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
         },
-        { id: 'device', title: 'Device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
+        { id: 'device', title: 'Device', icon: 'device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
     ];
-    var OTHER_GROUP = { id: 'other', title: 'Other', hint: '' };
+    var OTHER_GROUP = { id: 'other', title: 'Other', icon: 'settings', hint: '' };
 
     // How a key is shown; anything not listed follows its type (bool: switch, enum: segmented, string: text,
     // number: stepper).
@@ -1155,7 +1155,7 @@
         };
     }
 
-    // The sections of the form for the fields of the schema, in display order. Empty sections are left out and
+    // The sections of the form for the fields of the schema, in display order (icon = name of a sprite symbol, i-<icon>). Empty sections are left out and
     // every field appears exactly once (unknown keys in "Other").
     function settingsGroups(fields) {
         var byKey = {};
@@ -1170,7 +1170,7 @@
                     list.push(fieldView(byKey[key]));
                 }
             });
-            if (list.length) out.push({ id: g.id, title: g.title, hint: g.hint, fields: list });
+            if (list.length) out.push({ id: g.id, title: g.title, icon: g.icon, hint: g.hint, fields: list });
         });
         var rest = [];
         (fields || []).forEach(function (f) {
@@ -1179,7 +1179,7 @@
                 rest.push(fieldView(f));
             }
         });
-        if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, hint: OTHER_GROUP.hint, fields: rest });
+        if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, icon: OTHER_GROUP.icon, hint: OTHER_GROUP.hint, fields: rest });
         return out;
     }
 

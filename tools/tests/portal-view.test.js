@@ -604,6 +604,18 @@ test('settingsGroups: an unknown key lands in Other, an empty group is left out'
     assert.deepEqual(PV.settingsGroups([]), []);
 });
 
+test('chg021 V5: every settings group icon (Other included) is a symbol in page.src.html', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const ids = new Set([...html.matchAll(/id="i-([a-z-]+)"/g)].map((m) => m[1]));
+    const extra = { key: 'new_thing', type: 'number', group: 'settings', min: 0, max: 5 };
+    const groups = PV.settingsGroups(FIELDS.concat([extra]));
+    assert.deepEqual(groups.map((g) => g.id), ['profiles', 'display', 'grinding', 'device', 'other']);
+    for (const g of groups) {
+        assert.equal(typeof g.icon, 'string', g.id);
+        assert.ok(ids.has(g.icon), `group ${g.id}: icon "${g.icon}" has no id="i-${g.icon}" symbol`);
+    }
+});
+
 test('fieldView: widget per key and type', () => {
     const kinds = {};
     for (const g of PV.settingsGroups(FIELDS)) for (const f of g.fields) kinds[f.key] = f.kind;

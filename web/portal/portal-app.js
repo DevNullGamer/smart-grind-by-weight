@@ -46,7 +46,7 @@
     requestedTab = requested;
     var name = V.tabForViewport(requested);
     V.TABS.forEach(function (tab) {
-      $('panel-' + tab).hidden = tab !== name;
+      setHidden($('panel-' + tab), tab !== name);
       var button = $('tab-' + tab);
       if (tab === name) button.setAttribute('aria-current', 'true');
       else button.removeAttribute('aria-current');
@@ -67,6 +67,17 @@
   // Touches the class list only when the class really changes, so a poll leaves the element alone.
   function setClass(el, name, on) {
     if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
+  }
+
+  // Same for the hidden attribute: written only when it changes, so an idle poll causes no attribute mutation.
+  function setHidden(el, hidden) {
+    hidden = !!hidden;
+    if (el.hidden !== hidden) el.hidden = hidden;
+  }
+
+  function setDisabled(el, disabled) {
+    disabled = !!disabled;
+    if (el.disabled !== disabled) el.disabled = disabled;
   }
 
   // A repeated text is announced again: the region is emptied first and filled on the next tick.
@@ -90,7 +101,7 @@
   function leadInIsActive() { return V.leadInActive(leadIn); }
 
   function setControl(button, reasonEl, control) {
-    button.disabled = !control.enabled;
+    setDisabled(button, !control.enabled);
     setText(reasonEl, control.enabled ? '' : control.reason);
   }
 
@@ -106,7 +117,7 @@
   var warningsKey = '';
   function renderWarnings() {
     var view = V.warningsView(status, conn);
-    $('warnings').hidden = !view.visible;
+    setHidden($('warnings'), !view.visible);
     var key = JSON.stringify(view.rows);
     if (key === warningsKey) return;
     warningsKey = key;
@@ -129,13 +140,13 @@
     var view = V.statsView(stats, conn, now());
     var tab = $('tab-insights');
     if (tab.hidden === view.tabVisible) {
-      tab.hidden = !view.tabVisible;
+      setHidden(tab, !view.tabVisible);
       if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
     }
     setText($('insights-message'), view.message);
     setText($('insights-note'), view.note);
-    $('tiles').hidden = view.tiles.length === 0;
-    $('mix').hidden = !view.mix.visible;
+    setHidden($('tiles'), view.tiles.length === 0);
+    setHidden($('mix'), !view.mix.visible);
     var key = JSON.stringify([view.tiles, view.mix]);
     if (key === insightsKey) return;
     insightsKey = key;
@@ -178,12 +189,12 @@
   var historyKey = '';
   function renderHistory() {
     var view = V.historyView(history, conn, now());
-    $('history').hidden = !view.visible;
+    setHidden($('history'), !view.visible);
     setText($('history-message'), view.message);
     setText($('history-note'), view.note);
     setText($('history-notice'), view.notice);
-    $('history-notice').hidden = view.notice === '';
-    $('history-chart').hidden = !view.chart.visible;
+    setHidden($('history-notice'), view.notice === '');
+    setHidden($('history-chart'), !view.chart.visible);
     var key = JSON.stringify([view.rows, view.chart]);
     if (key === historyKey) return;
     historyKey = key;
@@ -232,11 +243,11 @@
     var icon = '#i-' + view.icon;
     if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
     var webOff = conn.state === 'web_off';
-    $('weboff').hidden = !webOff;
-    $('live').hidden = webOff;
-    $('conn-note').hidden = webOff || view.detail === '';
+    setHidden($('weboff'), !webOff);
+    setHidden($('live'), webOff);
+    setHidden($('conn-note'), webOff || view.detail === '');
     setText($('conn-detail'), view.detail);
-    $('retry').hidden = !view.retry;
+    setHidden($('retry'), !view.retry);
 
     // readout (Grind section) and status bar: the bar has the short state words, the readout the full ones
     setText($('readout-state'), readout.short);
@@ -254,7 +265,7 @@
     setTone($('strip'), readout.tone);
 
     // banner
-    $('banner').hidden = !controls.banner;
+    setHidden($('banner'), !controls.banner);
     if (controls.banner) {
       setText($('banner-text'), controls.banner.text);
       setClass($('banner'), 'error', controls.banner.level === 'error');
@@ -266,7 +277,7 @@
 
     // lead-in block: the ring is drawn by the stylesheet from one custom property
     var li = V.leadInView(leadIn, t);
-    $('leadin').hidden = !li.visible;
+    setHidden($('leadin'), !li.visible);
     setText($('leadin-text'), li.text);
     setText($('ring-count'), li.count);
     setClass($('leadin'), 'is-dropped', li.dropped);
@@ -279,7 +290,7 @@
     // profile cards: the three Start buttons share one reason, shown once under the cards
     V.profileCards(settings).forEach(function (card) {
       setText($('target-' + card.index), card.target);
-      $('badge-' + card.index).hidden = !card.selected;
+      setHidden($('badge-' + card.index), !card.selected);
       setClass($('profile-' + card.index), 'is-selected', card.selected);
       setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
     });
@@ -333,7 +344,7 @@
     var input;
 
     if (view.kind === 'switch') {
-      wrap = el('div', 'field');
+      wrap = el('div', 'field field-switch');
       var row = el('label', 'switch-row');
       row.setAttribute('for', id);
       row.appendChild(el('span', 'lbl', view.label));
@@ -348,7 +359,7 @@
       reg.focusEl = input;
       reg.write = function (raw) { input.checked = raw === true; };
     } else if (view.kind === 'segmented') {
-      wrap = el('fieldset', 'field');
+      wrap = el('fieldset', 'field field-seg');
       wrap.setAttribute('role', 'radiogroup');
       wrap.appendChild(el('legend', '', view.label));
       var opts = el('div', 'seg-opts');
@@ -441,7 +452,7 @@
       reg.write = function (raw) { setValue(input, typeof raw === 'string' ? raw : ''); };
     } else {
       // stepper: minus, number, plus. The step is a convenience; typing any value is allowed.
-      wrap = el('div', 'field');
+      wrap = el('div', 'field field-stepper');
       var numLabel = el('label', '', view.label);
       numLabel.setAttribute('for', id);
       wrap.appendChild(numLabel);
@@ -493,7 +504,11 @@
       var h = el('h2', '', group.title);
       h.id = headingId;
       card.setAttribute('aria-labelledby', headingId);
-      card.appendChild(h);
+      // the header icon is cloned from the <template> in the page (its own sprite symbol, named by the view module)
+      var head = $('group-head').content.firstElementChild.cloneNode(true);
+      head.querySelector('use').setAttribute('href', '#i-' + group.icon);
+      head.appendChild(h);
+      card.appendChild(head);
       if (group.hint) card.appendChild(el('p', 'hint', group.hint));
       if (group.id === 'profiles') {
         currentProfileEl = el('p', 'hint');
@@ -543,19 +558,19 @@
 
   function renderSettings() {
     var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
-    $('settings-status').hidden = placeholder === '';
+    setHidden($('settings-status'), placeholder === '');
     setText($('settings-status-text'), placeholder);
-    $('settings-form').hidden = !form;
-    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
+    setHidden($('settings-form'), !form);
+    if (!form) { setHidden($('savebar'), true); setHidden($('settings-notice'), true); setSavebarHeight(); return; }
 
     var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     if (!bar.visible) { settingsNotice = ''; formError = ''; }
-    $('savebar').hidden = !bar.visible;
+    setHidden($('savebar'), !bar.visible);
     setText($('save-count'), bar.countText);
     setText($('save-reason'), bar.reason);
     setText($('save-error'), formError);
-    $('save').disabled = !bar.canSave;
-    $('settings-notice').hidden = settingsNotice === '';
+    setDisabled($('save'), !bar.canSave);
+    setHidden($('settings-notice'), settingsNotice === '');
     setText($('settings-notice-text'), settingsNotice);
     if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
     setSavebarHeight();
@@ -578,11 +593,11 @@
 
   function showRename(address) {
     var text = V.renameNotice(address);
-    $('rename').hidden = text === '';
+    setHidden($('rename'), text === '');
     setText($('rename-text'), text);
     var href = V.renameLink(address, window.location.protocol, window.location.port);
     var link = $('rename-link');
-    link.hidden = href === '';
+    setHidden(link, href === '');
     if (href) {
       setText(link, address);
       link.setAttribute('href', href);

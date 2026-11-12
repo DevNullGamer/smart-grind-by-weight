@@ -339,12 +339,19 @@ p.alert-body { font-weight: 600; }
 /* ---- settings tab: schema-driven form */
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
-.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
-.fields { display: grid; gap: 20px; }
+/* group card: a round tinted icon beside the title, the fields below, a hairline between them */
+.group-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.group-head h2 { margin: 0; font-size: 1.125rem; }
+.group-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.group-icon .icon { width: 20px; height: 20px; }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 12px; }
+.fields { display: grid; gap: 16px; }
+.field + .field { border-top: 1px solid var(--hairline); padding-top: 16px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > label, .field > legend, .field .lbl { font-weight: 600; }
 fieldset.field { border: 0; margin: 0; padding: 0; }
-fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+/* floated, so the legend is a normal grid item and the divider line is not cut by it */
+fieldset.field > legend { float: left; width: 100%; padding: 0; margin-bottom: 6px; }
 .field .hint { color: var(--muted); font-size: .875rem; }
 .field-msg { font-size: .875rem; min-height: 0; }
 .field-msg:empty { display: none; }
@@ -354,12 +361,12 @@ fieldset.field > legend { padding: 0; margin-bottom: 6px; }
 
 input[type="text"], input[type="number"], select {
   width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
-  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
+  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
 }
 select { appearance: auto; }
 
 .stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper .btn { flex: none; width: 48px; padding: 0; border-radius: 50%; font-size: 1.5rem; line-height: 1; }
 /* the input keeps a readable width ("xxxx.x" at 16 px); cards are never narrower than the row needs (see .panel) */
 .stepper input { text-align: center; width: auto; min-width: 64px; flex: 1 1 64px; }
 .stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
@@ -367,19 +374,19 @@ select { appearance: auto; }
 .name-row .unit { color: var(--muted); flex: none; }
 
 .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head label { font-weight: 600; }
 .slider-head output { font-weight: 700; }
 input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
 
 /* segmented control: radio inputs, the label is the button */
-.seg-opts { display: flex; border: 1px solid var(--border); border-radius: var(--r-field); overflow: hidden; }
+.seg-opts { display: flex; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-pill); }
 .seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
 .seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .seg-opts span {
-  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
-  background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 12px;
+  background: none; color: var(--text); border-radius: var(--r-pill);
 }
-.seg-opts label:first-child span { border-left: 0; }
-.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; box-shadow: var(--shadow); }
 .seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
 /* the checked segment is filled with --primary: the --focus ring would vanish on it, so use the text-on-fill colour */
 .seg-opts input:checked:focus-visible + span { outline-color: var(--on-primary); }
@@ -403,9 +410,14 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
-  background: var(--surface); border-top: 2px solid var(--primary);
+  background: var(--surface); border-top: 1px solid var(--hairline); box-shadow: 0 -8px 24px -12px rgba(15, 23, 42, .3);
+}
+/* glass where the browser can: a translucent fill over a blur; the solid surface above stays the fallback */
+@supports (backdrop-filter: blur(1px)) and (background: color-mix(in srgb, red, blue)) {
+  .savebar { background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px) saturate(1.4); }
 }
 .save-info { flex: 1 1 96px; min-width: 0; }
+.save-info strong { font-size: 1rem; }
 .save-info .reason { min-height: 0; }
 .save-info .reason:empty, .save-info .field-msg:empty { display: none; }
 .savebar .btn { flex: none; }
@@ -460,9 +472,15 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .hero { padding: 24px; }
   #panel-settings { padding-bottom: 24px; }
   .savebar {
-    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: var(--r-card);
+    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 1px solid var(--hairline); border-radius: var(--r-card);
     padding: 8px 12px; box-shadow: var(--shadow);
   }
+  /* a group is a full-width card; steppers put the label left and the control right */
+  .group { grid-column: 1 / -1; }
+  .field-stepper { grid-template-columns: minmax(8rem, 1fr) auto; align-items: center; column-gap: 16px; }
+  .field-stepper > label, .field-stepper > .stepper { grid-row: 1; }
+  .field-stepper > .hint, .field-stepper > .field-msg { grid-column: 1 / -1; }
+  .field-stepper .stepper input { flex: none; width: 96px; }
 }
 
 /* ---- tablet only: the three profiles side by side as cards (name, target, round Start), the Start buttons on one
@@ -522,6 +540,7 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
   /* two cards per row (Settings) */
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+  .group { grid-column: auto; }
   /* Grind: the hero and the tools on the left, the profiles on the right. The DOM order (hero, profiles, tools)
      stays the tab order. The weight follows the column, not the whole window */
   .grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
@@ -537,5 +556,5 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .stop, .tab, .tab-icon { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+  .btn, .stop, .tab, .tab-icon, .seg-opts span, input.switch, input.switch::before { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
 }

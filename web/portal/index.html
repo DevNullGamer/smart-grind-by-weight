@@ -281,12 +281,17 @@ border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(
 .h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
-.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
-.fields { display: grid; gap: 20px; }
+.group-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.group-head h2 { margin: 0; font-size: 1.125rem; }
+.group-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.group-icon .icon { width: 20px; height: 20px; }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 12px; }
+.fields { display: grid; gap: 16px; }
+.field + .field { border-top: 1px solid var(--hairline); padding-top: 16px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > label, .field > legend, .field .lbl { font-weight: 600; }
 fieldset.field { border: 0; margin: 0; padding: 0; }
-fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+fieldset.field > legend { float: left; width: 100%; padding: 0; margin-bottom: 6px; }
 .field .hint { color: var(--muted); font-size: .875rem; }
 .field-msg { font-size: .875rem; min-height: 0; }
 .field-msg:empty { display: none; }
@@ -295,27 +300,27 @@ fieldset.field > legend { padding: 0; margin-bottom: 6px; }
 .is-invalid { border-color: var(--error) !important; }
 input[type="text"], input[type="number"], select {
 width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
-background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
+background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
 }
 select { appearance: auto; }
 .stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper .btn { flex: none; width: 48px; padding: 0; border-radius: 50%; font-size: 1.5rem; line-height: 1; }
 .stepper input { text-align: center; width: auto; min-width: 64px; flex: 1 1 64px; }
 .stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
 .name-row { display: flex; align-items: center; gap: 8px; }
 .name-row .unit { color: var(--muted); flex: none; }
 .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head label { font-weight: 600; }
 .slider-head output { font-weight: 700; }
 input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
-.seg-opts { display: flex; border: 1px solid var(--border); border-radius: var(--r-field); overflow: hidden; }
+.seg-opts { display: flex; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-pill); }
 .seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
 .seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .seg-opts span {
-display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
-background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 12px;
+background: none; color: var(--text); border-radius: var(--r-pill);
 }
-.seg-opts label:first-child span { border-left: 0; }
-.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; box-shadow: var(--shadow); }
 .seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
 .seg-opts input:checked:focus-visible + span { outline-color: var(--on-primary); }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; }
@@ -334,9 +339,13 @@ position: fixed; left: 0; right: 0; z-index: 15;
 bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
 display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
-background: var(--surface); border-top: 2px solid var(--primary);
+background: var(--surface); border-top: 1px solid var(--hairline); box-shadow: 0 -8px 24px -12px rgba(15, 23, 42, .3);
+}
+@supports (backdrop-filter: blur(1px)) and (background: color-mix(in srgb, red, blue)) {
+.savebar { background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px) saturate(1.4); }
 }
 .save-info { flex: 1 1 96px; min-width: 0; }
+.save-info strong { font-size: 1rem; }
 .save-info .reason { min-height: 0; }
 .save-info .reason:empty, .save-info .field-msg:empty { display: none; }
 .savebar .btn { flex: none; }
@@ -382,9 +391,14 @@ background: var(--raised); border: 1px solid var(--hairline); border-radius: var
 .hero { padding: 24px; }
 #panel-settings { padding-bottom: 24px; }
 .savebar {
-position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: var(--r-card);
+position: sticky; bottom: 12px; grid-column: 1 / -1; border: 1px solid var(--hairline); border-radius: var(--r-card);
 padding: 8px 12px; box-shadow: var(--shadow);
 }
+.group { grid-column: 1 / -1; }
+.field-stepper { grid-template-columns: minmax(8rem, 1fr) auto; align-items: center; column-gap: 16px; }
+.field-stepper > label, .field-stepper > .stepper { grid-row: 1; }
+.field-stepper > .hint, .field-stepper > .field-msg { grid-column: 1 / -1; }
+.field-stepper .stepper input { flex: none; width: 96px; }
 }
 @media (min-width: 600px) and (max-width: 1023px) {
 .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -427,6 +441,7 @@ html { scroll-padding-top: 88px; }
 .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
 .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+.group { grid-column: auto; }
 .grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
 .hero { grid-column: 1; grid-row: 1; }
 .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
@@ -437,7 +452,7 @@ html { scroll-padding-top: 88px; }
 .side-foot { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
-.btn, .stop, .tab, .tab-icon { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+.btn, .stop, .tab, .tab-icon, .seg-opts span, input.switch, input.switch::before { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
 }
 </style>
 </head>
@@ -461,6 +476,7 @@ html { scroll-padding-top: 88px; }
   <symbol id="i-bean" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="6" ry="9" transform="rotate(35 12 12)"></ellipse><path d="M9.5 6.5c3 3-1 6 2 11" transform="rotate(35 12 12)"></path></symbol>
   <symbol id="i-offline" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M4 4l16 16"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.8" r=".8"></circle></symbol>
+  <symbol id="i-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 9a8 8 0 0 0-14-1.5M5 4v4h4M5 15a8 8 0 0 0 14 1.5M19 20v-4h-4"></path></symbol>
 </svg>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -592,6 +608,7 @@ html { scroll-padding-top: 88px; }
       <p id="settings-notice-text"></p>
     </div>
     <div id="settings-form" class="settings-form" hidden></div>
+    <template id="group-head"><div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-settings"></use></svg></span></div></template>
     <div id="savebar" class="savebar" hidden>
       <div class="save-info">
         <strong id="save-count" aria-live="polite">0 changes</strong>
@@ -1738,21 +1755,21 @@ return view;
 }
 var SETTINGS_GROUPS = [
 {
-id: 'profiles', title: 'Profiles',
+id: 'profiles', title: 'Profiles', icon: 'bean',
 hint: 'Targets of the Start buttons. The grinder uses the weight in weight mode and the time in time mode.',
 keys: ['single_weight_g', 'single_time_s', 'double_weight_g', 'double_time_s', 'custom_weight_g', 'custom_time_s']
 },
 {
-id: 'display', title: 'Display', hint: '',
+id: 'display', title: 'Display', icon: 'display', hint: '',
 keys: ['brightness_normal', 'brightness_screensaver', 'screen_dim_min', 'screen_off_min']
 },
 {
-id: 'grinding', title: 'Grinding', hint: '',
+id: 'grinding', title: 'Grinding', icon: 'motor', hint: '',
 keys: ['grind_mode', 'purge_mode', 'purge_amount_g', 'freshness_hours', 'auto_start', 'auto_return', 'swipe']
 },
-{ id: 'device', title: 'Device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
+{ id: 'device', title: 'Device', icon: 'device', hint: '', keys: ['ble_startup', 'logging', 'device_name'] }
 ];
-var OTHER_GROUP = { id: 'other', title: 'Other', hint: '' };
+var OTHER_GROUP = { id: 'other', title: 'Other', icon: 'settings', hint: '' };
 var WIDGET_BY_KEY = {
 brightness_normal: 'slider',
 brightness_screensaver: 'slider',
@@ -1848,7 +1865,7 @@ used[key] = true;
 list.push(fieldView(byKey[key]));
 }
 });
-if (list.length) out.push({ id: g.id, title: g.title, hint: g.hint, fields: list });
+if (list.length) out.push({ id: g.id, title: g.title, icon: g.icon, hint: g.hint, fields: list });
 });
 var rest = [];
 (fields || []).forEach(function (f) {
@@ -1857,7 +1874,7 @@ used[f.key] = true;
 rest.push(fieldView(f));
 }
 });
-if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, hint: OTHER_GROUP.hint, fields: rest });
+if (rest.length) out.push({ id: OTHER_GROUP.id, title: OTHER_GROUP.title, icon: OTHER_GROUP.icon, hint: OTHER_GROUP.hint, fields: rest });
 return out;
 }
 function groupedKeys() {
@@ -2197,7 +2214,7 @@ function showTab(requested) {
 requestedTab = requested;
 var name = V.tabForViewport(requested);
 V.TABS.forEach(function (tab) {
-$('panel-' + tab).hidden = tab !== name;
+setHidden($('panel-' + tab), tab !== name);
 var button = $('tab-' + tab);
 if (tab === name) button.setAttribute('aria-current', 'true');
 else button.removeAttribute('aria-current');
@@ -2215,6 +2232,14 @@ if (el.textContent !== text) el.textContent = text;
 function setClass(el, name, on) {
 if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
 }
+function setHidden(el, hidden) {
+hidden = !!hidden;
+if (el.hidden !== hidden) el.hidden = hidden;
+}
+function setDisabled(el, disabled) {
+disabled = !!disabled;
+if (el.disabled !== disabled) el.disabled = disabled;
+}
 var sayTimer = null;
 function say(text, isError) {
 $('alert').textContent = '';
@@ -2230,7 +2255,7 @@ say(err && err.message ? err.message : fallback, true);
 }
 function leadInIsActive() { return V.leadInActive(leadIn); }
 function setControl(button, reasonEl, control) {
-button.disabled = !control.enabled;
+setDisabled(button, !control.enabled);
 setText(reasonEl, control.enabled ? '' : control.reason);
 }
 function setTone(el, tone) {
@@ -2241,7 +2266,7 @@ var ringValue = ''; // the last value written to the countdown ring
 var warningsKey = '';
 function renderWarnings() {
 var view = V.warningsView(status, conn);
-$('warnings').hidden = !view.visible;
+setHidden($('warnings'), !view.visible);
 var key = JSON.stringify(view.rows);
 if (key === warningsKey) return;
 warningsKey = key;
@@ -2261,13 +2286,13 @@ function renderInsights() {
 var view = V.statsView(stats, conn, now());
 var tab = $('tab-insights');
 if (tab.hidden === view.tabVisible) {
-tab.hidden = !view.tabVisible;
+setHidden(tab, !view.tabVisible);
 if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
 }
 setText($('insights-message'), view.message);
 setText($('insights-note'), view.note);
-$('tiles').hidden = view.tiles.length === 0;
-$('mix').hidden = !view.mix.visible;
+setHidden($('tiles'), view.tiles.length === 0);
+setHidden($('mix'), !view.mix.visible);
 var key = JSON.stringify([view.tiles, view.mix]);
 if (key === insightsKey) return;
 insightsKey = key;
@@ -2307,12 +2332,12 @@ list.appendChild(row);
 var historyKey = '';
 function renderHistory() {
 var view = V.historyView(history, conn, now());
-$('history').hidden = !view.visible;
+setHidden($('history'), !view.visible);
 setText($('history-message'), view.message);
 setText($('history-note'), view.note);
 setText($('history-notice'), view.notice);
-$('history-notice').hidden = view.notice === '';
-$('history-chart').hidden = !view.chart.visible;
+setHidden($('history-notice'), view.notice === '');
+setHidden($('history-chart'), !view.chart.visible);
 var key = JSON.stringify([view.rows, view.chart]);
 if (key === historyKey) return;
 historyKey = key;
@@ -2357,11 +2382,11 @@ setText($('conn-text'), view.label);
 var icon = '#i-' + view.icon;
 if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
 var webOff = conn.state === 'web_off';
-$('weboff').hidden = !webOff;
-$('live').hidden = webOff;
-$('conn-note').hidden = webOff || view.detail === '';
+setHidden($('weboff'), !webOff);
+setHidden($('live'), webOff);
+setHidden($('conn-note'), webOff || view.detail === '');
 setText($('conn-detail'), view.detail);
-$('retry').hidden = !view.retry;
+setHidden($('retry'), !view.retry);
 setText($('readout-state'), readout.short);
 setText($('readout-weight'), readout.value);
 setText($('readout-phase'), readout.phase);
@@ -2375,7 +2400,7 @@ if ($('strip-state').title !== readout.state) $('strip-state').title = readout.s
 setText($('strip-weight'), readout.weight);
 setClass($('strip'), 'is-stale', readout.stale);
 setTone($('strip'), readout.tone);
-$('banner').hidden = !controls.banner;
+setHidden($('banner'), !controls.banner);
 if (controls.banner) {
 setText($('banner-text'), controls.banner.text);
 setClass($('banner'), 'error', controls.banner.level === 'error');
@@ -2383,7 +2408,7 @@ setClass($('banner'), 'warning', controls.banner.level === 'warning');
 }
 setClass($('stop'), 'is-busy', controls.stop.emphasis);
 var li = V.leadInView(leadIn, t);
-$('leadin').hidden = !li.visible;
+setHidden($('leadin'), !li.visible);
 setText($('leadin-text'), li.text);
 setText($('ring-count'), li.count);
 setClass($('leadin'), 'is-dropped', li.dropped);
@@ -2394,7 +2419,7 @@ $('ring').style.setProperty('--ring', ring);
 }
 V.profileCards(settings).forEach(function (card) {
 setText($('target-' + card.index), card.target);
-$('badge-' + card.index).hidden = !card.selected;
+setHidden($('badge-' + card.index), !card.selected);
 setClass($('profile-' + card.index), 'is-selected', card.selected);
 setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
 });
@@ -2440,7 +2465,7 @@ var reg = { msg: msg, inputs: [], focusEl: null, write: null };
 var wrap;
 var input;
 if (view.kind === 'switch') {
-wrap = el('div', 'field');
+wrap = el('div', 'field field-switch');
 var row = el('label', 'switch-row');
 row.setAttribute('for', id);
 row.appendChild(el('span', 'lbl', view.label));
@@ -2455,7 +2480,7 @@ reg.inputs = [input];
 reg.focusEl = input;
 reg.write = function (raw) { input.checked = raw === true; };
 } else if (view.kind === 'segmented') {
-wrap = el('fieldset', 'field');
+wrap = el('fieldset', 'field field-seg');
 wrap.setAttribute('role', 'radiogroup');
 wrap.appendChild(el('legend', '', view.label));
 var opts = el('div', 'seg-opts');
@@ -2547,7 +2572,7 @@ reg.inputs = [input];
 reg.focusEl = input;
 reg.write = function (raw) { setValue(input, typeof raw === 'string' ? raw : ''); };
 } else {
-wrap = el('div', 'field');
+wrap = el('div', 'field field-stepper');
 var numLabel = el('label', '', view.label);
 numLabel.setAttribute('for', id);
 wrap.appendChild(numLabel);
@@ -2597,7 +2622,10 @@ var headingId = 'group-' + group.id;
 var h = el('h2', '', group.title);
 h.id = headingId;
 card.setAttribute('aria-labelledby', headingId);
-card.appendChild(h);
+var head = $('group-head').content.firstElementChild.cloneNode(true);
+head.querySelector('use').setAttribute('href', '#i-' + group.icon);
+head.appendChild(h);
+card.appendChild(head);
 if (group.hint) card.appendChild(el('p', 'hint', group.hint));
 if (group.id === 'profiles') {
 currentProfileEl = el('p', 'hint');
@@ -2639,18 +2667,18 @@ document.documentElement.style.setProperty('--savebar-h', h);
 }
 function renderSettings() {
 var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
-$('settings-status').hidden = placeholder === '';
+setHidden($('settings-status'), placeholder === '');
 setText($('settings-status-text'), placeholder);
-$('settings-form').hidden = !form;
-if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
+setHidden($('settings-form'), !form);
+if (!form) { setHidden($('savebar'), true); setHidden($('settings-notice'), true); setSavebarHeight(); return; }
 var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
 if (!bar.visible) { settingsNotice = ''; formError = ''; }
-$('savebar').hidden = !bar.visible;
+setHidden($('savebar'), !bar.visible);
 setText($('save-count'), bar.countText);
 setText($('save-reason'), bar.reason);
 setText($('save-error'), formError);
-$('save').disabled = !bar.canSave;
-$('settings-notice').hidden = settingsNotice === '';
+setDisabled($('save'), !bar.canSave);
+setHidden($('settings-notice'), settingsNotice === '');
 setText($('settings-notice-text'), settingsNotice);
 if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
 setSavebarHeight();
@@ -2671,11 +2699,11 @@ setClass(i, 'is-invalid', error !== '' && i.type !== 'radio');
 }
 function showRename(address) {
 var text = V.renameNotice(address);
-$('rename').hidden = text === '';
+setHidden($('rename'), text === '');
 setText($('rename-text'), text);
 var href = V.renameLink(address, window.location.protocol, window.location.port);
 var link = $('rename-link');
-link.hidden = href === '';
+setHidden(link, href === '');
 if (href) {
 setText(link, address);
 link.setAttribute('href', href);

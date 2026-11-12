@@ -303,6 +303,42 @@ def test_status_bar_guard_fails_when_the_tablet_grid_column_cannot_shrink(monkey
         test_status_bar_state_gives_way_before_stop()
 
 
+def savebar_fill_percent(css):
+    """Opacity (%) of the surface colour in the glass save bar's colour-mix()."""
+    m = re.search(r"\.savebar\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--surface\)\s*(\d+(?:\.\d+)?)%\s*,\s*transparent\)", css)
+    assert m, "the .savebar colour-mix(var(--surface) N%, transparent) rule was not found"
+    return float(m.group(1))
+
+
+def _blend(fg, bg, alpha):
+    ch = [round(alpha * int(fg[i:i + 2], 16) + (1 - alpha) * int(bg[i:i + 2], 16)) for i in (1, 3, 5)]
+    return "#" + "".join(f"{c:02x}" for c in ch)
+
+
+def savebar_failures(css):
+    """Text on the translucent save bar, over the worst backdrop (black or white, whichever is nearer the text colour)."""
+    alpha = savebar_fill_percent(css) / 100
+    out = []
+    for scheme, tokens in scheme_tokens(css).items():
+        for backdrop in ("#000000", "#ffffff"):
+            fill = _blend(tokens["surface"], backdrop, alpha)
+            for fg in ("text", "muted"):
+                ratio = contrast(tokens[fg], fill)
+                if ratio < 4.5:
+                    out.append(f"{scheme} {fg} on save bar over {backdrop}: {ratio:.2f}:1")
+    return out
+
+
+def test_savebar_glass_keeps_text_and_muted_legible_over_any_backdrop():
+    assert not savebar_failures(CSS), "\n".join(savebar_failures(CSS))
+
+
+def test_savebar_contrast_check_fails_at_84_percent():
+    mutated = re.sub(r"(\.savebar\s*\{[^}]*color-mix\(in srgb,\s*var\(--surface\)\s*)\d+(%)", r"\g<1>84\2", CSS)
+    assert savebar_fill_percent(mutated) == 84
+    assert savebar_failures(mutated), "84% fill should drop below 4.5:1 for some scheme/backdrop"
+
+
 # (scheme, a --muted value with too little contrast on that scheme's page) for the mutation check below
 LOWERED_MUTED = {"light": "#8a97ab", "dark": "#4f5a6b"}
 
