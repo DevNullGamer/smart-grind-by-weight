@@ -824,18 +824,18 @@
         var noError = doc.weight_mode === null || doc.weight_mode === 0 || doc.avg_abs_error_g === null;
         var noPulses = doc.total_grinds === 0 || doc.avg_pulses === null;
         return [
-            { id: 'grinds', label: 'Grinds', value: statText(doc.total_grinds),
+            { id: 'grinds', icon: 'bean', label: 'Grinds', value: statText(doc.total_grinds),
                 detail: statText(doc.weight_mode) + ' by weight, ' + statText(doc.time_mode) + ' by time' },
-            { id: 'coffee', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
-            { id: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
+            { id: 'coffee', icon: 'scale', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
+            { id: 'motor', icon: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
                 detail: 'Grinding, pulses and motor tests' },
-            { id: 'powered', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
+            { id: 'powered', icon: 'clock', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
                 detail: 'Total time the grinder has been switched on' },
-            { id: 'error', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
+            { id: 'error', icon: 'target', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
                 detail: noError ? 'No weight-mode grinds yet' : 'Final weight against the target, weight mode' },
-            { id: 'pulses', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
+            { id: 'pulses', icon: 'pulse', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
                 detail: doc.total_pulses === null ? 'Correction pulses per grind' : statText(doc.total_pulses) + ' correction pulses in total' },
-            { id: 'timepulses', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
+            { id: 'timepulses', icon: 'refresh', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
         ];
     }
 
@@ -913,6 +913,7 @@
                 target: finiteOrNull(time ? g.target_s : g.target_g),
                 final: finiteOrNull(g.final_g),
                 timeMs: finiteOrNull(g.time_ms),
+                motorMs: finiteOrNull(g.motor_ms),
                 pulses: finiteOrNull(g.pulses),
                 result: has(HISTORY_RESULTS, g.result) ? g.result : 'unknown'
             });
@@ -955,11 +956,17 @@
         return (err > 0 ? '+' : '-') + tenths(Math.abs(err)) + ' g ' + (err > 0 ? 'over' : 'under');
     }
 
+    // A duration in milliseconds: "9.8 s" below a minute, then "1 min 15 s"; '' for a missing or negative value.
+    function msText(ms) {
+        if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return '';
+        return ms < 60000 ? (ms / 1000).toFixed(1) + ' s' : formatDuration(ms / 1000);
+    }
+
     function historyRow(g, elapsedS) {
         var result = HISTORY_RESULTS[g.result];
         var err = !g.time && g.final !== null && g.target !== null ? g.final - g.target : null;
         var detail = [];
-        if (g.timeMs !== null && g.timeMs >= 0) detail.push(g.timeMs < 60000 ? (g.timeMs / 1000).toFixed(1) + ' s' : formatDuration(g.timeMs / 1000));
+        if (msText(g.timeMs) !== '') detail.push(msText(g.timeMs));
         if (g.pulses !== null && (!g.time || g.pulses > 0)) detail.push(g.pulses + (g.pulses === 1 ? ' pulse' : ' pulses'));
         return {
             name: g.profile === null ? 'Grind' : PROFILE_NAMES[g.profile],
@@ -969,6 +976,7 @@
             error: historyErrorText(err),
             badge: { label: result.label, level: result.level },
             detail: detail.join(' \u00b7 '),
+            motor: msText(g.motorMs) === '' ? '' : 'motor ' + msText(g.motorMs),
             err: err
         };
     }
@@ -1505,6 +1513,7 @@
         historyLoaded: historyLoaded,
         historyDue: historyDue,
         historyAgeText: historyAgeText,
+        msText: msText,
         historyErrorText: historyErrorText,
         historyView: historyView,
         STEP_OPTIONS: STEP_OPTIONS,

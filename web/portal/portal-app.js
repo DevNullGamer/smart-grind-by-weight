@@ -146,6 +146,7 @@
     setText($('insights-message'), view.message);
     setText($('insights-note'), view.note);
     setHidden($('tiles'), view.tiles.length === 0);
+    setHidden($('tiles-skel'), view.kind !== 'loading');
     setHidden($('mix'), !view.mix.visible);
     var key = JSON.stringify([view.tiles, view.mix]);
     if (key === insightsKey) return;
@@ -153,16 +154,16 @@
     var tiles = $('tiles');
     while (tiles.firstChild) tiles.removeChild(tiles.firstChild);
     view.tiles.forEach(function (tile) {
-      var item = el('div', 'tile');
-      item.appendChild(el('dt', '', tile.label));
+      var item = $('tile-row').content.firstElementChild.cloneNode(true);
+      item.querySelector('use').setAttribute('href', '#i-' + tile.icon);
+      item.querySelector('.tile-label').textContent = tile.label;
       // a line may break after a comma (never inside a group of digits): a <wbr> after each comma, so copied text stays clean
-      var value = el('dd', 'stat-value');
+      var value = item.querySelector('.stat-value');
       tile.value.split(',').forEach(function (part, n, parts) {
         if (n > 0) value.appendChild(el('wbr'));
         value.appendChild(document.createTextNode(n < parts.length - 1 ? part + ',' : part));
       });
-      item.appendChild(value);
-      item.appendChild(el('dd', 'stat-detail', tile.detail));
+      item.querySelector('.stat-detail').textContent = tile.detail;
       tiles.appendChild(item);
     });
     var bar = $('mix-bar');
@@ -194,6 +195,7 @@
     setText($('history-note'), view.note);
     setText($('history-notice'), view.notice);
     setHidden($('history-notice'), view.notice === '');
+    setHidden($('history-skel'), view.kind !== 'loading');
     setHidden($('history-chart'), !view.chart.visible);
     var key = JSON.stringify([view.rows, view.chart]);
     if (key === historyKey) return;
@@ -226,6 +228,8 @@
       item.querySelector('.h-target').textContent = row.target;
       item.querySelector('.h-error').textContent = row.error;
       item.querySelector('.h-detail').textContent = row.detail;
+      item.querySelector('.h-motor-text').textContent = row.motor;
+      setHidden(item.querySelector('.h-motor'), row.motor === '');
       item.querySelector('.h-result').textContent = row.badge.label;
       item.querySelector('.h-badge').classList.add(row.badge.level);
       list.appendChild(item);

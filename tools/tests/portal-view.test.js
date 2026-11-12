@@ -1484,7 +1484,7 @@ test('parseHistory: needs a grinds array; skips what is no object; keeps only us
     const parsed = PV.parseHistory({ persistent: true, grinds: [null, 5, [], grind({ final_g: 'x', target_g: NaN, profile: 7, time_ms: null, pulses: 'many', age_s: -4, result: 'bogus' })] });
     assert.equal(parsed.grinds.length, 1);
     assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, timeMs: null,
-        pulses: null, result: 'unknown' });
+        motorMs: 9800, pulses: null, result: 'unknown' });
     assert.equal(PV.parseHistory({ grinds: [] }).persistent, true); // a missing flag is not an alarm
     assert.equal(PV.parseHistory({ persistent: false, grinds: [] }).persistent, false);
     assert.equal(PV.parseHistory({ grinds: new Array(25).fill(grind()) }).grinds.length, 10);
@@ -1515,7 +1515,7 @@ test('every shared history vector parses and shows: rows match the entries, noth
 test('historyView: a weight-mode row shows age, profile, final against target, error, badge and details', () => {
     const view = PV.historyView(historyState(historyDoc([grind()])), ONLINE, 0);
     assert.deepEqual(view.rows, [{ name: 'Double', age: '2 min ago', final: '18.1 g', target: 'target 18.0 g', error: '+0.1 g over',
-        badge: { label: 'Complete', level: 'ok' }, detail: '14.2 s \u00b7 2 pulses' }]);
+        badge: { label: 'Complete', level: 'ok' }, detail: '14.2 s \u00b7 2 pulses', motor: 'motor 9.8 s' }]);
     assert.equal(view.kind, 'ready');
     assert.equal(view.message, '');
     assert.equal(view.note, '');
@@ -1699,4 +1699,89 @@ test('screen keys sit in Display after the brightness sliders; Never sorts last;
     assert.deepEqual(PV.selectOptions('freshness_hours', 8).map((o) => o.label),
         ['30 minutes', '1 hour', '2 hours', '3 hours', '4 hours', '8 hours', '12 hours', '24 hours', '48 hours']);
     assert.equal(PV.selectOptions('screen_dim_min', 120).slice(-2)[0].label, '2 hours');
+});
+
+test('msText and historyRow motor: milliseconds to text; missing, null, negative and not-a-number give nothing', () => {
+    assert.equal(PV.msText(9800), '9.8 s');
+    assert.equal(PV.msText(0), '0.0 s');
+    assert.equal(PV.msText(59949), '59.9 s');
+    assert.equal(PV.msText(75000), '1 min 15 s');
+    assert.equal(PV.msText(4294967295), '49 d 17 h'); // a huge value stays readable
+    for (const bad of [-1, -0.5, null, undefined, NaN, Infinity, '9800']) assert.equal(PV.msText(bad), '', String(bad));
+    const motor = (over) => PV.historyView(historyState(historyDoc([grind(over)])), ONLINE, 0).rows[0].motor;
+    assert.equal(motor({}), 'motor 9.8 s');
+    assert.equal(motor({ motor_ms: 0 }), 'motor 0.0 s');
+    assert.equal(motor({ motor_ms: 125000 }), 'motor 2 min 5 s');
+    assert.equal(motor({ motor_ms: null }), '');
+    assert.equal(motor({ motor_ms: -5 }), '');
+    assert.equal(motor({ motor_ms: 'x' }), '');
+    assert.equal(PV.historyView(historyState(historyDoc([{ mode: 'weight', result: 'complete' }])), ONLINE, 0).rows[0].motor, ''); // member missing
+    assert.equal(motor({ motor_ms: 4294967295 }), 'motor 49 d 17 h');
+});
+
+test('chg021 V6: historyRow/parseHistory motor_ms edge values (0, normal, null, negative, NaN-like, huge, missing, older firmware)', () => {
+    const motorOf = (over) => PV.historyView(historyState(historyDoc([grind(over)])), ONLINE, 0).rows[0].motor;
+    const parsedOf = (over) => PV.parseHistory(historyDoc([grind(over)])).grinds[0].motorMs;
+    // zero and a normal value are shown; the parsed number is kept as is
+    assert.equal(parsedOf({ motor_ms: 0 }), 0);
+    assert.equal(motorOf({ motor_ms: 0 }), 'motor 0.0 s');
+    assert.equal(parsedOf({ motor_ms: 9800 }), 9800);
+    assert.equal(motorOf({ motor_ms: 9800 }), 'motor 9.8 s');
+    // null, negative, NaN-like and string values give no text and never "undefined" or "NaN"
+    for (const bad of [null, -1, -0.001, NaN, Infinity, -Infinity, '9800', 'NaN', true, {}, [], []]) {
+        assert.equal(motorOf({ motor_ms: bad }), '', String(bad));
+    }
+    assert.equal(parsedOf({ motor_ms: null }), null);
+    assert.equal(parsedOf({ motor_ms: NaN }), null);
+    // huge values stay readable text
+    for (const huge of [4294967295, 1e12, Number.MAX_SAFE_INTEGER]) {
+        const t = motorOf({ motor_ms: huge });
+        assert.match(t, /^motor [0-9]/, String(huge));
+        assert.doesNotMatch(t, /NaN|undefined|Infinity|e\+/, String(huge));
+    }
+    // member missing, and an entry from older firmware that never had it
+    const older = grind();
+    delete older.motor_ms;
+    const row = PV.historyView(historyState(historyDoc([older])), ONLINE, 0).rows[0];
+    assert.equal(row.motor, '');
+    assert.equal(PV.parseHistory(historyDoc([older])).grinds[0].motorMs, null);
+    assert.equal(row.final, '18.1 g'); // the rest of the row is intact
+    assert.equal(row.detail, '14.2 s · 2 pulses');
+    // the motor text never leaks into the detail text
+    assert.doesNotMatch(row.detail, /motor/);
+    // a mixed list keeps each row's own value
+    const rows = PV.historyView(historyState(historyDoc([grind({ motor_ms: 1500 }), older, grind({ motor_ms: -3 })])), ONLINE, 0).rows;
+    assert.deepEqual(rows.map((r) => r.motor), ['motor 1.5 s', '', '']);
+});
+
+test('chg021 V6: all seven stat tiles carry an icon that exists as a symbol in page.src.html', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const ids = new Set([...html.matchAll(/id="i-([a-z-]+)"/g)].map((m) => m[1]));
+    const checks = [loadedStats(), loadedStats({ single: 0, double: 0, custom: 0 })];
+    for (const st of checks) {
+        const tiles = PV.statsView(st, online(), 1000).tiles;
+        assert.equal(tiles.length, 7);
+        assert.equal(new Set(tiles.map((t) => t.id)).size, 7);
+        for (const t of tiles) {
+            assert.equal(typeof t.icon, 'string', t.id);
+            assert.ok(t.icon.length > 0, t.id);
+            assert.ok(ids.has(t.icon), `tile ${t.id}: icon "${t.icon}" has no id="i-${t.icon}" symbol`);
+        }
+    }
+});
+
+test('chg021 V6: skeleton placeholders carry hidden and aria-hidden in the markup, and the app only toggles them', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    for (const id of ['tiles-skel', 'history-skel']) {
+        const tag = html.match(new RegExp('<div id="' + id + '"[^>]*>'));
+        assert.ok(tag, id + ' is missing');
+        assert.match(tag[0], /\baria-hidden="true"/, id);
+        assert.match(tag[0], /\shidden[\s>]/, id);
+        assert.ok(app.includes("setHidden($('" + id + "')"), id + ' is never toggled');
+        // placeholders hold only empty skeleton blocks, no text a screen reader could read
+        const block = html.slice(html.indexOf(tag[0]));
+        const inner = block.slice(tag[0].length, block.indexOf('</div></div>') + 6);
+        assert.doesNotMatch(inner.replace(/<[^>]*>/g, ''), /\S/, id + ' holds text');
+    }
 });

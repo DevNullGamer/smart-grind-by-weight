@@ -284,56 +284,71 @@ p.alert-body { font-weight: 600; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
 .action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
 
-/* ---- insights tab: statistic tiles and the weight split */
+/* ---- insights tab: statistic tiles and the weight split. The cards use the group-head of the settings cards. */
 .note-line { font-size: .875rem; margin-top: 12px; }
 .note-line:empty { display: none; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 12px; margin: 12px 0 0; }
-.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; }
-.tile dt { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.card > .muted:empty { display: none; }
+/* two tiles per row on phones, four from 600 px; the last tile fills the row the others leave open (there are seven) */
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
+.tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+.tile dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .875rem; min-width: 0; }
+.tile-label { min-width: 0; overflow-wrap: anywhere; }
+.tile-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.tile-icon .icon { width: 16px; height: 16px; }
 .tile dd { margin: 0; }
-.tile .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
+.tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
 .tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.mix-bar { display: flex; height: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 12px; }
+/* loading placeholders: the same boxes as the tiles and rows, so nothing moves when the data arrives (shimmer: V7) */
+.skeleton { min-height: 96px; }
+.h-row.skeleton { min-height: 88px; }
+.mix-bar { display: flex; height: 14px; border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 14px; background: var(--raised); }
 .mix-bar .seg { min-width: 0; }
 .mix-bar .seg + .seg { border-left: 2px solid var(--surface); }
 .seg.s0, .swatch.s0 { background: var(--accent); }
 .seg.s1, .swatch.s1 { background: var(--primary); }
 .seg.s2, .swatch.s2 { background: var(--success); }
-.mix-list { margin: 0; display: grid; gap: 6px; }
-.mix-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.mix-list { margin: 0; display: grid; gap: 8px; }
+.mix-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; }
 .mix-row dt { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.mix-row dd { margin: 0; font-weight: 600; }
-.swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.mix-row dd { margin: 0; font-weight: 600; text-align: right; }
+.swatch { flex: none; width: 12px; height: 12px; border-radius: 50%; }
 .mix-note { font-size: .875rem; margin-top: 12px; }
 
-/* ---- insights tab: recent grinds (list, badges, error chart built from divs) */
-.h-notice { border-left: 4px solid var(--warning); padding: 4px 0 4px 12px; margin: 8px 0; }
+/* ---- insights tab: recent grinds (rows, result badges, error chart built from divs) */
+.h-notice { padding: 8px 12px; margin: 8px 0; border-left: 4px solid var(--warning); border-radius: var(--r-row); background: var(--tint-warning); font-weight: 600; }
 .h-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
 .h-list:empty { display: none; }
-.h-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; }
-.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
-.h-head { justify-content: space-between; }
+.h-row { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; }
+.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-width: 0; }
+.h-main { align-items: baseline; }
+.h-head { justify-content: space-between; align-items: baseline; }
 .h-final { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
 .h-target, .h-detail, .h-age { font-size: .875rem; overflow-wrap: anywhere; }
+.h-age:empty, .h-target:empty, .h-error:empty, .h-detail:empty { display: none; }
 .h-error { font-weight: 600; }
-.h-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid currentColor; border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; font-weight: 600; }
+.h-motor { display: inline-flex; align-items: center; gap: 4px; font-size: .875rem; }
+.h-motor[hidden] { display: none; }
+.h-motor .icon { width: 16px; height: 16px; }
+.h-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--r-pill); padding: 2px 10px 2px 8px; font-size: .8125rem; font-weight: 600; background: var(--raised); }
 .h-badge .icon { width: 16px; height: 16px; }
-.h-badge.ok { color: var(--success); }
-.h-badge.warning { color: var(--warning); }
-.h-badge.error { color: var(--error); }
-.h-badge.neutral { color: var(--muted); }
+.h-badge.ok { color: var(--success); background: var(--tint-success); }
+.h-badge.warning { color: var(--warning); background: var(--tint-warning); }
+.h-badge.error { color: var(--error); background: var(--tint-error); }
+.h-badge.neutral { color: var(--muted); background: var(--surface); }
 .h-badge .icon-ok, .h-badge .icon-warning, .h-badge .icon-error { display: none; }
 .h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
-.h-chart { margin: 12px 0 0; }
-.h-caption { font-size: .8125rem; margin-bottom: 8px; }
-.h-bars { display: flex; gap: 4px; height: 96px; }
-.h-col { flex: 1 1 0; max-width: 32px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+/* chart: a raised panel, rounded bars (over the line in the warning colour, under it in the accent), the line itself */
+.h-chart { margin: 12px 0 0; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.h-caption { font-size: .8125rem; margin-bottom: 12px; }
+.h-bars { display: flex; justify-content: center; gap: 6px; height: 104px; }
+.h-col { flex: 1 1 0; max-width: 28px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
 .h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
 .h-up { justify-content: flex-end; }
 .h-bar { width: 100%; }
-.h-bar.over { background: var(--warning); border-radius: 3px 3px 0 0; }
-.h-bar.under { background: var(--accent); border-radius: 0 0 3px 3px; }
-.h-axis { background: var(--border); }
+.h-bar.over { background: var(--warning); border-radius: 6px 6px 0 0; }
+.h-bar.under { background: var(--accent); border-radius: 0 0 6px 6px; }
+.h-axis { background: var(--border); border-radius: 1px; }
 .h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
 
 /* ---- settings tab: schema-driven form */
@@ -468,6 +483,11 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   .notice { padding-inline: var(--gutter); }
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
   .panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tiles > :last-child:nth-child(odd) { grid-column: auto; }
+  .tiles > :last-child:nth-child(4n+3) { grid-column: span 2; }
+  .h-bars { gap: 10px; }
+  .h-col { max-width: 36px; }
   .tabbar { box-shadow: none; }
   .hero { padding: 24px; }
   #panel-settings { padding-bottom: 24px; }

@@ -233,51 +233,63 @@ border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(
 .action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
 .note-line { font-size: .875rem; margin-top: 12px; }
 .note-line:empty { display: none; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 12px; margin: 12px 0 0; }
-.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; }
-.tile dt { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.card > .muted:empty { display: none; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
+.tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+.tile dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .875rem; min-width: 0; }
+.tile-label { min-width: 0; overflow-wrap: anywhere; }
+.tile-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.tile-icon .icon { width: 16px; height: 16px; }
 .tile dd { margin: 0; }
-.tile .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
+.tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
 .tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.mix-bar { display: flex; height: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 12px; }
+.skeleton { min-height: 96px; }
+.h-row.skeleton { min-height: 88px; }
+.mix-bar { display: flex; height: 14px; border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 14px; background: var(--raised); }
 .mix-bar .seg { min-width: 0; }
 .mix-bar .seg + .seg { border-left: 2px solid var(--surface); }
 .seg.s0, .swatch.s0 { background: var(--accent); }
 .seg.s1, .swatch.s1 { background: var(--primary); }
 .seg.s2, .swatch.s2 { background: var(--success); }
-.mix-list { margin: 0; display: grid; gap: 6px; }
-.mix-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.mix-list { margin: 0; display: grid; gap: 8px; }
+.mix-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; }
 .mix-row dt { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.mix-row dd { margin: 0; font-weight: 600; }
-.swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.mix-row dd { margin: 0; font-weight: 600; text-align: right; }
+.swatch { flex: none; width: 12px; height: 12px; border-radius: 50%; }
 .mix-note { font-size: .875rem; margin-top: 12px; }
-.h-notice { border-left: 4px solid var(--warning); padding: 4px 0 4px 12px; margin: 8px 0; }
+.h-notice { padding: 8px 12px; margin: 8px 0; border-left: 4px solid var(--warning); border-radius: var(--r-row); background: var(--tint-warning); font-weight: 600; }
 .h-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
 .h-list:empty { display: none; }
-.h-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; }
-.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
-.h-head { justify-content: space-between; }
+.h-row { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; }
+.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-width: 0; }
+.h-main { align-items: baseline; }
+.h-head { justify-content: space-between; align-items: baseline; }
 .h-final { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
 .h-target, .h-detail, .h-age { font-size: .875rem; overflow-wrap: anywhere; }
+.h-age:empty, .h-target:empty, .h-error:empty, .h-detail:empty { display: none; }
 .h-error { font-weight: 600; }
-.h-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid currentColor; border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; font-weight: 600; }
+.h-motor { display: inline-flex; align-items: center; gap: 4px; font-size: .875rem; }
+.h-motor[hidden] { display: none; }
+.h-motor .icon { width: 16px; height: 16px; }
+.h-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--r-pill); padding: 2px 10px 2px 8px; font-size: .8125rem; font-weight: 600; background: var(--raised); }
 .h-badge .icon { width: 16px; height: 16px; }
-.h-badge.ok { color: var(--success); }
-.h-badge.warning { color: var(--warning); }
-.h-badge.error { color: var(--error); }
-.h-badge.neutral { color: var(--muted); }
+.h-badge.ok { color: var(--success); background: var(--tint-success); }
+.h-badge.warning { color: var(--warning); background: var(--tint-warning); }
+.h-badge.error { color: var(--error); background: var(--tint-error); }
+.h-badge.neutral { color: var(--muted); background: var(--surface); }
 .h-badge .icon-ok, .h-badge .icon-warning, .h-badge .icon-error { display: none; }
 .h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
-.h-chart { margin: 12px 0 0; }
-.h-caption { font-size: .8125rem; margin-bottom: 8px; }
-.h-bars { display: flex; gap: 4px; height: 96px; }
-.h-col { flex: 1 1 0; max-width: 32px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+.h-chart { margin: 12px 0 0; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.h-caption { font-size: .8125rem; margin-bottom: 12px; }
+.h-bars { display: flex; justify-content: center; gap: 6px; height: 104px; }
+.h-col { flex: 1 1 0; max-width: 28px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
 .h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
 .h-up { justify-content: flex-end; }
 .h-bar { width: 100%; }
-.h-bar.over { background: var(--warning); border-radius: 3px 3px 0 0; }
-.h-bar.under { background: var(--accent); border-radius: 0 0 3px 3px; }
-.h-axis { background: var(--border); }
+.h-bar.over { background: var(--warning); border-radius: 6px 6px 0 0; }
+.h-bar.under { background: var(--accent); border-radius: 0 0 6px 6px; }
+.h-axis { background: var(--border); border-radius: 1px; }
 .h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
@@ -387,6 +399,11 @@ background: var(--raised); border: 1px solid var(--hairline); border-radius: var
 .notice { padding-inline: var(--gutter); }
 .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
 .panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
+.tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tiles > :last-child:nth-child(odd) { grid-column: auto; }
+.tiles > :last-child:nth-child(4n+3) { grid-column: span 2; }
+.h-bars { gap: 10px; }
+.h-col { max-width: 36px; }
 .tabbar { box-shadow: none; }
 .hero { padding: 24px; }
 #panel-settings { padding-bottom: 24px; }
@@ -477,6 +494,8 @@ html { scroll-padding-top: 88px; }
   <symbol id="i-offline" viewBox="0 0 24 24"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M4 4l16 16"></path><circle cx="12" cy="19" r=".8"></circle></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="7.8" r=".8"></circle></symbol>
   <symbol id="i-display" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="4.5"></circle><circle cx="12" cy="12" r=".8"></circle></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"></path></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 9a8 8 0 0 0-14-1.5M5 4v4h4M5 15a8 8 0 0 0 14 1.5M19 20v-4h-4"></path></symbol>
 </svg>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -620,22 +639,31 @@ html { scroll-padding-top: 88px; }
     </div>
   </section>
   <section id="panel-insights" class="panel" aria-label="Insights" hidden>
-    <div class="card full">
-      <h2 id="insights-h">Lifetime statistics</h2>
+    <section class="card full" aria-labelledby="insights-h">
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg></span><h2 id="insights-h">Lifetime statistics</h2></div>
       <p id="insights-message" class="muted"></p>
+      <div id="tiles-skel" class="tiles" aria-hidden="true" hidden><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div></div>
       <dl id="tiles" class="tiles" hidden></dl>
+      <template id="tile-row">
+        <div class="tile">
+          <dt><span class="tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg></span><span class="tile-label"></span></dt>
+          <dd class="stat-value"></dd>
+          <dd class="stat-detail"></dd>
+        </div>
+      </template>
       <p id="insights-note" class="muted note-line"></p>
-    </div>
+    </section>
     <section id="mix" class="card full" aria-labelledby="mix-h" hidden>
-      <h2 id="mix-h">Grinds by final weight</h2>
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-scale"></use></svg></span><h2 id="mix-h">Grinds by final weight</h2></div>
       <div id="mix-bar" class="mix-bar" aria-hidden="true"></div>
       <dl id="mix-list" class="mix-list"></dl>
       <p class="mix-note muted">Counted by the weight that came out, not by the Single, Double or Custom button.</p>
     </section>
     <section id="history" class="card full" aria-labelledby="history-h" hidden>
-      <h2 id="history-h">Recent grinds</h2>
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-clock"></use></svg></span><h2 id="history-h">Recent grinds</h2></div>
       <p id="history-message" class="muted"></p>
       <p id="history-notice" class="h-notice" hidden></p>
+      <div id="history-skel" class="h-list" aria-hidden="true" hidden><div class="h-row skeleton"></div><div class="h-row skeleton"></div><div class="h-row skeleton"></div></div>
       <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
         <p id="history-caption" class="muted h-caption"></p>
         <div id="history-bars" class="h-bars"></div>
@@ -655,6 +683,7 @@ html { scroll-padding-top: 88px; }
             </span>
             <span class="h-error"></span>
             <span class="h-detail muted"></span>
+            <span class="h-motor muted"><svg class="icon" aria-hidden="true"><use href="#i-motor"></use></svg><span class="h-motor-text"></span></span>
           </div>
         </li>
       </template>
@@ -1581,18 +1610,18 @@ function tilesFor(doc) {
 var noError = doc.weight_mode === null || doc.weight_mode === 0 || doc.avg_abs_error_g === null;
 var noPulses = doc.total_grinds === 0 || doc.avg_pulses === null;
 return [
-{ id: 'grinds', label: 'Grinds', value: statText(doc.total_grinds),
+{ id: 'grinds', icon: 'bean', label: 'Grinds', value: statText(doc.total_grinds),
 detail: statText(doc.weight_mode) + ' by weight, ' + statText(doc.time_mode) + ' by time' },
-{ id: 'coffee', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
-{ id: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
+{ id: 'coffee', icon: 'scale', label: 'Coffee ground', value: formatKg(doc.total_weight_kg), detail: 'Total weight of finished grinds' },
+{ id: 'motor', icon: 'motor', label: 'Motor run time', value: doc.motor_runtime_s === null ? '--' : formatDuration(doc.motor_runtime_s),
 detail: 'Grinding, pulses and motor tests' },
-{ id: 'powered', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
+{ id: 'powered', icon: 'clock', label: 'Powered on', value: doc.powered_minutes === null ? '--' : formatDuration(doc.powered_minutes * 60),
 detail: 'Total time the grinder has been switched on' },
-{ id: 'error', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
+{ id: 'error', icon: 'target', label: 'Average error', value: noError ? '--' : '\u00b1' + (doc.avg_abs_error_g < 1000 ? doc.avg_abs_error_g.toFixed(2) : formatCount(Math.round(doc.avg_abs_error_g))) + ' g',
 detail: noError ? 'No weight-mode grinds yet' : 'Final weight against the target, weight mode' },
-{ id: 'pulses', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
+{ id: 'pulses', icon: 'pulse', label: 'Average pulses', value: noPulses ? '--' : doc.avg_pulses.toFixed(1),
 detail: doc.total_pulses === null ? 'Correction pulses per grind' : statText(doc.total_pulses) + ' correction pulses in total' },
-{ id: 'timepulses', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
+{ id: 'timepulses', icon: 'refresh', label: 'Extra time-mode pulses', value: statText(doc.time_pulses), detail: 'Added after time-mode grinds' }
 ];
 }
 function statsView(s, conn, nowMs) {
@@ -1655,6 +1684,7 @@ time: time,
 target: finiteOrNull(time ? g.target_s : g.target_g),
 final: finiteOrNull(g.final_g),
 timeMs: finiteOrNull(g.time_ms),
+motorMs: finiteOrNull(g.motor_ms),
 pulses: finiteOrNull(g.pulses),
 result: has(HISTORY_RESULTS, g.result) ? g.result : 'unknown'
 });
@@ -1687,11 +1717,15 @@ var r = Math.round(Math.abs(err) * 10);
 if (r === 0) return 'on target';
 return (err > 0 ? '+' : '-') + tenths(Math.abs(err)) + ' g ' + (err > 0 ? 'over' : 'under');
 }
+function msText(ms) {
+if (typeof ms !== 'number' || !isFinite(ms) || ms < 0) return '';
+return ms < 60000 ? (ms / 1000).toFixed(1) + ' s' : formatDuration(ms / 1000);
+}
 function historyRow(g, elapsedS) {
 var result = HISTORY_RESULTS[g.result];
 var err = !g.time && g.final !== null && g.target !== null ? g.final - g.target : null;
 var detail = [];
-if (g.timeMs !== null && g.timeMs >= 0) detail.push(g.timeMs < 60000 ? (g.timeMs / 1000).toFixed(1) + ' s' : formatDuration(g.timeMs / 1000));
+if (msText(g.timeMs) !== '') detail.push(msText(g.timeMs));
 if (g.pulses !== null && (!g.time || g.pulses > 0)) detail.push(g.pulses + (g.pulses === 1 ? ' pulse' : ' pulses'));
 return {
 name: g.profile === null ? 'Grind' : PROFILE_NAMES[g.profile],
@@ -1701,6 +1735,7 @@ target: g.target === null ? '' : 'target ' + tenths(g.target) + (g.time ? ' s' :
 error: historyErrorText(err),
 badge: { label: result.label, level: result.level },
 detail: detail.join(' \u00b7 '),
+motor: msText(g.motorMs) === '' ? '' : 'motor ' + msText(g.motorMs),
 err: err
 };
 }
@@ -2143,6 +2178,7 @@ parseHistory: parseHistory,
 historyLoaded: historyLoaded,
 historyDue: historyDue,
 historyAgeText: historyAgeText,
+msText: msText,
 historyErrorText: historyErrorText,
 historyView: historyView,
 STEP_OPTIONS: STEP_OPTIONS,
@@ -2292,6 +2328,7 @@ if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the da
 setText($('insights-message'), view.message);
 setText($('insights-note'), view.note);
 setHidden($('tiles'), view.tiles.length === 0);
+setHidden($('tiles-skel'), view.kind !== 'loading');
 setHidden($('mix'), !view.mix.visible);
 var key = JSON.stringify([view.tiles, view.mix]);
 if (key === insightsKey) return;
@@ -2299,15 +2336,15 @@ insightsKey = key;
 var tiles = $('tiles');
 while (tiles.firstChild) tiles.removeChild(tiles.firstChild);
 view.tiles.forEach(function (tile) {
-var item = el('div', 'tile');
-item.appendChild(el('dt', '', tile.label));
-var value = el('dd', 'stat-value');
+var item = $('tile-row').content.firstElementChild.cloneNode(true);
+item.querySelector('use').setAttribute('href', '#i-' + tile.icon);
+item.querySelector('.tile-label').textContent = tile.label;
+var value = item.querySelector('.stat-value');
 tile.value.split(',').forEach(function (part, n, parts) {
 if (n > 0) value.appendChild(el('wbr'));
 value.appendChild(document.createTextNode(n < parts.length - 1 ? part + ',' : part));
 });
-item.appendChild(value);
-item.appendChild(el('dd', 'stat-detail', tile.detail));
+item.querySelector('.stat-detail').textContent = tile.detail;
 tiles.appendChild(item);
 });
 var bar = $('mix-bar');
@@ -2337,6 +2374,7 @@ setText($('history-message'), view.message);
 setText($('history-note'), view.note);
 setText($('history-notice'), view.notice);
 setHidden($('history-notice'), view.notice === '');
+setHidden($('history-skel'), view.kind !== 'loading');
 setHidden($('history-chart'), !view.chart.visible);
 var key = JSON.stringify([view.rows, view.chart]);
 if (key === historyKey) return;
@@ -2368,6 +2406,8 @@ item.querySelector('.h-final').textContent = row.final;
 item.querySelector('.h-target').textContent = row.target;
 item.querySelector('.h-error').textContent = row.error;
 item.querySelector('.h-detail').textContent = row.detail;
+item.querySelector('.h-motor-text').textContent = row.motor;
+setHidden(item.querySelector('.h-motor'), row.motor === '');
 item.querySelector('.h-result').textContent = row.badge.label;
 item.querySelector('.h-badge').classList.add(row.badge.level);
 list.appendChild(item);
