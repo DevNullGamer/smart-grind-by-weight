@@ -84,7 +84,6 @@ padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 16px
 h1, h2, h3, p { margin: 0; }
 h1 { font-size: 1.25rem; line-height: 1.3; overflow-wrap: anywhere; }
 h2 { font-size: 1rem; line-height: 1.4; }
-.micro { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 [hidden] { display: none !important; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -258,14 +257,13 @@ border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
 .tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 .tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
-.tile dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .875rem; min-width: 0; }
+.tile dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .875rem; min-width: 0; min-height: 2.75rem; }
 .tile-label { min-width: 0; overflow-wrap: anywhere; }
 .tile-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
 .tile-icon .icon { width: 16px; height: 16px; }
 .tile dd { margin: 0; }
-.tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
+.tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; text-wrap: balance; }
 .tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.tile.skeleton { min-height: 160px; }
 .h-row.skeleton { min-height: 134px; }
 .mix-bar { display: flex; height: 14px; border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 14px; background: var(--raised); }
 .mix-bar .seg { min-width: 0; }
@@ -303,8 +301,8 @@ border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(
 .h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
 .h-chart { margin: 12px 0 0; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
 .h-caption { font-size: .8125rem; margin-bottom: 12px; }
-.h-bars { display: flex; justify-content: center; gap: 6px; height: 104px; }
-.h-col { flex: 1 1 0; max-width: 28px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+.h-bars { display: flex; justify-content: space-evenly; gap: 6px; height: 104px; }
+.h-col { flex: 1 1 0; max-width: 40px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
 .h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
 .h-up { justify-content: flex-end; }
 .h-bar { width: 100%; }
@@ -423,10 +421,9 @@ background: var(--raised); border: 1px solid var(--hairline); border-radius: var
 .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tiles > :last-child:nth-child(odd) { grid-column: auto; }
 .tiles > :last-child:nth-child(4n+3) { grid-column: span 2; }
-.tile.skeleton { min-height: 172px; }
 .h-row.skeleton { min-height: 111px; }
 .h-bars { gap: 10px; }
-.h-col { max-width: 36px; }
+.h-col { max-width: 56px; }
 .tabbar { box-shadow: none; }
 .hero { padding: 24px; }
 #panel-settings { padding-bottom: 24px; }
@@ -477,6 +474,7 @@ width: auto; max-width: none; margin: 70px -6px -6px; padding: 6px; background: 
 .side-name { font-weight: 700; overflow-wrap: anywhere; }
 .side-foot .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
 html { scroll-padding-top: 88px; }
+.tile dt { min-height: 0; }
 .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
 .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
@@ -488,7 +486,6 @@ html { scroll-padding-top: 88px; }
 .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
 .tools-card { grid-column: 1; grid-row: 2; }
 .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
-.tile.skeleton { min-height: 134px; }
 }
 @media (min-width: 1024px) and (max-height: 520px) {
 .side-foot { display: none; }
@@ -686,7 +683,6 @@ animation: shimmer 1.6s linear infinite;
     <section class="card full" aria-labelledby="insights-h">
       <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-insights"></use></svg></span><h2 id="insights-h">Lifetime statistics</h2></div>
       <p id="insights-message" class="muted"></p>
-      <div id="tiles-skel" class="tiles" aria-hidden="true" hidden><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div><div class="tile skeleton"></div></div>
       <dl id="tiles" class="tiles" hidden></dl>
       <template id="tile-row">
         <div class="tile">
@@ -708,9 +704,9 @@ animation: shimmer 1.6s linear infinite;
       <p id="history-message" class="muted"></p>
       <p id="history-notice" class="h-notice" hidden></p>
       <div id="history-skel" class="h-list" aria-hidden="true" hidden><div class="h-row skeleton"></div><div class="h-row skeleton"></div><div class="h-row skeleton"></div></div>
-      <div id="history-chart" class="h-chart" aria-hidden="true" hidden>
+      <div id="history-chartbox" class="h-chart" hidden>
         <p id="history-caption" class="muted h-caption"></p>
-        <div id="history-bars" class="h-bars"></div>
+        <div id="history-chart" class="h-bars" aria-hidden="true"></div>
       </div>
       <ul id="history-list" class="h-list" role="list" aria-labelledby="history-h"></ul>
       <p id="history-note" class="muted note-line"></p>
@@ -734,14 +730,14 @@ animation: shimmer 1.6s linear infinite;
     </section>
   </section>
   <section id="panel-device" class="panel" aria-label="Device" hidden>
-    <div class="card full">
-      <h2>About this grinder</h2>
+    <section class="card full" aria-labelledby="about-h">
+      <div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-device"></use></svg></span><h2 id="about-h">About this grinder</h2></div>
       <dl class="about">
         <div class="about-row"><dt>Name</dt><dd id="about-name">--</dd></div>
         <div class="about-row"><dt>Address</dt><dd id="about-address">--</dd></div>
         <div class="about-row"><dt>Firmware</dt><dd id="about-firmware">--</dd></div>
       </dl>
-    </div>
+    </section>
   </section>
 </main>
 <footer class="notice"><svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span>Anyone on this network can use this page. There is no login. Turn Web interface off on the grinder when you do not need it.</span></footer>
@@ -2290,7 +2286,7 @@ var statusAt = null; // when the latest status reply was received (the lead-in m
 var forceStatus = false; // the last settings or info request failed: status goes next
 var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 var requestedTab = 'grind';
-var START_WORDS = ['SINGLE', 'DOUBLE', 'CUSTOM']; // the profile names the lead-in announces, as on the grinder
+var START_WORDS = V.PROFILE_NAMES.map(function (name) { return name.toUpperCase(); }); // the names the lead-in announces, as on the grinder
 function showTab(requested) {
 requestedTab = requested;
 var name = V.tabForViewport(requested);
@@ -2380,8 +2376,6 @@ setClass($('insights-message'), 'is-empty', view.kind === 'empty');
 setClass($('insights-message'), 'is-problem', view.kind === 'error');
 setText($('insights-note'), view.note);
 setHidden($('tiles'), view.tiles.length === 0);
-setHidden($('tiles-skel'), view.kind !== 'loading');
-setClass($('tiles-skel'), 'is-loading', view.kind === 'loading');
 setHidden($('mix'), !view.mix.visible);
 var key = JSON.stringify([view.tiles, view.mix]);
 if (key === insightsKey) return;
@@ -2431,12 +2425,12 @@ setText($('history-notice'), view.notice);
 setHidden($('history-notice'), view.notice === '');
 setHidden($('history-skel'), view.kind !== 'loading');
 setClass($('history-skel'), 'is-loading', view.kind === 'loading');
-setHidden($('history-chart'), !view.chart.visible);
+setHidden($('history-chartbox'), !view.chart.visible);
 var key = JSON.stringify([view.rows, view.chart]);
 if (key === historyKey) return;
 historyKey = key;
 setText($('history-caption'), view.chart.caption);
-var bars = $('history-bars');
+var bars = $('history-chart'); // the bars only: the caption beside them is read by screen readers
 var list = $('history-list');
 while (bars.firstChild) bars.removeChild(bars.firstChild);
 while (list.firstChild) list.removeChild(list.firstChild);
@@ -2971,16 +2965,22 @@ else conn = V.connectionOk(conn, now());
 if (failed.forceStatus) forceStatus = true; // do not let a failing settings or info request starve status
 }).then(finalize, finalize);
 }
+var stopsSending = 0; // STOP requests on the wire: the ring stays until the last one is answered
+function stopSettled() {
+stopsSending--;
+setClass($('stop'), 'is-sending', stopsSending > 0);
+}
 function stop() {
+stopsSending++;
 setClass($('stop'), 'is-sending', true); // the ring shows while the request is on the wire; STOP stays enabled
 client.command('stop').then(function () {
-setClass($('stop'), 'is-sending', false);
+stopSettled();
 setLeadIn(V.leadInCancel());
 say('Stop sent.', false);
 render();
 pollNow();
 }, function (err) {
-setClass($('stop'), 'is-sending', false);
+stopSettled();
 if (err && (err.code === 'network' || err.code === 'timeout')) {
 say('STOP was not confirmed by the grinder. Press STOP again and check the grinder. ' + (err.message || ''), true);
 } else {

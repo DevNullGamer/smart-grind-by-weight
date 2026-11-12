@@ -41,7 +41,7 @@
   var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 
   var requestedTab = 'grind';
-  var START_WORDS = ['SINGLE', 'DOUBLE', 'CUSTOM']; // the profile names the lead-in announces, as on the grinder
+  var START_WORDS = V.PROFILE_NAMES.map(function (name) { return name.toUpperCase(); }); // the names the lead-in announces, as on the grinder
 
   function showTab(requested) {
     requestedTab = requested;
@@ -157,8 +157,6 @@
     setClass($('insights-message'), 'is-problem', view.kind === 'error');
     setText($('insights-note'), view.note);
     setHidden($('tiles'), view.tiles.length === 0);
-    setHidden($('tiles-skel'), view.kind !== 'loading');
-    setClass($('tiles-skel'), 'is-loading', view.kind === 'loading');
     setHidden($('mix'), !view.mix.visible);
     var key = JSON.stringify([view.tiles, view.mix]);
     if (key === insightsKey) return;
@@ -211,12 +209,12 @@
     setHidden($('history-notice'), view.notice === '');
     setHidden($('history-skel'), view.kind !== 'loading');
     setClass($('history-skel'), 'is-loading', view.kind === 'loading');
-    setHidden($('history-chart'), !view.chart.visible);
+    setHidden($('history-chartbox'), !view.chart.visible);
     var key = JSON.stringify([view.rows, view.chart]);
     if (key === historyKey) return;
     historyKey = key;
     setText($('history-caption'), view.chart.caption);
-    var bars = $('history-bars');
+    var bars = $('history-chart'); // the bars only: the caption beside them is read by screen readers
     var list = $('history-list');
     while (bars.firstChild) bars.removeChild(bars.firstChild);
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -805,16 +803,23 @@
 
   // --- commands
   // STOP always tries; a failure is reported in words (the page keeps no other state).
+  var stopsSending = 0; // STOP requests on the wire: the ring stays until the last one is answered
+  function stopSettled() {
+    stopsSending--;
+    setClass($('stop'), 'is-sending', stopsSending > 0);
+  }
+
   function stop() {
+    stopsSending++;
     setClass($('stop'), 'is-sending', true); // the ring shows while the request is on the wire; STOP stays enabled
     client.command('stop').then(function () {
-      setClass($('stop'), 'is-sending', false);
+      stopSettled();
       setLeadIn(V.leadInCancel());
       say('Stop sent.', false);
       render();
       pollNow();
     }, function (err) {
-      setClass($('stop'), 'is-sending', false);
+      stopSettled();
       if (err && (err.code === 'network' || err.code === 'timeout')) {
         say('STOP was not confirmed by the grinder. Press STOP again and check the grinder. ' + (err.message || ''), true);
       } else {

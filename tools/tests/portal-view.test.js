@@ -1672,6 +1672,14 @@ test('the recent-grinds list is wired in the page: a named list, a hidden chart,
     assert.match(html, /<section id="history"[^>]*aria-labelledby="history-h"[^>]*hidden>/);
     assert.match(html, /<ul id="history-list"[^>]*role="list"[^>]*aria-labelledby="history-h"/);
     assert.match(html, /<div id="history-chart"[^>]*aria-hidden="true"/);
+    // the caption is announced, so it must sit before the aria-hidden bars and outside any aria-hidden element
+    const chartbox = html.match(/<div id="history-chartbox"([^>]*)>([\s\S]*?)<ul id="history-list"/);
+    assert.ok(chartbox, 'history-chartbox block found');
+    assert.match(chartbox[1], /\shidden$/, 'history-chartbox starts hidden');
+    assert.equal(/aria-hidden/.test(chartbox[1]), false, 'history-chartbox is not aria-hidden');
+    const captionAt = chartbox[2].indexOf('<p id="history-caption"');
+    const barsAt = chartbox[2].indexOf('<div id="history-chart"');
+    assert.ok(captionAt >= 0 && captionAt < barsAt, 'history-caption is outside the aria-hidden bars');
     assert.match(html, /<template id="history-row">/);
     assert.match(app, /V\.historyView\(history, conn, now\(\)\)/);
     assert.match(app, /client\.getHistory\(\)/);
@@ -1773,7 +1781,7 @@ test('chg021 V6: all seven stat tiles carry an icon that exists as a symbol in p
 test('chg021 V6: skeleton placeholders carry hidden and aria-hidden in the markup, and the app only toggles them', () => {
     const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
     const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
-    for (const id of ['tiles-skel', 'history-skel']) {
+    for (const id of ['history-skel']) {
         const tag = html.match(new RegExp('<div id="' + id + '"[^>]*>'));
         assert.ok(tag, id + ' is missing');
         assert.match(tag[0], /\baria-hidden="true"/, id);

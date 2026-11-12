@@ -466,7 +466,7 @@ def _rule_declarations(css, selector):
     """Declarations of every top-level (depth 0) rule whose selector list is exactly `selector`."""
     stripped = _strip_comments_and_strings(css)
     out = []
-    for m in re.finditer(r"(?:^|\})\s*([^{}@]+?)\s*\{([^{}]*)\}", stripped):
+    for m in re.finditer(r"(?:^|(?<=\}))\s*([^{}@]+?)\s*\{([^{}]*)\}", stripped):
         if " ".join(m.group(1).split()) == selector:
             out.append(m.group(2))
     return out
