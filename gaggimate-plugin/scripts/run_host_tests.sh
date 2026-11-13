@@ -9,7 +9,7 @@ mkdir -p "$OUT"
 PLUGIN=src/display/plugins/grinderlink
 g++ -std=gnu++17 -Wall -Wextra -Werror -O1 -g \
     -I test/host -I "$PLUGIN" -I test/test_grinderlink \
-    test/test_grinderlink/test_main.cpp test/test_grinderlink/test_glink_messages.cpp test/test_grinderlink/test_glink_client.cpp \
+    test/test_grinderlink/test_main.cpp test/test_grinderlink/test_glink_messages.cpp test/test_grinderlink/test_glink_client.cpp test/test_grinderlink/test_rx_ring.cpp \
     "$PLUGIN/GLinkMessages.cpp" "$PLUGIN/GLinkClient.cpp" "$PLUGIN/bluetooth/glink_frame.cpp" "$PLUGIN/bluetooth/glink_json.cpp" \
     -o "$OUT/host_tests"
 # glink_vectors.h looks for tools/tests/glink_vectors.json relative to the working directory: run from the plugin root.

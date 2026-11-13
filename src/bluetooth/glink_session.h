@@ -173,6 +173,11 @@ private:
 //------------------------------------------------------------------------------
 // Per-connection session
 //------------------------------------------------------------------------------
+// The ATT MTU to size packets from: what the MTU callback reported, else what the stack says (0 = unknown for both).
+// The callback value can be missing although the MTU was negotiated; 20-byte packets would then be used on a link
+// that carries 244 (docs/GLINK-PROTOCOL.md section 8).
+uint16_t glink_effective_mtu(uint16_t reported_mtu, uint16_t stack_mtu);
+
 class GlinkSession {
 public:
     void reset();                        // no client: clears the handshake, subscription, MTU, cadence

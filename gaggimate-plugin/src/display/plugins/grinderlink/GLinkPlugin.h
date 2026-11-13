@@ -6,6 +6,7 @@
 #ifndef GAGGIMATE_SIM
 
 #include "GLinkClient.h"
+#include "RxRing.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
@@ -162,9 +163,8 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
 
     // Notification queue (NimBLE host task -> loop task); allocated in setup()
     std::mutex rxMutex;
-    std::unique_ptr<RxPacket[]> rxRing;
-    size_t rxHead = 0;
-    size_t rxCount = 0;
+    std::unique_ptr<uint8_t[]> rxStorage;
+    glinkc::RxRing rxRing; // guarded by rxMutex
     std::atomic<bool> rxOverflow{false};
     std::unique_ptr<RxPacket> scratch; // the packet being handed to the Client
 

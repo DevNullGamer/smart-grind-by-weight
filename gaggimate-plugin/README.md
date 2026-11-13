@@ -62,8 +62,9 @@ reboot; the whole file is empty under `GAGGIMATE_SIM`.
 
 - **Threads.** WebSocket requests arrive on the AsyncTCP task and only copy the request into a queue (a stop goes to the
   front). Everything else runs on the main `loop()` task: the NimBLE calls, the `Client`, the replies and the events.
-  NimBLE callbacks (host task) only set a flag, add a scan hit or put a notification packet in an 8 packet ring.
-  A ring overflow drops the link instead of feeding the reassembler a gap.
+  NimBLE callbacks (host task) only set a flag, add a scan hit or put a notification packet in an 8 KB byte ring (`RxRing.h`, about 370 packets of 20 bytes or 33 of 244).
+  A ring overflow drops the link instead of feeding the reassembler a gap. (An earlier 8 packet ring overflowed on the hello
+  reply of a grinder that sends 20-byte packets: baseInfo alone is 17 of them.)
 - **Memory.** The `Client` (about 3 KB with its parse target), the packet ring and one scratch packet are allocated with
   `new (std::nothrow)` in `setup()`. `parse_message` needs about 3 KB of stack on the loop task; the plugin logs the
   task's stack high-water mark once, at the first ready link, so the margin can be read from the first hardware run.
@@ -151,7 +152,7 @@ The card file itself is copied by the staging script, not patched in.
 Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_DIR`):
 
 - the shared files are byte-identical with the firmware (contract test);
-- `scripts/run_host_tests.sh`: 44 host tests pass, compiled with `-Wall -Wextra -Werror`: the request builders
+- `scripts/run_host_tests.sh`: 49 host tests pass, compiled with `-Wall -Wextra -Werror`: the request builders
   reproduce the vector requests byte for byte and refuse what the grinder refuses; every response, `periodInfo`, `baseInfo`
   and `grindResult` text of the vectors parses to the values in the vector JSON; the hello is the golden handshake
   frames; sessions with a fake link cover the handshake, the 5 s ready and response timeouts (also across the clock

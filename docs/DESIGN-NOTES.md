@@ -1047,6 +1047,11 @@ removal still have to be checked there.
 - **MTU:** `BLEServerCallbacks::onMtuChanged(server, desc, mtu)` (host task) fires on a client's MTU exchange and
   `BLEServer::getPeerMTU(conn)` is `ble_att_mtu(conn)`. The device asks for 517 (`BLEDevice::setMTU`); no event means
   23. The manager stores the value of the accepted client in an atomic and the Bluetooth task sizes packets from it.
+  If the event value is missing (hardware: the display's GLinkPlugin connected with 247 but the grinder still used 20-byte
+  packets), `glink_effective_mtu()` takes the larger of the callback value and `getPeerMTU()`. Bug found on hardware:
+  the plugin's 8 packet notification ring overflowed on the hello reply (17 packets of 20 bytes, one per 10 ms) and dropped
+  the link about 1 s after connect (`notification queue overflow`). The plugin ring is now a byte ring that holds about
+  370 packets of 20 bytes (`RxRing.h`, host tests in `test_rx_ring.cpp`).
 - **CCCD:** NimBLE adds the 0x2902 descriptor of a notify characteristic itself. `BLECharacteristicCallbacks::onSubscribe(
   chr, desc, subValue)` reports it (bit 0 = notifications); `notify()` with no subscriber does nothing and reports
   `ERROR_NO_SUBSCRIBER` through `onStatus`. GLink TX is only written while the accepted client is subscribed.

@@ -20,8 +20,11 @@ constexpr uint32_t CONNECT_RETRY_MS = 3000;       // minimum gap between two con
 constexpr uint8_t CONNECT_TIMEOUT_S = 5;          // NimBLE's default of 30 s would block the main loop
 constexpr uint32_t EVENT_MIN_INTERVAL_MS = 250;   // state events to the browser: 4 Hz at most
 constexpr uint32_t AUTO_FETCH_MIN_INTERVAL_MS = 2000;
-constexpr size_t RX_RING_LEN = 8;                 // notification packets between the NimBLE task and loop()
-constexpr size_t RX_DRAIN_PER_LOOP = 16;
+// Notification ring between the NimBLE task and loop(). One packet takes 2 + length bytes: 8 KB hold about 370 packets
+// of 20 bytes (the grinder fragments to 20 bytes while it does not know the MTU) or 33 of 244. The loop task can be
+// busy for a few hundred ms (a connect, the web socket), and the grinder sends up to 100 packets per second.
+constexpr size_t RX_RING_BYTES = 8192;
+constexpr size_t RX_DRAIN_PER_LOOP = 64;
 constexpr size_t MAX_FOUND = 8;
 constexpr size_t MAX_COMMANDS = 8;
 
@@ -107,12 +110,14 @@ void GLinkPlugin::setup(Controller *_controller, PluginManager *_pluginManager) 
 
     // The session and the packet ring are the plugin's big objects; they live on the heap, never on a task stack.
     client.reset(new (std::nothrow) glinkc::Client(*this, *this));
-    rxRing.reset(new (std::nothrow) RxPacket[RX_RING_LEN]);
+    rxStorage.reset(new (std::nothrow) uint8_t[RX_RING_BYTES]);
     scratch.reset(new (std::nothrow) RxPacket());
-    if (!client || !rxRing || !scratch) {
+    if (rxStorage)
+        rxRing.init(rxStorage.get(), RX_RING_BYTES);
+    if (!client || !rxStorage || !scratch) {
         ESP_LOGE(TAG, "Out of memory, GrinderLink is off");
         client.reset();
-        rxRing.reset();
+        rxStorage.reset();
         scratch.reset();
         return;
     }
@@ -232,8 +237,10 @@ void GLinkPlugin::loop() {
     if (scanning && static_cast<int32_t>(now - scanDeadline) >= 0)
         finishScan();
 
-    if (rxOverflow.exchange(false) && phase == LinkPhase::LINKED)
+    if (rxOverflow.exchange(false) && phase == LinkPhase::LINKED) {
+        ESP_LOGW(TAG, "Notification queue overflow, dropping the link");
         dropLink("notification queue overflow", false);
+    }
     if (linkLost.exchange(false) && phase == LinkPhase::LINKED)
         dropLink("link lost", false);
 
@@ -661,8 +668,7 @@ bool GLinkPlugin::connectLink(uint32_t now) {
         } else {
             {
                 std::lock_guard<std::mutex> lock(rxMutex);
-                rxHead = 0;
-                rxCount = 0;
+                rxRing.clear();
             }
             rxOverflow = false;
             // Subscribe before the hello: the first answer is a notification.
@@ -676,14 +682,10 @@ bool GLinkPlugin::connectLink(uint32_t now) {
                         return;
                     }
                     std::lock_guard<std::mutex> lock(rxMutex);
-                    if (rxCount >= RX_RING_LEN) {
+                    if (!rxRing.push(data, len)) {
                         rxOverflow = true;
                         return;
                     }
-                    RxPacket &slot = rxRing[(rxHead + rxCount) % RX_RING_LEN];
-                    memcpy(slot.data, data, len);
-                    slot.len = static_cast<uint16_t>(len);
-                    rxCount++;
                 },
                 true);
             if (!subscribed)
@@ -735,8 +737,7 @@ void GLinkPlugin::dropLink(const char *reason, bool userRequested) {
     disconnectWanted = false;
     {
         std::lock_guard<std::mutex> lock(rxMutex);
-        rxHead = 0;
-        rxCount = 0;
+        rxRing.clear();
     }
     if (inflight.valid && !inflight.internal && inflight.kind == glinkc::RequestKind::START)
         startTimedOut = true; // the start may have reached the grinder: outcome unknown
@@ -757,14 +758,12 @@ void GLinkPlugin::drainRx(uint32_t now) {
             return;
         {
             std::lock_guard<std::mutex> lock(rxMutex);
-            if (rxCount == 0)
+            if (rxRing.count() == 0)
                 return;
-            const RxPacket &slot = rxRing[rxHead];
-            memcpy(scratch->data, slot.data, slot.len);
-            scratch->len = slot.len;
-            rxHead = (rxHead + 1) % RX_RING_LEN;
-            rxCount--;
+            scratch->len = static_cast<uint16_t>(rxRing.pop(scratch->data, sizeof(scratch->data)));
         }
+        if (scratch->len == 0)
+            continue;
         client->on_notify(scratch->data, scratch->len, now);
         if (phase != LinkPhase::LINKED) // on_must_disconnect() may have ended the link
             return;

@@ -1486,6 +1486,13 @@ void BluetoothManager::glink_pump_tx(uint32_t now_ms) {
         return;
     }
 
+    static uint32_t size_logged_epoch = 0;  // one line per connection: the packet size the first message uses
+    if (size_logged_epoch != link_epoch.load()) {
+        size_logged_epoch = link_epoch.load();
+        log("GLink: packet size %u (ATT MTU %u)\n", static_cast<unsigned>(glink_session.packet_len()),
+            static_cast<unsigned>(glink_session.mtu()));
+    }
+
     uint8_t packet[GLINK_MAX_PACKET_BYTES];
     uint8_t sent = 0;
     const uint8_t allowance = glink_pacer.allowance(now_ms);
@@ -1534,7 +1541,9 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
     if (tx_subscribed.load() || rx_activity.exchange(false)) {
         glink_session.note_activity(now_ms);
     }
-    glink_session.set_mtu(att_mtu.load());
+    // The callback value can be missing (0) although the stack negotiated a larger MTU: then the packets would be 20 bytes
+    // and a hello reply alone would be 17 notifications. Ask the stack.
+    glink_session.set_mtu(glink_effective_mtu(att_mtu.load(), ble_server ? ble_server->getPeerMTU(connection_id) : 0));
 
     portENTER_CRITICAL(&glink_rx_mux);
     const bool too_many_bad_fragments = glink_rx.disconnect_requested();
