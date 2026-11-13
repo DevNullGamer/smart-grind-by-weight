@@ -25,8 +25,13 @@ CalibrationResult calibration_compute_factor(int32_t raw_reading, int32_t tare_o
     return CalibrationResult::OK;
 }
 
+CalibrationResult calibration_tare_result(bool tare_ok) {
+    return tare_ok ? CalibrationResult::OK : CalibrationResult::TARE_FAILED;
+}
+
 const char* calibration_result_title(CalibrationResult result) {
     switch (result) {
+        case CalibrationResult::TARE_FAILED: return "TARE FAILED";
         case CalibrationResult::INVALID_WEIGHT: return "CALIBRATION FAILED";
         case CalibrationResult::HARDWARE_FAULT: return "LOAD CELL FAULT";
         case CalibrationResult::SETTLE_TIMEOUT: return "CALIBRATION FAILED";
@@ -39,6 +44,8 @@ const char* calibration_result_title(CalibrationResult result) {
 
 const char* calibration_result_message(CalibrationResult result) {
     switch (result) {
+        case CalibrationResult::TARE_FAILED:
+            return "The scale could not be zeroed.\n\nKeep the scale empty and still, then try again.";
         case CalibrationResult::INVALID_WEIGHT:
             return "The calibration weight is not valid.\n\nThe previous calibration is kept.";
         case CalibrationResult::HARDWARE_FAULT:

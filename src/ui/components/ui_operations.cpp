@@ -13,6 +13,27 @@ void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback c
     overlay.show_and_execute(BlockingOperation::TARING, tare_operation, completion);
 }
 
+void UIOperations::execute_tare_checked(HardwareManager* hw_manager, TareCompletion completion) {
+    auto& overlay = BlockingOperationOverlay::getInstance();
+
+    // The operation callback has no return value, so the result travels in shared state
+    auto ok = std::make_shared<bool>(false);
+
+    auto tare_operation = [hw_manager, ok]() {
+        *ok = hw_manager->get_load_cell()->tare();
+        if (*ok) {
+            LOG_BLE("Scale tared successfully\n");
+        }
+    };
+
+    overlay.show_and_execute(BlockingOperation::TARING, tare_operation,
+                             [completion, ok]() {
+                                 if (completion) {
+                                     completion(*ok);
+                                 }
+                             });
+}
+
 void UIOperations::execute_calibration(HardwareManager* hw_manager, float cal_weight,
                                       CalibrationCompletion completion) {
     auto& overlay = BlockingOperationOverlay::getInstance();

@@ -899,8 +899,8 @@ static void test_display_deadband_boundaries_99_and_100() {
 }
 
 static void test_display_filter_anchors_window_at_new_sample_timestamp() {
-    // The clock is nowhere near the samples. Anchored at the sample timestamp (1100) the window holds
-    // 1000 and 3000 -> 2000. Anchored at the clock the window would be empty and the result would
+    // The clock (999999) is nowhere near the samples. Anchored at the sample timestamp (1100, only ~100 ms
+    // after the first sample) the window holds 1000 and 3000 -> 2000. Anchored at the clock the window would be empty and the result would
     // not be 2000.
     g_now_ms = 999999;
     CircularBufferMath cbm(fake_clock);

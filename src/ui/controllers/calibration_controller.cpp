@@ -100,7 +100,15 @@ void CalibrationUIController::handle_ok() {
     CalibrationStep step = ui_manager_->calibration_screen.get_step();
     switch (step) {
         case CAL_STEP_EMPTY:
-            UIOperations::execute_tare(ui_manager_->get_hardware_manager(), [this]() {
+            UIOperations::execute_tare_checked(ui_manager_->get_hardware_manager(), [this](bool tare_ok) {
+                if (!ui_manager_) return;
+                CalibrationResult tare_result = calibration_tare_result(tare_ok);
+                if (tare_result != CalibrationResult::OK) {
+                    // Zero point is not trustworthy: stay on the empty step so OK retries the tare
+                    auto* ui = ui_manager_;
+                    ui->show_notice_after_dialog([ui, tare_result]() { ui->show_calibration_failed_notice(tare_result); });
+                    return;
+                }
                 // Capture baseline ADC value after taring
                 baseline_adc_value_ = ui_manager_->get_hardware_manager()->get_weight_sensor()->get_raw_adc_instant();
                 ui_manager_->calibration_screen.set_step(CAL_STEP_WEIGHT);
