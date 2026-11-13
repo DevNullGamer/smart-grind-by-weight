@@ -11,6 +11,10 @@ public:
     // Unified tare operation for any screen
     static void execute_tare(HardwareManager* hw_manager, OperationCallback completion = nullptr);
     
+    // Tare whose completion receives whether the tare succeeded (false = failed or timed out, cancelled)
+    using TareCompletion = std::function<void(bool)>;
+    static void execute_tare_checked(HardwareManager* hw_manager, TareCompletion completion);
+
     // Unified calibration operation; completion receives the calibration result
     using CalibrationCompletion = std::function<void(CalibrationResult)>;
     static void execute_calibration(HardwareManager* hw_manager, float cal_weight,
