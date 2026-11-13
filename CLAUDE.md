@@ -26,7 +26,7 @@ Key components, grind phases, purge/prime, time-mode pulses, Grind Settings pref
 - Dim/off decisions are pure in `system/screen_power.*`; `ScreenTimeoutController` is the only code that applies them (OFF = brightness 0, no panel sleep).
 - Timeouts are cached (`reload_settings()`), never read per frame.
 - While OFF, touch is blocked (`DisplayManager::set_input_blocked`) until the waking touch is released.
-- Never OFF while grinding, in a motor test, an update prompt/progress, a remote-start lead-in, off READY/EDIT/MENU, on the WiFi page, or with a diagnostic other than `LOAD_CELL_NOT_CALIBRATED` / `LOAD_CELL_NOISY_SUSTAINED`.
+- Never OFF while grinding, in a motor test, an update prompt/progress, a remote-start lead-in, on a screen other than READY/EDIT/MENU, on the WiFi page, or with a diagnostic other than `LOAD_CELL_NOT_CALIBRATED` / `LOAD_CELL_NOISY_SUSTAINED`.
 
 **Board Detection (single firmware for Waveshare 1.64" V1 and V2):**
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
@@ -54,8 +54,8 @@ Key components, grind phases, purge/prime, time-mode pulses, Grind Settings pref
 **Motor / grind safety ("Safety batch 1", "Known limitations"; some checks not yet run on hardware):**
 - New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`. The PREDICTIVE stall abort (`Err: stalled`) reference only rises; thresholds and limits in DESIGN-NOTES D14.
 - Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
-- Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failures use `cleanup_failed_ota()`; WiFi updates use `UpdateGuard`.
-- `DEBUG_*` self-test/bench flags (RMT pulse, deadman, menu walk, BLE stress) live only in their own special envs; `DEBUG_GRINDER_DEADMAN_AUTORUN` runs the motor 3 s on every boot. List: "Safety batch 1", "Debug-only flags".
+- Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot and refuses every start, Auto-Tune (also in `AutoTuneController::start()`) and Motor Test. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failures use `cleanup_failed_ota()`; WiFi updates use `UpdateGuard`.
+- `DEBUG_*` self-test/bench flags (RMT pulse, deadman, menu walk, BLE stress) live only in their own special envs; `DEBUG_GRINDER_DEADMAN_AUTORUN` runs the motor 3 s on every boot. Full list: "Safety batch 1", "Debug-only flags", "Reference moved from CLAUDE.md (chg022 review)".
 - After exact pulses, saved latency is stale: re-run autotune.
 
 **LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness"):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
