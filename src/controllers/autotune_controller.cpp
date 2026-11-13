@@ -1,4 +1,5 @@
 #include "autotune_controller.h"
+#include "motor_test_check.h"
 #include <Arduino.h>
 #include <cmath>
 #include <cstring>
@@ -54,18 +55,12 @@ bool AutoTuneController::start() {
         return false;
     }
 
-    if (!motor_enabled() || !grinder->is_initialized()) {
-        LOG_BLE("ERROR: AutoTune cannot start - motor disabled (board not confirmed)\n");
-        return false;
-    }
-
-    if (grinder->is_locked_out()) {
-        LOG_BLE("ERROR: AutoTune cannot start - grinder locked out (OTA update in progress)\n");
-        return false;
-    }
-
-    if (is_running) {
-        LOG_BLE("WARNING: AutoTune already running\n");
+    // A latched deadman fault refuses the run here too (first in the helper's order), whoever calls
+    const MotorTestBlock block = autotune_start_block(motor_enabled() && grinder->is_initialized(),
+                                                      grinder->is_locked_out(), is_running,
+                                                      grinder->deadman_tripped_since_boot());
+    if (block != MotorTestBlock::NONE) {
+        LOG_BLE("ERROR: AutoTune cannot start - %s\n", motor_test_block_reason(block));
         return false;
     }
 

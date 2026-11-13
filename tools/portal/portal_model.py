@@ -253,6 +253,55 @@ def history_document(entries, persistent, now_s):
     return {"count": len(grinds), "persistent": bool(persistent), "grinds": grinds}
 
 
+DIAGNOSTICS_KEYS = ("calibrated", "cal_factor", "std_dev_g", "noise_ok", "sample_rate_sps", "motor_latency_ms",
+                    "wifi_rssi_dbm", "ble", "board", "board_source", "push_armed")
+DIAGNOSTICS_FLOAT_MAX = 1e9
+DIAGNOSTICS_LATENCY_MAX_MS = 1e6
+DIAGNOSTICS_RSSI_MIN_DBM = -127
+BLE_STATES = ("off", "advertising", "connected", "link_listening", "link_connected", "link_linked")
+BOARD_NAMES = ("V1", "V2", "UNKNOWN")  # BoardConfig::name()
+BOARD_SOURCES = ("none", "probe", "user", "cached", "default")  # BoardConfig::source_name()
+
+
+def bounded_diagnostic(value, allow_negative):
+    """A diagnostics float as the firmware encodes it: not finite is 0, magnitude at most 1e9, negative is 0 unless
+    allow_negative, under 0.0005 is 0.0."""
+    value = float(value)
+    if not math.isfinite(value):
+        return 0.0
+    value = max(-DIAGNOSTICS_FLOAT_MAX, min(DIAGNOSTICS_FLOAT_MAX, value))
+    if value < 0 and not allow_negative:
+        return 0.0
+    return 0.0 if abs(value) < 0.0005 else value
+
+
+def diagnostics_document(d):
+    """The GET /api/diagnostics document (portal_encode_diagnostics): the 11 members in the firmware's order.
+    `d` maps the member names to values (missing members read as the struct defaults); wifi_rssi_dbm None is unknown;
+    ble, board and board_source outside their word lists become "off", "UNKNOWN" and "none"."""
+    latency = float(d.get("motor_latency_ms", 0))
+    latency = 0.0 if not math.isfinite(latency) or latency <= 0 else min(latency, DIAGNOSTICS_LATENCY_MAX_MS)
+    rssi = d.get("wifi_rssi_dbm")
+    if rssi is not None:
+        rssi = max(DIAGNOSTICS_RSSI_MIN_DBM, min(0, int(rssi)))
+    ble = d.get("ble", "off")
+    board = d.get("board", "UNKNOWN")
+    source = d.get("board_source", "none")
+    return {
+        "calibrated": bool(d.get("calibrated", False)),
+        "cal_factor": bounded_diagnostic(d.get("cal_factor", 0), True),
+        "std_dev_g": bounded_diagnostic(d.get("std_dev_g", 0), False),
+        "noise_ok": bool(d.get("noise_ok", True)),
+        "sample_rate_sps": bounded_diagnostic(d.get("sample_rate_sps", 0), False),
+        "motor_latency_ms": int(_round_half_away(latency)),
+        "wifi_rssi_dbm": rssi,
+        "ble": ble if ble in BLE_STATES else "off",
+        "board": board if board in BOARD_NAMES else "UNKNOWN",
+        "board_source": source if source in BOARD_SOURCES else "none",
+        "push_armed": bool(d.get("push_armed", False)),
+    }
+
+
 def error_body(code):
     status, reason = ERRORS[code]
     return status, encode_json({"error": code, "reason": reason})

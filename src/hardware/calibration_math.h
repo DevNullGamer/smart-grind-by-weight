@@ -10,8 +10,12 @@ enum class CalibrationResult {
     HARDWARE_FAULT,   // HX711 fault active, no usable samples
     SETTLE_TIMEOUT,   // reading never settled, so no trustworthy raw value
     SIGNAL_TOO_SMALL, // |raw - tare_offset| below the minimum: no weight on the scale
-    INVALID_FACTOR    // computed factor is not finite or zero
+    INVALID_FACTOR,   // computed factor is not finite or zero
+    TARE_FAILED       // the empty-scale tare failed or timed out, so the zero point is not trustworthy
 };
+
+// Result of the calibration's empty-scale tare step: the flow may only go on to the known-weight step on OK.
+CalibrationResult calibration_tare_result(bool tare_ok);
 
 // Computes the factor (raw counts per gram) from a settled raw reading. Either sign is allowed (a load
 // cell wired the other way round gives a negative factor). On anything but OK, *factor_out is untouched

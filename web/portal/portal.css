@@ -1,58 +1,76 @@
-/* Web panel styles (chg016). Mobile first; min-width queries only. All colours are the custom properties below:
+/* Web panel styles (chg016). Mobile first; min-width queries, plus two bounded ones (phone landscape, tablet-only profile cards). All colours are the custom properties below:
    light values by default, one prefers-color-scheme block switches them. Final values are checked by the contrast
    test (step 4). Hard rules of the page: no url(), no @import, no external fonts (CSP default-src 'self'). */
 
 :root {
   color-scheme: light dark;
-  --bg: #f4f4f5;
+  --bg: #e3e9f4;
   --surface: #ffffff;
-  --raised: #ececee;
-  --text: #18181b;
-  --muted: #52525b;
-  --border: #7f7f88;
-  --hairline: #d4d4d8;
-  --primary: #c2310a;
+  --raised: #f2f7fe;
+  --text: #26364f;
+  --muted: #52627a;
+  --border: #6b7c96;
+  --hairline: #d3dbe9;
+  --primary: #0b5fd6;
   --on-primary: #ffffff;
-  --accent: #0b6fa8;
-  --success: #12722d;
+  --accent: #4b3fb5;
+  --success: #0a6a5f;
   --warning: #8a5a00;
   --error: #c4161c;
   --on-error: #ffffff;
-  --focus: #0b6fa8;
-  --shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 2px 8px rgba(0, 0, 0, .06);
+  --focus: #0b5fd6;
+  /* alert fills: text tokens sit on these, the contrast test checks them as surfaces */
+  --tint-info: #e6f0fd;
+  --tint-warning: #fdf3dc;
+  --tint-error: #fde8e9;
+  --tint-success: #e0f5f1;
+  --card-edge: transparent;
+  --shadow: 0 10px 15px -3px rgba(15, 23, 42, .10), 0 4px 6px -4px rgba(15, 23, 42, .10);
+  --r-card: 16px;
+  --r-row: 12px;
+  --r-field: 10px;
+  --r-pill: 999px;
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --gutter: 16px;
-  --dock-h: 56px;
+  --dock-h: 52px;
   --tabbar-h: 56px;
+  --side-w: 232px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0b0b0c;
-    --surface: #151517;
-    --raised: #1d1d20;
-    --text: #f2f2f3;
-    --muted: #a1a1a8;
-    --border: #76767e;
-    --hairline: #2c2c31;
-    --primary: #ff5a2b;
-    --on-primary: #1a0700;
-    --accent: #4cc2ff;
-    --success: #3ddc84;
-    --warning: #f5b83d;
-    --error: #ff6b6b;
-    --on-error: #1a0000;
-    --focus: #4cc2ff;
+    --bg: #0a1120;
+    --surface: #0f172a;
+    --raised: #1a2438;
+    --text: #d5d9e0;
+    --muted: #98a2b3;
+    --border: #66748b;
+    --hairline: #1e293b;
+    --primary: #3abdf7;
+    --on-primary: #04121c;
+    --accent: #818cf8;
+    --success: #2fd4bf;
+    --warning: #f4bf51;
+    --error: #fb7085;
+    --on-error: #1a0006;
+    --focus: #3abdf7;
+    --tint-info: #0c2238;
+    --tint-warning: #2a2008;
+    --tint-error: #2d0f16;
+    --tint-success: #0a2a27;
+    --card-edge: #1e293b;
     --shadow: none;
   }
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
-/* focused elements must not hide behind the sticky header or the fixed dock and tab bar (phones) */
+/* focused elements must not hide behind the sticky status bar or the fixed dock and nav (phones). The bar is two
+   one-line rows (87 px plus the top safe area) below 900 px and never grows: its texts are cut, not wrapped. */
 html {
   -webkit-text-size-adjust: 100%;
-  scroll-padding-top: 104px;
+  scroll-padding-top: calc(104px + env(safe-area-inset-top, 0px));
   scroll-padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + var(--savebar-h, 0px) + 8px);
 }
 
@@ -62,44 +80,61 @@ body {
   color: var(--text);
   font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-variant-numeric: tabular-nums;
-  /* room for the fixed STOP dock and the tab bar on phones */
+  /* room for the fixed STOP dock and the nav on phones */
   padding-bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom) + 16px);
 }
 
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: 1.125rem; line-height: 1.3; overflow-wrap: anywhere; }
-h2 { font-size: 1rem; }
+h1 { font-size: 1.25rem; line-height: 1.3; overflow-wrap: anywhere; }
+h2 { font-size: 1rem; line-height: 1.4; }
+/* type scale 12 / 14 / 16 / 20 / 24 / hero */
 
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 [hidden] { display: none !important; }
+/* text for screen readers only (a heading the layout already shows, a reason that is visible once for a group) */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .icon { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
 .skip-link {
   position: absolute; left: 8px; top: -100px; z-index: 30;
-  background: var(--surface); color: var(--text); border: 2px solid var(--focus); border-radius: 10px; padding: 12px 16px;
+  background: var(--surface); color: var(--text); border: 2px solid var(--focus); border-radius: var(--r-field); padding: 12px 16px;
 }
 .skip-link:focus { top: 8px; }
 
-/* ---- header: top bar plus the compact status strip (phones and tablets) */
+/* ---- status bar (every section, every width): name, state dot and word, weight, connection chip.
+   Phones: two rows (name and chip, then state and weight). 600 px: the same two rows with STOP at the right.
+   900 px: one row. Desktop: one row beside the sidebar. Every text is one line, so the height never changes. */
 .header {
   position: sticky; top: 0; z-index: 10;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px;
   background: var(--surface); border-bottom: 1px solid var(--hairline);
-  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding: env(safe-area-inset-top, 0px) max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
 }
-.topbar { display: flex; align-items: center; gap: 12px; min-height: 56px; }
-.brand { flex: 1 1 auto; min-width: 0; }
-.brand h1 { overflow-wrap: break-word; }
-.brand .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.strip { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0 10px; }
-.strip .state { color: var(--muted); }
-.strip .weight { font-size: 1.5rem; font-weight: 700; }
+/* one line, cut with an ellipsis when the chip needs the room: the full name is in the page text and under Device */
+.header h1 { grid-column: 1; grid-row: 1; min-width: 0; padding-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.header .chip { grid-column: 2; grid-row: 1; margin-top: 8px; }
+.strip { grid-column: 1 / -1; grid-row: 2; display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* the state is a few words that fit beside the weight on a 320 px screen (the full words are in the Grind section
+   and in its title); an unknown state from a later firmware gives way: one line, cut with an ellipsis. The weight
+   is never cut */
+.strip .state { flex: 0 1 auto; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .weight { flex: none; margin-left: auto; font-size: 1.5rem; font-weight: 700; white-space: nowrap; }
+/* the dot repeats the state word (status bar and Grind section; the tone is decided in portal-view.js): green
+   ready, blue while something runs, grey on any other screen, a hollow ring while the numbers are old or missing */
+.dot { flex: none; width: 10px; height: 10px; border: 2px solid var(--muted); border-radius: 50%; background: var(--muted); }
+.is-ready .dot { border-color: var(--success); background: var(--success); }
+.is-busy .dot { border-color: var(--primary); background: var(--primary); }
+.is-stale .dot { background: none; }
+
+/* the sidebar parts only exist from 1024 px */
+.side-brand, .side-foot { display: none; }
 
 .chip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 2px 10px;
-  border: 1px solid var(--border); border-radius: 16px; font-size: .875rem; white-space: nowrap;
+  border: 1px solid var(--border); border-radius: var(--r-pill); font-size: .875rem; white-space: nowrap;
 }
 .chip .icon { width: 16px; height: 16px; }
 
@@ -107,161 +142,277 @@ h2 { font-size: 1rem; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 48px; min-width: 44px; padding: 8px 16px;
-  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
   font: inherit; font-weight: 600; cursor: pointer;
 }
 .btn:disabled { opacity: .55; cursor: default; }
+.btn .icon { width: 20px; height: 20px; }
 .btn.primary { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+/* ghost: no fill, for secondary actions */
+.btn.ghost { background: none; }
+.btn.ghost:hover:enabled { background: var(--raised); }
+/* round: the primary action of a card, icon only (the button carries an aria-label) */
+.btn.round { width: 56px; height: 56px; min-height: 56px; padding: 0; border-radius: 50%; box-shadow: var(--shadow); }
+.btn.round .icon { width: 24px; height: 24px; fill: currentColor; }
+.btn.round:disabled { box-shadow: none; }
 
 /* STOP: outlined while idle, solid while busy or in a lead-in (class is-busy). Same weight at every width. */
 .stop {
-  background: var(--surface); color: var(--error); border: 3px solid var(--error); border-radius: 10px;
+  background: var(--surface); color: var(--error); border: 3px solid var(--error); border-radius: var(--r-field);
   font: inherit; font-size: 1.125rem; font-weight: 800; letter-spacing: .04em;
   display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
 }
 .stop.is-busy { background: var(--error); color: var(--on-error); }
-/* phones: a fixed dock above the tab bar */
+/* STOP sent and not yet answered: a steady inner ring (no size change); the motion block makes it breathe */
+.stop.is-sending { box-shadow: inset 0 0 0 3px currentColor; }
+/* phones: a fixed dock above the nav (STOP stays first in the DOM and in the tab order) */
 .header .stop {
   position: fixed; left: 0; right: 0; width: 100%; bottom: calc(var(--tabbar-h) + var(--safe-bottom)); z-index: 20;
-  min-height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
+  height: var(--dock-h); border-radius: 0; border-width: 3px 0 0;
 }
 /* the dock is full-bleed: an outside ring would be clipped at the screen edges, so draw it inside the box;
    on the solid (busy) fill the ring takes the text-on-fill colour */
 .header .stop:focus-visible { outline-offset: -6px; }
 .header .stop.is-busy:focus-visible { outline-color: var(--on-error); }
-.pane-stop { display: none; }
 
-/* ---- tab bar: fixed at the bottom on phones */
+/* ---- navigation: one markup, three layouts. Phones: bottom bar, the active item gets a pill behind its icon. */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: flex; background: var(--surface); border-top: 1px solid var(--hairline);
+  display: flex; height: calc(var(--tabbar-h) + var(--safe-bottom)); background: var(--surface);
+  /* the top line is a shadow, not a border: a border would take 1 px from the box and push the buttons past the bottom */
+  box-shadow: inset 0 1px 0 var(--hairline);
   padding-bottom: var(--safe-bottom);
 }
 .tab {
-  flex: 1 1 0; min-height: var(--tabbar-h); padding: 6px 4px;
+  flex: 1 1 0; min-width: 0; height: var(--tabbar-h); padding: 4px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  background: none; border: 0; color: var(--muted); font: inherit; font-size: .8125rem; cursor: pointer;
+  background: none; border: 0; color: var(--muted); font: inherit; font-size: .75rem; line-height: 1.3; cursor: pointer;
 }
-.tab[aria-current="true"] { color: var(--primary); font-weight: 700; box-shadow: inset 0 3px 0 var(--primary); }
+.tab .icon { width: 20px; height: 20px; }
+.tab-label { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tab-icon { display: flex; align-items: center; justify-content: center; width: 56px; height: 28px; border-radius: var(--r-pill); }
+.tab[aria-current="true"] { color: var(--primary); font-weight: 700; }
+.tab[aria-current="true"] .tab-icon { background: var(--tint-info); }
 /* edge-to-edge tabs: draw the ring inside the box so the screen edges do not clip it */
 .tab:focus-visible { outline-offset: -6px; }
 
 /* ---- content */
 .content { padding: 16px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px)); }
-.layout { display: block; }
 .panel { display: grid; gap: 16px; align-content: start; }
-.card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); }
+.card { background: var(--surface); border: 1px solid var(--card-edge); border-radius: var(--r-card); padding: 16px; box-shadow: var(--shadow); }
 .card h2 { margin-bottom: 8px; }
 .muted { color: var(--muted); }
-.readout .state { color: var(--muted); }
-.readout .weight { font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700; line-height: 1.05; }
-.readout .phase { min-height: 1.5em; }
 
+/* footer: a quiet panel with the info icon, the same shape as a Settings group card */
 .notice {
+  display: flex; gap: 12px; align-items: flex-start;
   margin: 24px max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding: 12px 16px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--surface);
   color: var(--muted); font-size: .875rem;
 }
-.messages { display: grid; }
+.notice .icon { width: 20px; height: 20px; }
+.messages { display: grid; margin-bottom: 8px; }
 .message { grid-area: 1 / 1; min-height: 1.5em; }
 .message.error { color: var(--error); }
+/* an error line with text becomes an alert: tinted, with a round "!" badge. With no error the line keeps its one-line
+   height and draws nothing; with an error the box grows by its padding, so the content below moves once */
+.message.error:not(:empty) {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 12px 12px;
+  border-left: 4px solid var(--error); border-radius: var(--r-row); background: var(--tint-error); color: var(--text); font-weight: 600;
+}
+.message.error:not(:empty)::before {
+  content: "!"; content: "!" / ""; flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--error); color: var(--on-error); font-size: .875rem; font-weight: 800; line-height: 1;
+}
 
-/* ---- grind tab: live cards */
+/* ---- grind section: alerts (banner and warnings), hero, profiles, tools */
 .live { display: contents; }
 .note p + .btn { margin-top: 12px; }
-.banner { display: flex; gap: 12px; align-items: flex-start; border-width: 2px; }
-.banner.warning { border-color: var(--warning); }
-.banner.error { border-color: var(--error); }
-.banner.warning .icon { color: var(--warning); }
-.banner.error .icon { color: var(--error); }
-.readout.is-stale .weight, .readout.is-stale .state, .strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
-.readout .stop { margin-top: 12px; }
-.leadin { border-width: 2px; border-color: var(--primary); font-weight: 600; }
+.grind-grid { display: grid; gap: 16px; }
+
+/* soft alert: tinted fill, a leading bar, an icon of its own shape and a text tag; the colour only supports them */
+.alert { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px 12px 12px; border-left: 4px solid var(--border); border-radius: var(--r-row); background: var(--raised); }
+.alert.warning { border-left-color: var(--warning); background: var(--tint-warning); }
+.alert.error { border-left-color: var(--error); background: var(--tint-error); }
+.alert.warning .icon, .alert.warning .warn-tag { color: var(--warning); }
+.alert.error .icon, .alert.error .warn-tag { color: var(--error); }
+.alert.error .icon-warning, .alert.warning .icon-error { display: none; }
+.alert-body { min-width: 0; overflow-wrap: anywhere; }
+p.alert-body { font-weight: 600; }
+.alert-title { font-weight: 700; }
+.warn-tag { display: block; font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
+.warn-action { margin-top: 2px; }
+.alerts, .alert-list { display: grid; gap: 8px; }
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alerts h2 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+
+/* connection note (offline, reconnecting, screen busy): a soft alert with its Retry button under the text */
+.conn-body { display: grid; gap: 12px; justify-items: start; min-width: 0; }
+.conn-body p { overflow-wrap: anywhere; }
+.conn-body .btn { justify-self: start; }
+/* the .note p + .btn rule above adds 12 px; the grid gap already spaces the button */
+.note .conn-body .btn { margin-top: 0; }
+/* web interface off: the one thing on the page, so a large icon, faded so it reads as a picture, not an alert */
+.card.weboff { display: grid; justify-items: center; gap: 12px; padding: 32px 20px; text-align: center; }
+.card.weboff h2 { margin: 0; font-size: 1.125rem; }
+.weboff-icon { width: 80px; height: 80px; stroke-width: 1.5; color: var(--muted); opacity: .45; }
+
+/* Insights messages: an empty list is a dashed box with its words, a failed read is a soft warning */
+p.is-empty { padding: 20px 16px; border: 1px dashed var(--border); border-radius: var(--r-row); text-align: center; }
+p.is-problem { padding: 12px 14px; border-left: 4px solid var(--warning); border-radius: var(--r-row); background: var(--tint-warning); color: var(--text); font-weight: 600; }
+
+/* hero: state with its dot, the weight, what the grinder is doing, the lead-in of a remote start */
+.hero { display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; padding: 20px; }
+.hero-state {
+  justify-self: start; display: flex; align-items: center; gap: 8px; max-width: 100%; min-height: 32px; padding: 4px 14px 4px 12px;
+  border-radius: 16px; background: var(--raised); font-size: .875rem; font-weight: 600; overflow-wrap: anywhere;
+}
+.hero-state span + span { min-width: 0; }
+.hero.is-ready .hero-state { background: var(--tint-success); color: var(--success); }
+.hero.is-busy .hero-state { background: var(--tint-info); color: var(--primary); }
+.hero-weight { margin-top: 12px; font-size: clamp(3.5rem, 16vw, 6rem); font-weight: 700; line-height: 1.05; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hero-weight .unit { font-size: .4em; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+/* one line is always kept for the phase, so the cards below do not move when a grind starts */
+.hero-phase { min-height: 1.5em; margin-top: 4px; font-weight: 600; }
+.hero-line { color: var(--muted); font-size: .875rem; }
+.hero-line:empty { display: none; }
+.hero.is-stale .hero-state, .hero.is-stale .hero-weight, .hero.is-stale .hero-phase,
+.strip.is-stale .weight, .strip.is-stale .state { color: var(--muted); }
+
+/* lead-in of a remote start: a ring that fills while the text counts down; --ring (0 to 1) is set by the page */
+.leadin { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px; border-radius: var(--r-row); background: var(--tint-info); font-weight: 600; }
+.leadin p { min-width: 0; overflow-wrap: anywhere; }
+.leadin .icon-error { display: none; color: var(--error); }
+.leadin.is-dropped { background: var(--tint-error); }
+.leadin.is-dropped .ring { display: none; }
+.leadin.is-dropped .icon-error { display: block; }
+.ring { flex: none; position: relative; display: grid; place-items: center; width: 48px; height: 48px; color: var(--primary); }
+.ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); fill: none; stroke-width: 4; }
+.ring-track { stroke: var(--border); opacity: .3; }
+.ring-arc { stroke: currentColor; stroke-dasharray: 100px; stroke-dashoffset: calc(100px - var(--ring, 0) * 100px); }
+.ring-count { font-size: 1.25rem; font-weight: 700; line-height: 1; }
+.ring-go { display: none; width: 20px; height: 20px; fill: currentColor; }
+.ring-count:empty + .ring-go { display: block; }
+
+/* profiles: compact rows (name and target left, round Start right); three cards side by side on tablets */
 .profiles { display: grid; gap: 12px; }
-.profile { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); }
-.p-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.p-target { font-size: 1.5rem; font-weight: 700; }
-.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: 12px; padding: 0 8px; font-size: .8125rem; }
-.profile .btn { width: 100%; }
-.actions { display: flex; flex-wrap: wrap; gap: 16px; }
-.action { display: grid; gap: 4px; flex: 1 1 160px; min-width: 0; }
-.reason { color: var(--muted); font-size: .875rem; min-height: 1.25em; }
+.profile {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; padding: 12px 12px 12px 16px;
+  border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised);
+}
+.profile.is-selected { border-color: var(--accent); }
+.p-head { grid-column: 1; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.p-target { grid-column: 1; font-size: 1.75rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+.profile .btn { grid-column: 2; grid-row: 1 / span 2; }
+.badge { border: 1px solid var(--accent); color: var(--accent); border-radius: var(--r-pill); padding: 0 8px; font-size: .8125rem; white-space: nowrap; }
+.reason { color: var(--muted); font-size: .875rem; }
+.reason:empty { display: none; }
+/* the one reason for the three Start buttons sits under the heading, on screen with the dimmed buttons */
+.profiles-card .reason { margin: -4px 0 12px; }
 
-/* warnings list: icon shape, a text tag and the words carry the severity, the colour only supports them */
-.warn-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.warn-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--hairline); border-left-width: 4px; border-radius: 12px; background: var(--raised); }
-.warn-row.error { border-left-color: var(--error); }
-.warn-row.warning { border-left-color: var(--warning); }
-.warn-row.error .icon { color: var(--error); }
-.warn-row.warning .icon { color: var(--warning); }
-.warn-row.error .icon-warning, .warn-row.warning .icon-error { display: none; }
-.warn-body { min-width: 0; display: grid; gap: 4px; }
-.warn-title { font-weight: 700; overflow-wrap: anywhere; }
-.warn-tag { font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; }
-.warn-row.error .warn-tag { color: var(--error); }
-.warn-row.warning .warn-tag { color: var(--warning); }
-.warn-action { color: var(--text); overflow-wrap: anywhere; }
+/* last grind (chg021 G2): the result in the style of a history row, under it the weight curve of the grind. The
+   curve is decorative (aria-hidden); the caption under it says the same in words. */
+.lastgrind .group-head { margin-bottom: 8px; }
+.lg-age { margin-left: auto; font-size: .875rem; white-space: nowrap; }
+.lg-age:empty { display: none; }
+.lg-result { margin: 4px 0 8px; }
+.lg-meta { margin-bottom: 4px; }
+.lg-message { font-size: .875rem; margin: 4px 0 8px; }
+.lg-message:empty { display: none; }
+.lg-spark { margin-top: 8px; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.spark { display: block; width: 100%; height: 72px; overflow: visible; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.spark-line { stroke: var(--primary); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.spark-target { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.spark-target.is-off { display: none; }
+.spark-caption { font-size: .8125rem; margin-top: 8px; }
 
-/* ---- insights tab: statistic tiles and the weight split */
+/* tools: ghost buttons with an icon, each with its reason beneath */
+.actions { display: flex; flex-wrap: wrap; gap: 12px 16px; }
+.action { display: grid; align-content: start; gap: 6px; flex: 1 1 140px; min-width: 0; }
+
+/* ---- insights tab: statistic tiles and the weight split. The cards use the group-head of the settings cards. */
 .note-line { font-size: .875rem; margin-top: 12px; }
 .note-line:empty { display: none; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 136px), 1fr)); gap: 12px; margin: 12px 0 0; }
-.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; align-content: start; }
-.tile dt { color: var(--muted); font-size: .875rem; overflow-wrap: anywhere; }
+.card > .muted:empty { display: none; }
+/* two tiles per row on phones, four from 600 px; the last tile fills the row the others leave open (there are seven) */
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 0; }
+.tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+.tile { margin: 0; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; }
+.tile dt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .875rem; min-width: 0; min-height: 2.75rem; } /* two lines tall: the values of a row line up when one label wraps */
+.tile-label { min-width: 0; overflow-wrap: anywhere; }
+.tile-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.tile-icon .icon { width: 16px; height: 16px; }
 .tile dd { margin: 0; }
-.tile .stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; }
+.tile .stat-value { margin-top: 4px; font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: break-word; text-wrap: balance; }
 .tile .stat-detail { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
-.mix-bar { display: flex; height: 16px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 12px; }
+/* loading placeholder: the same box as a row, so nothing moves when the data arrives (shimmer: V7).
+   The height follows the measured real rows (text wrapping makes the real ones vary a little with the width) */
+.h-row.skeleton { min-height: 134px; }
+.mix-bar { display: flex; height: 14px; border-radius: var(--r-pill); overflow: hidden; margin: 8px 0 14px; background: var(--raised); }
 .mix-bar .seg { min-width: 0; }
 .mix-bar .seg + .seg { border-left: 2px solid var(--surface); }
 .seg.s0, .swatch.s0 { background: var(--accent); }
 .seg.s1, .swatch.s1 { background: var(--primary); }
 .seg.s2, .swatch.s2 { background: var(--success); }
-.mix-list { margin: 0; display: grid; gap: 6px; }
-.mix-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.mix-list { margin: 0; display: grid; gap: 8px; }
+.mix-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 4px 12px; }
 .mix-row dt { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.mix-row dd { margin: 0; font-weight: 600; }
-.swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+.mix-row dd { margin: 0; font-weight: 600; text-align: right; }
+.swatch { flex: none; width: 12px; height: 12px; border-radius: 50%; }
 .mix-note { font-size: .875rem; margin-top: 12px; }
 
-/* ---- insights tab: recent grinds (list, badges, error chart built from divs) */
-.h-notice { border-left: 4px solid var(--warning); padding: 4px 0 4px 12px; margin: 8px 0; }
+/* ---- insights tab: recent grinds (rows, result badges, error chart built from divs) */
+.h-notice { padding: 8px 12px; margin: 8px 0; border-left: 4px solid var(--warning); border-radius: var(--r-row); background: var(--tint-warning); font-weight: 600; }
 .h-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
 .h-list:empty { display: none; }
-.h-row { display: grid; gap: 4px; padding: 12px; border: 1px solid var(--hairline); border-radius: 12px; background: var(--raised); min-width: 0; }
-.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; min-width: 0; }
-.h-head { justify-content: space-between; }
+.h-row { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-row); background: var(--raised); min-width: 0; }
+.h-head, .h-main, .h-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-width: 0; }
+.h-main { align-items: baseline; }
+.h-head { justify-content: space-between; align-items: baseline; }
 .h-final { font-size: 1.5rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
 .h-target, .h-detail, .h-age { font-size: .875rem; overflow-wrap: anywhere; }
+.h-age:empty, .h-target:empty, .h-error:empty, .h-detail:empty { display: none; }
 .h-error { font-weight: 600; }
-.h-badge { display: inline-flex; align-items: center; gap: 4px; border: 1px solid currentColor; border-radius: 12px; padding: 0 8px; font-size: .8125rem; font-weight: 600; }
+.h-motor { display: inline-flex; align-items: center; gap: 4px; font-size: .875rem; }
+.h-motor[hidden] { display: none; }
+.h-motor .icon { width: 16px; height: 16px; }
+.h-badge { display: inline-flex; align-items: center; gap: 4px; border-radius: var(--r-pill); padding: 2px 10px 2px 8px; font-size: .8125rem; font-weight: 600; background: var(--raised); }
 .h-badge .icon { width: 16px; height: 16px; }
-.h-badge.ok { color: var(--success); }
-.h-badge.warning { color: var(--warning); }
-.h-badge.error { color: var(--error); }
-.h-badge.neutral { color: var(--muted); }
+.h-badge.ok { color: var(--success); background: var(--tint-success); }
+.h-badge.warning { color: var(--warning); background: var(--tint-warning); }
+.h-badge.error { color: var(--error); background: var(--tint-error); }
+.h-badge.neutral { color: var(--muted); background: var(--surface); }
 .h-badge .icon-ok, .h-badge .icon-warning, .h-badge .icon-error { display: none; }
 .h-badge.ok .icon-ok, .h-badge.warning .icon-warning, .h-badge.error .icon-error, .h-badge.neutral .icon-warning { display: block; }
-.h-chart { margin: 12px 0 0; }
-.h-caption { font-size: .8125rem; margin-bottom: 8px; }
-.h-bars { display: flex; gap: 4px; height: 96px; }
-.h-col { flex: 1 1 0; max-width: 32px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
+/* chart: a raised panel, rounded bars (over the line in the warning colour, under it in the accent), the line itself */
+.h-chart { margin: 12px 0 0; padding: 12px; border-radius: var(--r-row); background: var(--raised); }
+.h-caption { font-size: .8125rem; margin-bottom: 12px; }
+.h-bars { display: flex; justify-content: space-evenly; gap: 6px; height: 104px; }
+.h-col { flex: 1 1 0; max-width: 40px; min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 2px minmax(0, 1fr); }
 .h-up, .h-down { display: flex; flex-direction: column; min-height: 0; }
 .h-up { justify-content: flex-end; }
 .h-bar { width: 100%; }
-.h-bar.over { background: var(--warning); border-radius: 3px 3px 0 0; }
-.h-bar.under { background: var(--accent); border-radius: 0 0 3px 3px; }
-.h-axis { background: var(--border); }
+.h-bar.over { background: var(--warning); border-radius: 6px 6px 0 0; }
+.h-bar.under { background: var(--accent); border-radius: 0 0 6px 6px; }
+.h-axis { background: var(--border); border-radius: 1px; }
 .h-col.on .h-axis { background: var(--success); transform: scaleY(3); }
 
 /* ---- settings tab: schema-driven form */
 .settings-form { display: contents; }
 #panel-settings { padding-bottom: calc(var(--dock-h) + 96px); }
-.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 8px; }
-.fields { display: grid; gap: 20px; }
+/* group card: a round tinted icon beside the title, the fields below, a hairline between them */
+.group-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.group-head h2 { margin: 0; font-size: 1.125rem; }
+.group-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--tint-info); color: var(--primary); }
+.group-icon .icon { width: 20px; height: 20px; }
+.group .hint { color: var(--muted); font-size: .875rem; margin-bottom: 12px; }
+.fields { display: grid; gap: 16px; }
+.field + .field { border-top: 1px solid var(--hairline); padding-top: 16px; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > label, .field > legend, .field .lbl { font-weight: 600; }
 fieldset.field { border: 0; margin: 0; padding: 0; }
-fieldset.field > legend { padding: 0; margin-bottom: 6px; }
+/* floated, so the legend is a normal grid item and the divider line is not cut by it */
+fieldset.field > legend { float: left; width: 100%; padding: 0; margin-bottom: 6px; }
 .field .hint { color: var(--muted); font-size: .875rem; }
 .field-msg { font-size: .875rem; min-height: 0; }
 .field-msg:empty { display: none; }
@@ -271,12 +422,12 @@ fieldset.field > legend { padding: 0; margin-bottom: 6px; }
 
 input[type="text"], input[type="number"], select {
   width: 100%; min-height: 48px; padding: 8px 12px; font: inherit; font-size: 16px;
-  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-field);
 }
 select { appearance: auto; }
 
 .stepper { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.stepper .btn { flex: none; width: 48px; padding: 0; font-size: 1.5rem; line-height: 1; }
+.stepper .btn { flex: none; width: 48px; padding: 0; border-radius: 50%; font-size: 1.5rem; line-height: 1; }
 /* the input keeps a readable width ("xxxx.x" at 16 px); cards are never narrower than the row needs (see .panel) */
 .stepper input { text-align: center; width: auto; min-width: 64px; flex: 1 1 64px; }
 .stepper .unit { flex: none; color: var(--muted); min-width: 1.5em; }
@@ -284,19 +435,19 @@ select { appearance: auto; }
 .name-row .unit { color: var(--muted); flex: none; }
 
 .slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-head label { font-weight: 600; }
 .slider-head output { font-weight: 700; }
 input[type="range"] { width: 100%; min-height: 44px; margin: 0; accent-color: var(--primary); }
 
 /* segmented control: radio inputs, the label is the button */
-.seg-opts { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.seg-opts { display: flex; gap: 4px; padding: 4px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--r-pill); }
 .seg-opts label { position: relative; flex: 1 1 0; min-width: 0; }
 .seg-opts input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .seg-opts span {
-  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 10px;
-  background: var(--surface); color: var(--text); border-left: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; text-align: center; min-height: 44px; padding: 6px 12px;
+  background: none; color: var(--text); border-radius: var(--r-pill);
 }
-.seg-opts label:first-child span { border-left: 0; }
-.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.seg-opts input:checked + span { background: var(--primary); color: var(--on-primary); font-weight: 700; box-shadow: var(--shadow); }
 .seg-opts input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
 /* the checked segment is filled with --primary: the --focus ring would vanish on it, so use the text-on-fill colour */
 .seg-opts input:checked:focus-visible + span { outline-color: var(--on-primary); }
@@ -320,74 +471,197 @@ input.switch:checked::before { left: 24px; background: var(--on-primary); }
   bottom: calc(var(--dock-h) + var(--tabbar-h) + var(--safe-bottom));
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 8px max(var(--gutter), env(safe-area-inset-right, 0px)) 8px max(var(--gutter), env(safe-area-inset-left, 0px));
-  background: var(--surface); border-top: 2px solid var(--primary);
+  background: var(--surface); border-top: 1px solid var(--hairline); box-shadow: 0 -8px 24px -12px rgba(15, 23, 42, .3);
+}
+/* glass where the browser can: a translucent fill over a blur; the solid surface above stays the fallback */
+@supports (backdrop-filter: blur(1px)) and (background: color-mix(in srgb, red, blue)) {
+  .savebar { background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(14px) saturate(1.4); }
 }
 .save-info { flex: 1 1 96px; min-width: 0; }
+.save-info strong { font-size: 1rem; }
 .save-info .reason { min-height: 0; }
 .save-info .reason:empty, .save-info .field-msg:empty { display: none; }
 .savebar .btn { flex: none; }
 .rename .addr { font-weight: 700; overflow-wrap: anywhere; }
 
+/* ---- device section: about card */
+.about { margin: 0; display: grid; gap: 12px; }
+.about-row { display: grid; gap: 2px; min-width: 0; align-content: start; }
+.about-row dt { color: var(--muted); font-size: .875rem; }
+.about-row dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.about-row dd.about-note { font-weight: 400; font-size: .875rem; color: var(--muted); }
+.about-row dd.about-note:empty { display: none; }
+.about-loading { margin-bottom: 12px; }
 /* ---- phone landscape: slimmer dock and tab bar so the content keeps usable height */
 @media (max-width: 599px) and (max-height: 450px) {
   :root { --dock-h: 44px; --tabbar-h: 44px; }
   .tab { flex-direction: row; gap: 6px; padding: 2px 4px; }
+  .tab-icon { width: 40px; }
   .stop { font-size: 1rem; }
-  html { scroll-padding-top: 64px; }
 }
 
-/* ---- tablet: tabs on top as a segmented control, STOP in the header */
+/* ---- tablet: the two-row status bar with STOP at the right over both rows, the nav as a pill segmented control
+   under it. The state row has the full width left of STOP, so a long state word never pushes STOP out. */
 @media (min-width: 600px) {
   :root { --gutter: 24px; }
-  .topbar { min-height: 60px; }  /* room for the 3 px ring plus 2 px offset around the 48 px STOP */
-  html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
+  .card { padding: 20px; }
+  html { scroll-padding-bottom: calc(var(--savebar-h, 0px) + 24px); }
   body { padding-bottom: 24px; }
-  /* last in the header on the right; DOM and keyboard order keep STOP first */
-  .header .stop { order: 3; position: static; width: auto; flex: none; min-height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: 10px; }
+  .header { grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 16px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  .header h1 { padding-top: 0; }
+  .header .chip { margin-top: 0; }
+  .strip { grid-column: 1 / 3; }
+  /* the right column, never shrinks; DOM and keyboard order keep STOP first */
+  .header .stop { grid-column: 3; grid-row: 1 / 3; position: static; width: auto; flex: none; height: 48px; min-width: 112px; padding: 4px 20px; border-width: 3px; border-radius: var(--r-field); }
   /* static again: the normal outside ring on the page background */
   .header .stop:focus-visible, .header .stop.is-busy:focus-visible { outline-offset: 2px; outline-color: var(--focus); }
-  .strip { display: none; }
+  .side { display: contents; }
   .tabbar {
-    position: static; display: flex; width: max-content; max-width: 100%; margin: 16px auto 0; padding: 4px;
-    background: var(--raised); border: 1px solid var(--hairline); border-radius: 12px;
+    position: static; width: max-content; max-width: 100%; height: auto; margin: 16px auto 0; padding: 4px;
+    background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-row);
   }
   .tab:focus-visible { outline-offset: 2px; }
-  .tab { flex-direction: row; gap: 8px; min-width: 112px; min-height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab { flex-direction: row; gap: 8px; min-width: 112px; height: 44px; border-radius: 8px; font-size: 1rem; }
+  .tab .icon { width: 24px; height: 24px; }
+  .tab-icon { width: auto; height: auto; }
   .tab[aria-current="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--primary); }
-  .content { max-width: 688px; margin: 0 auto; }
+  .tab[aria-current="true"] .tab-icon { background: none; }
+  .content, .notice { max-width: 688px; margin-inline: auto; }
+  .content { padding-inline: var(--gutter); }
+  .notice { padding-inline: var(--gutter); width: min(calc(100% - 2 * var(--gutter)), 640px); }
   .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
-  .panel > .full, .live > .card, .panel > .note { grid-column: 1 / -1; }
-  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .panel > .full, .live > *, .panel > .note { grid-column: 1 / -1; }
+  .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tiles > :last-child:nth-child(odd) { grid-column: auto; }
+  .tiles > :last-child:nth-child(4n+3) { grid-column: span 2; }
+  .h-row.skeleton { min-height: 111px; }
+  .h-bars { gap: 10px; }
+  .h-col { max-width: 56px; }
+  .tabbar { box-shadow: none; }
+  .hero { padding: 24px; }
   #panel-settings { padding-bottom: 24px; }
   .savebar {
-    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 2px solid var(--primary); border-radius: 14px;
+    position: sticky; bottom: 12px; grid-column: 1 / -1; border: 1px solid var(--hairline); border-radius: var(--r-card);
     padding: 8px 12px; box-shadow: var(--shadow);
   }
+  /* a group is a full-width card; steppers put the label left and the control right */
+  .group { grid-column: 1 / -1; }
+  .field-stepper { grid-template-columns: minmax(8rem, 1fr) auto; align-items: center; column-gap: 16px; }
+  .field-stepper > label, .field-stepper > .stepper { grid-row: 1; }
+  .field-stepper > .hint, .field-stepper > .field-msg { grid-column: 1 / -1; }
+  .field-stepper .stepper input { flex: none; width: 96px; }
+  /* About: two columns, the Confirm row (it has a sentence) across both */
+  .about { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; }
+  .about-row.is-wide { grid-column: 1 / -1; }
 }
 
-/* ---- desktop: two panes, live controls on the left */
+/* ---- tablet only: the three profiles side by side as cards (name, target, round Start), the Start buttons on one
+   line whatever the badge does to the first row */
+@media (min-width: 600px) and (max-width: 1023px) {
+  .profiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .profile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto auto; justify-items: center; gap: 8px; padding: 16px 12px; text-align: center; }
+  .p-head { align-self: start; flex-direction: column; }
+  .profile .btn { grid-column: 1; grid-row: auto; margin-top: 4px; }
+}
+
+/* ---- wide tablet: one row (name, state and weight, chip, STOP). The state takes what is left and is cut first;
+   the name keeps its width until the state and weight are down to their 10 rem floor. */
 @media (min-width: 900px) {
-  .header { padding-inline: max(var(--gutter), calc((100% - 1120px) / 2)); }
-  .tabbar { margin: 16px max(var(--gutter), calc((100% - 1120px) / 2)) 0 auto; }
-  .content { max-width: 1120px; padding-inline: var(--gutter); }
-  .layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; align-items: start; }
-  /* the left pane scrolls by itself when it is taller than the window; padding keeps focus rings inside */
-  #panel-grind {
-    position: sticky; top: 88px; display: grid; grid-template-columns: minmax(0, 1fr);
-    max-height: calc(100vh - 104px); overflow-y: auto; padding: 4px; margin: -4px;
+  html { scroll-padding-top: calc(80px + env(safe-area-inset-top, 0px)); }
+  /* 68 px: room for the 3 px ring plus 2 px offset around the 48 px STOP */
+  .header { display: flex; gap: 16px; min-height: 68px; }
+  .header h1 { flex: 0 1 auto; }
+  .strip { order: 2; flex: 1 1 0; min-width: 10rem; gap: 12px; }
+  .strip .weight { margin-left: 0; }
+  .header .chip { order: 3; }
+  .header .stop { order: 4; }
+}
+
+/* ---- desktop: fixed 232 px sidebar (brand, STOP, four nav rows, name and firmware), status bar and content beside it.
+   STOP sits at fixed offsets under the brand: the brand is one 48 px line, so they cannot drift apart.
+   STOP lives in the sticky header (z-index 10, a stacking context), so the sidebar must stay BELOW the header's
+   level (9), or it would paint over STOP and swallow its clicks (found in the V3 audit).
+   Only the nav scrolls in a short window, inside its own box below STOP, so a row never slides under STOP. */
+@media (min-width: 1024px) {
+  .app { padding-left: var(--side-w); }
+  .side {
+    position: fixed; z-index: 9; left: 0; top: 0; bottom: 0; width: var(--side-w);
+    display: flex; flex-direction: column; padding: 16px; overflow: hidden;
+    background: var(--surface); border-right: 1px solid var(--hairline);
   }
-  #panel-grind[hidden] { display: grid !important; }
-  #tab-grind { display: none; }
-  .pane-stop { display: inline-flex; min-height: 56px; width: 100%; border-width: 3px; }
-  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
-  .profiles { grid-template-columns: minmax(0, 1fr); }
+  .side-brand { display: flex; flex: none; align-items: center; gap: 10px; height: 48px; min-width: 0; font-size: 1.125rem; font-weight: 800; white-space: nowrap; }
+  .side-brand span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .side-brand .icon { width: 28px; height: 28px; color: var(--primary); }
+  .header .stop { position: fixed; z-index: 13; left: 16px; top: 76px; width: calc(var(--side-w) - 32px); height: 52px; }
+  /* 70 px margin + 6 px padding = the 76 px STOP slot; the padding (pulled back by the side margins) keeps the
+     focus ring of a row inside the scrolling box */
+  .tabbar {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; flex-direction: column; gap: 4px;
+    width: auto; max-width: none; margin: 70px -6px -6px; padding: 6px; background: none; border: 0; border-radius: 0;
+  }
+  .tab { flex: none; width: 100%; height: 48px; padding: 0 14px; justify-content: flex-start; gap: 12px; border-radius: var(--r-row); color: var(--text); }
+  .tab:hover { background: var(--tint-info); }
+  .tab[aria-current="true"], .tab[aria-current="true"]:hover { background: var(--primary); color: var(--on-primary); box-shadow: none; }
+  .side-foot { display: block; flex: none; margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+  .side-name { font-weight: 700; overflow-wrap: anywhere; }
+  .side-foot .build { color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+  html { scroll-padding-top: 88px; }
+  .tile dt { min-height: 0; }
+  /* the name is in the sidebar: keep the h1 for screen readers only */
+  .header h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .header { padding-inline: max(var(--gutter), calc((100% - 1040px) / 2)); }
+  .content, .notice { max-width: calc(1040px + 2 * var(--gutter)); }
+  /* the footer box lines up with the card column (the column is 1040 px inside its gutters) */
+  .notice { width: min(calc(100% - 2 * var(--gutter)), 1040px); }
+  /* two cards per row (Settings) */
+  .panel { grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr)); }
+  .group { grid-column: auto; }
+  /* Grind: the hero and the tools on the left, the profiles on the right. The DOM order (hero, profiles, tools)
+     stays the tab order. The weight follows the column, not the whole window */
+  .grind-grid { grid-template-columns: minmax(0, 11fr) minmax(0, 10fr); grid-template-rows: auto 1fr; }
+  .hero { grid-column: 1; grid-row: 1; }
+  .profiles-card { grid-column: 2; grid-row: 1 / span 2; }
+  .tools-card { grid-column: 1; grid-row: 2; }
+  /* the Last grind card, when shown (class set by the page), takes the left column between the hero and Tools */
+  .grind-grid.has-last { grid-template-rows: auto auto 1fr; }
+  .grind-grid.has-last .lastgrind { grid-column: 1; grid-row: 2; }
+  .grind-grid.has-last .profiles-card { grid-row: 1 / span 3; }
+  .grind-grid.has-last .tools-card { grid-row: 3; }
+  .hero-weight { font-size: clamp(3.5rem, 6.5vw, 6rem); }
 }
 
-/* wide enough for the centred 1120 px column: the header and the cards share the same edge */
-@media (min-width: 1168px) {
-  .content { padding-inline: 0; }
+/* a short window: the name and firmware block gives way so the four rows stay reachable */
+@media (min-width: 1024px) and (max-height: 520px) {
+  .side-foot { display: none; }
 }
 
+/* ---- motion (chg021 V7). Every animation, transition and keyframe sits in this one block: with reduced motion
+   nothing moves. Nothing animates on text that changes with a poll (weight, state words, "Updated Ns ago"); the
+   fade runs when a card is shown, the pulses only while their state lasts (skeleton, STOP sent, reconnecting). */
 @media (prefers-reduced-motion: no-preference) {
-  .btn, .stop, .tab { transition: background-color .15s, color .15s, opacity .15s; }
+  .btn, .stop, .tab, .tab-icon, .seg-opts span, input.switch { transition: background-color .15s var(--ease), color .15s var(--ease), opacity .15s var(--ease); }
+  input.switch::before { transition: left .15s var(--ease), background-color .15s var(--ease); }
+  .dot, .profile { transition: background-color .2s var(--ease), border-color .2s var(--ease); }
+  /* the countdown ring glides between the 250 ms ticks */
+  .ring-arc { transition: stroke-dashoffset .25s linear; }
+
+  /* a card fades in (and rises 4 px) when it is shown: page load, tab change, a card that appears. No fill after the
+     end, so no transform is left on the card */
+  .card { animation: card-in .22s var(--ease) backwards; }
+  @keyframes card-in { from { opacity: 0; transform: translateY(4px); } }
+
+  /* loading placeholders: a soft light band passes over the raised fill */
+  .is-loading > .skeleton {
+    background: linear-gradient(100deg, var(--raised) 30%, color-mix(in srgb, var(--border) 38%, var(--raised)) 50%, var(--raised) 70%) 100% 0 / 300% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: 0 0; } }
+
+  /* STOP sent and not yet answered: an inner ring breathes; the button stays enabled and keeps its label */
+  .stop.is-sending { animation: stop-ring 1.1s ease-in-out infinite; }
+  @keyframes stop-ring { 50% { box-shadow: inset 0 0 0 6px currentColor; } }
+
+  /* lost contact, trying again: the state dots breathe */
+  .is-reconnecting .dot { animation: dot-pulse 1.4s ease-in-out infinite; }
+  @keyframes dot-pulse { 50% { opacity: .35; } }
 }

@@ -255,6 +255,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest     # tools/tests (pytest.ini
 pio test -c platformio-native.ini -e native-test       # host tests in test_native/
 ```
 
+After editing anything in `web/portal/`, run `python3 tools/portal/build_page.py` to regenerate `index.html`; the build strips comments and indentation from the inlined parts (the sources keep them), and a test fails on a stale page.
+
 GLink (GaggiMate link, chg020): the pure `src/bluetooth/glink_*` modules are in the native suite (`test_native/`), and `tools/tests/test_glink_*.py` keep the spec `docs/GLINK-PROTOCOL.md`, the constants in `src/config/bluetooth.h`, `tools/tests/glink_vectors.json` and the Python client/simulator (`tools/ble/glink_*.py`) equal; `test_glink_ble_task_guard.py` and `test_glink_start_guard.py` are text guards (Bluetooth task never calls LVGL/NVS/controllers; the start path). The GaggiMate plugin has its own checks, not run by CI (they need g++ or a GaggiMate clone):
 
 ```bash

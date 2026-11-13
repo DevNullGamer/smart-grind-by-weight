@@ -21,6 +21,7 @@
 #define PORTAL_SCHEMA_JSON_MAX 4096                                            // GET /api/schema
 #define PORTAL_STATUS_JSON_MAX 640                                             // GET /api/status (worst case with all nine warnings is 470 bytes)
 #define PORTAL_STATS_JSON_MAX 512                                              // GET /api/stats (worst case with every number at its maximum is 334 bytes)
+#define PORTAL_DIAGNOSTICS_JSON_MAX 320                                        // GET /api/diagnostics (worst case with every number at its maximum is 253 bytes)
 #define PORTAL_HISTORY_JSON_MAX 2560                                           // GET /api/history (10 worst-case entries are about 2.1 KB, see test_history_worst_case_fits_its_buffer_with_margin)
 #define PORTAL_COMMAND_REPLY_MAX 96                                            // POST /api/command reply (the start reply with lead_in_ms is the longest)
 #define PORTAL_PICKUP_TIMEOUT_MS 500                                           // A write the UI task has not picked up by then is answered 503 ui_busy
@@ -34,7 +35,9 @@
 #define GRIND_HISTORY_FILE_RECORDS 16                                          // Records per history file (two files: /hist0.bin, /hist1.bin)
 #define PORTAL_HISTORY_REFRESH_MS 5000                                         // The UI task republishes the history snapshot this often (a changed ring is published at once, within one status tick)
 #define PORTAL_HISTORY_STALE_MS 15000                                          // A history snapshot older than this (UI task stuck) is answered 503 ui_busy
-#define PORTAL_SNAPSHOT_STALE_MS 5000                                         // A snapshot older than this (UI task stuck or UI off) is answered 503 ui_busy
+#define PORTAL_DIAGNOSTICS_REFRESH_MS 2000                                     // The UI task republishes the diagnostics snapshot this often (the load cell noise check is stateful and needs a steady cadence)
+#define PORTAL_DIAGNOSTICS_STALE_MS 15000                                      // A diagnostics snapshot older than this (UI task stuck) is answered 503 ui_busy
+#define PORTAL_SNAPSHOT_STALE_MS 5000                                        // A snapshot older than this (UI task stuck or UI off) is answered 503 ui_busy
 
 // Embedded page (built from web/portal/index.html by tools/build-scripts/embed_portal.py, gzip, served from flash)
 #define PORTAL_PAGE_SOURCE "web/portal/index.html"                             // Relative to the project root; the build fails if it is missing

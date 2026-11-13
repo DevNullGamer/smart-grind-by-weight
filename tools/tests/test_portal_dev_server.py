@@ -167,10 +167,134 @@ def test_page_content_rules():
 
 def test_page_fits_the_embed_budget():
     import gzip
-    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, but the page reached 31.6 KB at step 7, so the
-    # target was raised deliberately to 40 KB. With the Insights tiles and the history list (step 12) it is 39.3 KB.
-    # Any further raise needs its own reason; trim duplication in the sources first.
-    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 40 * 1024
+    # Hard budget is 64 KB (embed_portal.py). chg016 aimed for 32 KB, then raised the target to 40 KB (39.3 KB with the
+    # Insights tiles and the history list). chg021 V0 strips comments and indentation at build time (about 30 KB) and
+    # moves the cap to 48 KB to leave room for the redesign (plan: 46 KB after the V steps). Any further raise needs its
+    # own reason; trim duplication in the sources first.
+    assert len(gzip.compress((ROOT / "web" / "portal" / "index.html").read_bytes(), 9)) < 48 * 1024
+
+
+def test_strip_js_drops_only_full_line_comments_and_indentation():
+    src = "  // a comment\n\n  var a = 'x';  // trailing stays\n    var b = '//x';\n  var c = \"/* y */\";\n"
+    assert build_page.strip_js(src) == "var a = 'x';  // trailing stays\nvar b = '//x';\nvar c = \"/* y */\";"
+
+
+def test_strip_js_keeps_a_regex_and_a_url_like_string_untouched():
+    src = "var r = /a\\/\\/b/;\nvar u = 'x//y';\n"
+    assert build_page.strip_js(src) == "var r = /a\\/\\/b/;\nvar u = 'x//y';"
+
+
+# chg021 V0: comment-like text inside strings (and a regex) that the strip must leave exactly as written
+STRIP_FIXTURE_LINES = (
+    "var a = 'see // here';",
+    'var b = "a /* b */ c";',
+    "var c = '//x';",
+    'var d = "//" + \'/* not a comment */\';',
+    "var e = 'x'; var f = '// two on a line'; // trailing comment is kept too",
+    "'//starts the line inside a string';",
+    '"/* starts the line */";',
+    "var g = /\\/\\/.*$/.test('a//b');",
+    "var h = `// in a one-line template /* x */`;",
+)
+
+
+def test_strip_js_leaves_comment_markers_inside_strings_untouched():
+    src = "\n".join(STRIP_FIXTURE_LINES) + "\n"
+    assert build_page.strip_js(src).split("\n") == list(STRIP_FIXTURE_LINES)
+    # indented and between real comments: only the indentation and the full-line comments go
+    padded = "// head\n" + "".join(f"    {line}\n  // between\n\n" for line in STRIP_FIXTURE_LINES)
+    assert build_page.strip_js(padded).split("\n") == list(STRIP_FIXTURE_LINES)
+
+
+def test_strip_css_leaves_comment_markers_inside_strings_untouched():
+    lines = ('.a::before { content: "/* x */"; }', ".b::after { content: '//x'; }",
+             '.c::after { content: "it\\"s /* still */ a string"; }', ".d { background: none; }")
+    assert build_page.strip_css("\n".join(lines) + "\n").split("\n") == list(lines)
+
+
+def test_built_page_carries_the_string_fixture_untouched(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-view.js").write_text("// header comment\n" + "".join(f"  {line}\n" for line in STRIP_FIXTURE_LINES),
+                                             encoding="utf-8")
+    (tmp_path / "portal.css").write_text("/* note */\n.a::before { content: \"/* x */ //y\"; }\n", encoding="utf-8")
+    page = build_page.render_page(tmp_path)
+    assert "\n".join(STRIP_FIXTURE_LINES) in page
+    assert '.a::before { content: "/* x */ //y"; }' in page
+    assert "header comment" not in page and "/* note */" not in page
+
+
+def test_strip_js_refuses_a_multi_line_template_literal():
+    with pytest.raises(build_page.PageBuildError, match="template literal"):
+        build_page.strip_js("var t = `one\ntwo`;\n")
+
+
+def test_strip_css_drops_comment_blocks_but_not_markers_or_strings():
+    src = ("/* head\n   more */\n.a { color: red; } /* tail */\n  .b::after { content: '/* keep */'; }\n"
+           "x/**/y\n/*@@PORTAL_CSS@@*/\n")
+    out = build_page.strip_css(src)
+    assert out == ".a { color: red; }\n.b::after { content: '/* keep */'; }\nx y\n/*@@PORTAL_CSS@@*/"
+
+
+def test_strip_css_refuses_an_unterminated_comment():
+    with pytest.raises(build_page.PageBuildError, match="unterminated"):
+        build_page.strip_css("a { } /* open\n")
+
+
+def test_render_page_strips_parts_unless_asked_not_to(tmp_path):
+    make_sources(tmp_path)
+    (tmp_path / "portal-app.js").write_text("// note\n  var app = '//x';\n", encoding="utf-8")
+    assert "// note" not in build_page.render_page(tmp_path)
+    assert "\nvar app = '//x';" in build_page.render_page(tmp_path)
+    assert "// note" in build_page.render_page(tmp_path, strip=False)
+
+
+def test_sources_have_no_multi_line_template_literals():
+    for _m, name, _c in build_page.PARTS:
+        if name.endswith(".js"):  # strip_js raises when it finds one
+            build_page.strip_js((ROOT / "web" / "portal" / name).read_text(encoding="utf-8"), name)
+
+
+def _node():
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    return node
+
+
+def test_every_inlined_script_of_the_built_page_passes_node_check(tmp_path):
+    import subprocess
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+    assert len(scripts) == 3
+    for i, body in enumerate(scripts):
+        path = tmp_path / f"inline{i}.js"
+        path.write_text(body, encoding="utf-8")
+        done = subprocess.run([_node(), "--check", str(path)], capture_output=True, text=True)
+        assert done.returncode == 0, done.stderr
+
+
+def test_node_tests_pass_against_the_stripped_parts(tmp_path):
+    """The behaviour tests re-run on the stripped modules in a scratch tree, so a bad strip cannot ship. One test that
+    reads the source text for its indentation is skipped there."""
+    import shutil
+    import subprocess
+    (tmp_path / "tools" / "tests").mkdir(parents=True)
+    (tmp_path / "tools" / "portal").mkdir()
+    (tmp_path / "web" / "portal").mkdir(parents=True)
+    for f in ("portal-client.test.js", "portal-view.test.js", "portal_api_vectors.json"):
+        shutil.copy(ROOT / "tools" / "tests" / f, tmp_path / "tools" / "tests" / f)
+    shutil.copy(PORTAL_TOOLS / "portal_model.py", tmp_path / "tools" / "portal" / "portal_model.py")
+    for f in ("page.src.html", "index.html"):
+        shutil.copy(ROOT / "web" / "portal" / f, tmp_path / "web" / "portal" / f)
+    for _m, name, _c in build_page.PARTS:
+        text = (ROOT / "web" / "portal" / name).read_text(encoding="utf-8").replace("\r\n", "\n")
+        stripped = build_page.strip_css(text, name) if name.endswith(".css") else build_page.strip_js(text, name)
+        (tmp_path / "web" / "portal" / name).write_text(stripped, encoding="utf-8")
+    done = subprocess.run([_node(), "--test", "--test-skip-pattern=page source wires the stale-reply guard",
+                           "tools/tests/portal-client.test.js", "tools/tests/portal-view.test.js"],
+                          cwd=tmp_path, capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-1000:]
 
 
 def make_sources(directory):
@@ -223,6 +347,55 @@ def test_stop_is_the_first_button_after_the_skip_link_and_never_disabled():
     assert 'id="stop"' in first and "disabled" not in first
     for tag in re.findall(r"<button\b[^>]*\bid=\"stop(?:-pane)?\"[^>]*>", body):
         assert "disabled" not in tag, tag
+
+
+def _page_body():
+    page = (ROOT / "web" / "portal" / "index.html").read_text(encoding="utf-8")
+    return page[page.index("<body>"):page.index("<script>")]
+
+
+def test_focus_order_in_the_markup_is_skip_link_stop_navigation_content():
+    """chg021 V3: the tab order follows the DOM (skip link, STOP, navigation, content) and nothing reorders it."""
+    body = _page_body()
+    order = [body.index('class="skip-link"'), body.index('id="stop"'), body.index("<nav"), body.index("<main")]
+    assert order == sorted(order), order
+    # nothing focusable between the skip link and STOP, or between STOP and the navigation
+    focusable = r"<(?:a|button|input|select|textarea)\b|tabindex="
+    assert not re.search(focusable, body[body.index("</a>", order[0]):body.index("<button", order[0])])
+    assert not re.search(focusable, body[body.index("</button>", order[1]):order[2]])
+    # a positive tabindex would jump the queue ahead of STOP
+    assert not re.search(r"tabindex=\"[1-9]", body)
+    for name in ("portal-app.js", "portal-view.js"):
+        assert not re.search(r"tabIndex\s*=\s*[1-9]", (ROOT / "web" / "portal" / name).read_text(encoding="utf-8")), name
+
+
+def test_navigation_has_four_sections_and_marks_the_current_one():
+    """chg021 V3: Grind, Settings, Insights, Device in one <nav>; the shown section carries aria-current."""
+    body = _page_body()
+    nav = body[body.index("<nav"):body.index("</nav>")]
+    assert re.search(r"<nav\b[^>]*aria-label=", nav)
+    tabs = re.findall(r"<button\b[^>]*>", nav)
+    assert [re.search(r'data-tab="([a-z]+)"', t).group(1) for t in tabs] == ["grind", "settings", "insights", "device"]
+    assert [re.search(r'id="([a-z-]+)"', t).group(1) for t in tabs] == ["tab-grind", "tab-settings", "tab-insights", "tab-device"]
+    current = [t for t in tabs if "aria-current" in t]
+    assert len(current) == 1 and 'id="tab-grind"' in current[0] and 'aria-current="true"' in current[0]
+    for tab in tabs:
+        assert "disabled" not in tab and 'type="button"' in tab
+    # each section has its panel; only the first is shown before the script runs
+    for name in ("grind", "settings", "insights", "device"):
+        panel = re.search(r'<section\b[^>]*id="panel-' + name + r'"[^>]*>', body)
+        assert panel, name
+        assert (" hidden" in panel.group(0)) is (name != "grind"), name
+    app = (ROOT / "web" / "portal" / "portal-app.js").read_text(encoding="utf-8")
+    assert "setAttribute('aria-current', 'true')" in app and "removeAttribute('aria-current')" in app
+    assert "aria-selected" not in body and "aria-selected" not in app  # one way of marking the section, not two
+
+
+def test_device_section_placeholder_has_the_about_rows():
+    body = _page_body()
+    device = body[body.index('id="panel-device"'):]
+    for element_id in ("about-name", "about-address", "about-firmware"):
+        assert f'id="{element_id}"' in device, element_id
 
 
 @pytest.mark.parametrize("marker", [m for m, _f, _c in build_page.PARTS])
@@ -581,7 +754,7 @@ def test_app_only_uses_element_ids_the_page_has():
     ids = set(re.findall(r"\$\('([a-z0-9-]+)'\)", app))
     ids |= {f"{prefix}{i}" for prefix in ("start-", "target-", "badge-", "reason-start-") for i in range(3)} \
         if "'start-' + i" in app else set()
-    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights")}
+    ids |= {f"{prefix}{tab}" for prefix in ("panel-", "tab-") for tab in ("grind", "settings", "insights", "device")}
     ids = {i for i in ids if not i.endswith("-")}
     missing = sorted(i for i in ids if f'id="{i}"' not in page)
     assert not missing, f"portal-app.js uses ids that page.src.html lacks: {missing}"
@@ -604,6 +777,42 @@ def test_every_start_tare_and_motor_test_button_has_visible_reason_text():
         tag = re.search(rf'<button id="{button}"[^>]*>', page).group(0)
         assert f'aria-describedby="{reason}"' in tag
         assert f'id="{reason}"' in page
+    # the Start reason is shown once, visibly, under the Profiles heading (the per-button ones are screen-reader only)
+    visible = re.search(r'<[a-z]+ id="reason-start"[^>]*>', page)
+    assert visible, "page lacks #reason-start"
+    assert not re.search(r'sr-only|hidden', visible.group(0)), visible.group(0)
+    assert page.index("<h2>Profiles</h2>") < visible.start() < page.index('id="profile-0"')
+
+
+def test_round_start_buttons_are_named_and_described_by_existing_ids():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for i, name in enumerate(("Single", "Double", "Custom")):
+        tag = re.search(rf'<button id="start-{i}"[^>]*>', page).group(0)
+        assert f'aria-label="Start {name}"' in tag and 'class="btn primary round"' in tag
+        described = re.search(r'aria-describedby="([^"]+)"', tag).group(1)
+        for ident in described.split():
+            assert page.count(f'id="{ident}"') == 1, ident
+
+
+def test_weight_is_not_inside_a_live_region():
+    page = (ROOT / "web" / "portal" / "page.src.html").read_text(encoding="utf-8")
+    for ident in ("readout-weight", "strip-weight"):
+        pos = page.index(f'id="{ident}"')
+        # walk the open tags before the weight: none that is still open may carry a live role
+        open_stack = []
+        for m in re.finditer(r"<(/?)([a-z0-9]+)([^>]*)>", page[:pos]):
+            closing, tag, attrs = m.groups()
+            if tag in ("meta", "link", "br", "img", "input", "use", "circle", "path", "rect", "source"):
+                continue
+            if attrs.endswith("/"):
+                continue
+            if closing:
+                if open_stack and open_stack[-1][0] == tag:
+                    open_stack.pop()
+            else:
+                open_stack.append((tag, attrs))
+        for tag, attrs in open_stack:
+            assert "aria-live" not in attrs and 'role="status"' not in attrs and 'role="alert"' not in attrs, (ident, tag, attrs)
 
 
 def test_real_page_is_served_and_drives_a_remote_start(server):
@@ -893,6 +1102,80 @@ def test_no_insights_answers_404_like_a_firmware_without_the_route(server):
     assert call(server, "POST", "/dev/state", '{"insights":true}')[1]["insights"] is True
 
 
+# ------------------------------------------------------------------------------------------ diagnostics (chg021 G3a)
+def _vector_input(case):
+    """The vector input as Python values (the JSON strings "nan"/"inf"/"-inf" stand for the non-finite floats)."""
+    return {k: float(v) if isinstance(v, str) and v in ("nan", "inf", "-inf") else v for k, v in case["input"].items()}
+
+
+def test_diagnostics_vectors():
+    assert len(VECTORS["diagnostics_cases"]) >= 20
+    for c in VECTORS["diagnostics_cases"]:
+        doc = model.diagnostics_document(_vector_input(c))
+        assert list(doc) == list(model.DIAGNOSTICS_KEYS), c["name"]
+        assert model.encode_json(doc) == c["json"], c["name"]
+        assert len(c["json"]) < 320, c["name"]
+
+
+def test_diagnostics_document_replaces_words_outside_the_vocabulary_and_defaults_missing_members():
+    doc = model.diagnostics_document({"ble": "wifi", "board": "v2", "board_source": None})
+    assert (doc["ble"], doc["board"], doc["board_source"]) == ("off", "UNKNOWN", "none")
+    assert doc["wifi_rssi_dbm"] is None and doc["calibrated"] is False and doc["noise_ok"] is True
+    assert doc["motor_latency_ms"] == 0 and doc["cal_factor"] == 0.0
+
+
+def test_diagnostics_route_shape_headers_and_gates(server):
+    status, doc, res = call(server, "GET", "/api/diagnostics")
+    assert status == 200 and list(doc) == list(model.DIAGNOSTICS_KEYS)
+    assert doc == model.diagnostics_document(dev.START_DIAGNOSTICS)
+    assert res.getheader("Cache-Control") == "no-store"
+    assert call(server, "GET", "/dev/state")[1]["diagnostics"] == doc
+    assert call(server, "GET", "/api/diagnostics", host="evil.com")[1]["error"] == "bad_host"
+    assert call(server, "GET", "/api/diagnostics", headers={"Origin": "http://evil.com"})[1]["error"] == "bad_origin"
+    assert call(server, "POST", "/api/diagnostics", "{}")[0] == 405
+    assert call(server, "PATCH", "/api/diagnostics", "{}")[0] == 405
+    server.sim.ui_busy = True
+    status, doc, _ = call(server, "GET", "/api/diagnostics")
+    assert status == 503 and doc["error"] == "ui_busy"
+    server.sim.ui_busy = False
+    server.sim.web_interface = False
+    status, doc, _ = call(server, "GET", "/api/diagnostics")
+    assert status == 403 and doc["error"] == "web_interface_off"
+
+
+def test_no_diagnostics_answers_404_like_a_firmware_without_the_route(server):
+    server.sim.diagnostics_route = False
+    for method in ("GET", "POST", "PATCH"):
+        status, doc, _ = call(server, method, "/api/diagnostics", None if method == "GET" else "{}")
+        assert status == 404 and doc is None, method
+    assert call(server, "GET", "/api/stats")[0] == 200 and call(server, "GET", "/api/history")[0] == 200
+    assert call(server, "GET", "/dev/state")[1]["diagnostics_route"] is False
+    assert call(server, "POST", "/dev/state", '{"diagnostics_route":true}')[1]["diagnostics_route"] is True
+    args = dev.build_parser().parse_args(["--no-diagnostics"])
+    assert dev.make_simulator(args).diagnostics_route is False
+    assert dev.make_simulator(dev.build_parser().parse_args([])).diagnostics_route is True
+
+
+def test_dev_state_overrides_diagnostics_members_and_bounds_the_reply(server):
+    body = ('{"diagnostics":{"cal_factor":NaN,"std_dev_g":Infinity,"sample_rate_sps":-5,"motor_latency_ms":1e30,'
+            '"wifi_rssi_dbm":null,"ble":"link_linked","board":"V1","board_source":"user","calibrated":false,'
+            '"noise_ok":false,"push_armed":true}}')
+    status, state, _ = call(server, "POST", "/dev/state", body)
+    assert status == 200
+    doc = call(server, "GET", "/api/diagnostics")[1]
+    assert doc == {"calibrated": False, "cal_factor": 0.0, "std_dev_g": 0.0, "noise_ok": False, "sample_rate_sps": 0.0,
+                   "motor_latency_ms": 1000000, "wifi_rssi_dbm": None, "ble": "link_linked", "board": "V1",
+                   "board_source": "user", "push_armed": True}
+    assert state["diagnostics"] == doc
+    for bad in ('{"diagnostics":{"ble":"wifi"}}', '{"diagnostics":{"board":"V3"}}', '{"diagnostics":{"nope":1}}',
+                '{"diagnostics":{"calibrated":1}}', '{"diagnostics":{"cal_factor":"1"}}',
+                '{"diagnostics":{"wifi_rssi_dbm":-50.5}}', '{"diagnostics":{"cal_factor":1' + "0" * 400 + '}}',
+                '{"diagnostics":[]}'):
+        status, err, _ = call(server, "POST", "/dev/state", bad)
+        assert status == 400 and err["error"] == "dev_state", bad
+    assert call(server, "GET", "/api/diagnostics")[1] == doc  # a refused body changes nothing
+
+
 def test_a_finished_grind_joins_the_statistics_and_a_stopped_one_does_not(server):
     before = call(server, "GET", "/api/stats")[1]
     call(server, "POST", "/api/command", '{"cmd":"start","profile":0}')  # 9 g in weight mode
@@ -1091,3 +1374,39 @@ def test_no_history_answers_404_but_keeps_the_statistics(server):
     args = dev.build_parser().parse_args(["--no-history"])
     assert dev.make_simulator(args).history_route is False
     assert dev.make_simulator(dev.build_parser().parse_args([])).history_route is True
+
+
+# ------------------------------------------------------------------------------------ diagnostics edge cases (G3a tester)
+def test_diagnostics_g3a_model_edges_are_strict_json_in_contract_order():
+    import json as _json
+    inf, nan = float("inf"), float("nan")
+    for rssi in (None, 0, 99, -127, -128, 5, -(2 ** 31), 2 ** 31 - 1):
+        for ble in model.BLE_STATES:
+            doc = model.diagnostics_document({"wifi_rssi_dbm": rssi, "ble": ble})
+            text = model.encode_json(doc)
+            assert len(text) < 320
+            assert list(_json.loads(text, parse_constant=lambda c: pytest.fail(c))) == list(model.DIAGNOSTICS_KEYS)
+            assert doc["wifi_rssi_dbm"] is None if rssi is None else -127 <= doc["wifi_rssi_dbm"] <= 0
+    for v, want in ((nan, 0), (inf, 0), (-inf, 0), (-0.0, 0), (1e9, 1e9), (-1e9, -1e9), (1e10, 1e9), (-1e10, -1e9), (1e-9, 0)):
+        d = model.diagnostics_document({"cal_factor": v})
+        assert d["cal_factor"] == want and "-0.0" not in model.encode_json(d)
+    for v, want in ((-5, 0), (0, 0), (0.4999, 0), (0.5, 1), (1e6, 1000000), (1e7, 1000000), (nan, 0), (inf, 0)):
+        assert model.diagnostics_document({"motor_latency_ms": v})["motor_latency_ms"] == want
+    d = model.diagnostics_document({"std_dev_g": -1, "sample_rate_sps": 1e30})
+    assert d["std_dev_g"] == 0.0 and d["sample_rate_sps"] == 1e9
+    for bad in ("", '"', "\\", 'a"b' + chr(92) + 'c', None, "v2"):
+        d = model.diagnostics_document({"board": bad, "board_source": bad, "ble": bad})
+        assert (d["board"], d["board_source"], d["ble"]) == ("UNKNOWN", "none", "off")
+
+
+def test_diagnostics_g3a_dev_state_extremes_stay_valid_json_under_320_bytes(server):
+    import json as _json
+    for body in ('{"diagnostics":{"cal_factor":-Infinity,"std_dev_g":NaN,"sample_rate_sps":1e308,"motor_latency_ms":-1e308,'
+                 '"wifi_rssi_dbm":-2147483648,"ble":"link_connected","board_source":"default","board":"UNKNOWN"}}',
+                 '{"diagnostics":{"wifi_rssi_dbm":99,"cal_factor":-0.0,"motor_latency_ms":0.4999}}'):
+        assert call(server, "POST", "/dev/state", body)[0] == 200
+        status, doc, res = call(server, "GET", "/api/diagnostics")
+        assert status == 200 and list(doc) == list(model.DIAGNOSTICS_KEYS)
+        raw = model.encode_json(doc)
+        _json.loads(raw, parse_constant=lambda c: pytest.fail(c))
+        assert len(raw) < 320

@@ -952,3 +952,76 @@ bool portal_encode_history(const PortalHistory& h, uint32_t now_s, char* out, si
     j.raw("]}");
     return j.done();
 }
+
+namespace {
+
+const char* const kBleStateNames[PORTAL_BLE_STATE_COUNT] = {
+    "off", "advertising", "connected", "link_listening", "link_connected", "link_linked",
+};
+// Board words as BoardConfig::name() / source_name() spell them (tools/tests/test_portal_api_contract.py keeps them in step)
+const char* const kBoardNames[] = {"V1", "V2", "UNKNOWN"};
+const char* const kBoardSourceNames[] = {"none", "probe", "user", "cached", "default"};
+
+template <size_t N>
+const char* known_word(const char* in, const char* const (&words)[N], const char* fallback) {
+    if (!in) return fallback;
+    for (size_t i = 0; i < N; i++) {
+        if (strcmp(in, words[i]) == 0) return words[i];
+    }
+    return fallback;
+}
+
+// A diagnostics float as a bounded number: not finite is 0, magnitude cut at PORTAL_DIAGNOSTICS_FLOAT_MAX, a negative
+// value is 0 unless allow_negative, and under half a thousandth is 0.0 (never "-0.0")
+double bounded_diagnostic(float v, bool allow_negative) {
+    if (!isfinite(v)) return 0.0;
+    double d = static_cast<double>(v);
+    if (d > PORTAL_DIAGNOSTICS_FLOAT_MAX) d = PORTAL_DIAGNOSTICS_FLOAT_MAX;
+    if (d < -PORTAL_DIAGNOSTICS_FLOAT_MAX) d = -PORTAL_DIAGNOSTICS_FLOAT_MAX;
+    if (d < 0.0 && !allow_negative) return 0.0;
+    return fabs(d) < 0.0005 ? 0.0 : d;
+}
+
+}  // namespace
+
+const char* portal_ble_state_name(PortalBleState state) {
+    const size_t i = static_cast<size_t>(state);
+    return i < PORTAL_BLE_STATE_COUNT ? kBleStateNames[i] : kBleStateNames[0];
+}
+
+bool portal_encode_diagnostics(const PortalDiagnostics& d, char* out, size_t cap) {
+    JsonOut j(out, cap);
+    j.raw("{\"calibrated\":");
+    j.boolean(d.calibrated);
+    j.raw(",\"cal_factor\":");
+    j.num(bounded_diagnostic(d.cal_factor, true));
+    j.raw(",\"std_dev_g\":");
+    j.num(bounded_diagnostic(d.std_dev_g, false));
+    j.raw(",\"noise_ok\":");
+    j.boolean(d.noise_ok);
+    j.raw(",\"sample_rate_sps\":");
+    j.num(bounded_diagnostic(d.sample_rate_sps, false));
+    j.raw(",\"motor_latency_ms\":");
+    const float latency = isfinite(d.motor_latency_ms) && d.motor_latency_ms > 0.0f
+                              ? (d.motor_latency_ms > PORTAL_DIAGNOSTICS_LATENCY_MAX_MS ? PORTAL_DIAGNOSTICS_LATENCY_MAX_MS
+                                                                                        : d.motor_latency_ms)
+                              : 0.0f;
+    j.integer(lroundf(latency));
+    j.raw(",\"wifi_rssi_dbm\":");
+    if (d.wifi_rssi_known) {
+        j.integer(d.wifi_rssi_dbm > 0 ? 0 : (d.wifi_rssi_dbm < PORTAL_DIAGNOSTICS_RSSI_MIN_DBM ? PORTAL_DIAGNOSTICS_RSSI_MIN_DBM
+                                                                                              : d.wifi_rssi_dbm));
+    } else {
+        j.raw("null");
+    }
+    j.raw(",\"ble\":");
+    j.str(portal_ble_state_name(d.ble));
+    j.raw(",\"board\":");
+    j.str(known_word(d.board, kBoardNames, "UNKNOWN"));
+    j.raw(",\"board_source\":");
+    j.str(known_word(d.board_source, kBoardSourceNames, "none"));
+    j.raw(",\"push_armed\":");
+    j.boolean(d.push_armed);
+    j.put('}');
+    return j.done();
+}

@@ -494,6 +494,159 @@ def test_history_route_members_and_sources_follow_the_document():
     assert "portal_history_result_name(" in encoder and "portal_encode_history(" in handler
 
 
+def test_diagnostics_route_members_words_and_sources_follow_the_document():
+    sys.path.insert(0, str(ROOT / "tools" / "portal"))
+    import portal_model
+    doc = read("docs/PORTAL-API.md")
+    assert "`GET /api/diagnostics`" in doc
+    assert "`GET /api/diagnostics`" in doc.split("## 1.")[1].split("## 2.")[0], "gate table row"
+    assert "| `GET /api/diagnostics` |" in doc.split("## 3.")[1].split("## 4.")[0], "routes table row"
+    api = read("src/network/portal_api.cpp")
+    encoder = re.search(r"bool portal_encode_diagnostics\(.*?\n\}\n", api, re.S).group(0)
+    members = re.findall(r'\\"([a-z_]+)\\":', encoder)
+    assert members == list(portal_model.DIAGNOSTICS_KEYS), "the encoder's members and their order equal the Python mirror"
+    assert len(members) == 11
+    for name in members:
+        assert f"`{name}`" in doc, f"diagnostics member {name} missing in PORTAL-API.md"
+    # ble: exactly six words, in the order of the enum, the Python mirror and the document
+    header = read("src/network/portal_api.h")
+    enum_words = [m.lower() for m in enum_members(header, "PortalBleState") if m != "COUNT"]
+    table = re.search(r"kBleStateNames\[PORTAL_BLE_STATE_COUNT\] = \{(.*?)\};", api, re.S).group(1)
+    assert re.findall(r'"([a-z_]+)"', table) == enum_words == list(portal_model.BLE_STATES)
+    assert enum_words == ["off", "advertising", "connected", "link_listening", "link_connected", "link_linked"]
+    for word in enum_words:
+        assert f"`{word}`" in doc, f"ble word {word} missing in PORTAL-API.md"
+    # board and board_source: the words BoardConfig::name() / source_name() return, nothing invented
+    board = read("src/config/board_config.h")
+    name_fn = re.search(r"const char\* name\(\) const \{(.*?)\n    \}", board, re.S).group(1)
+    source_fn = re.search(r"const char\* source_name\(\) const \{(.*?)\n    \}", board, re.S).group(1)
+    firmware_boards = re.findall(r'return "(\w+)";', name_fn)
+    firmware_sources = re.findall(r'return "(\w+)";', source_fn)
+    assert sorted(firmware_boards) == sorted(portal_model.BOARD_NAMES) == sorted(["V1", "V2", "UNKNOWN"])
+    assert sorted(firmware_sources) == sorted(portal_model.BOARD_SOURCES)
+    assert re.findall(r'"(\w+)"', re.search(r"kBoardNames\[\] = \{(.*?)\};", api, re.S).group(1)) == list(portal_model.BOARD_NAMES)
+    assert re.findall(r'"(\w+)"', re.search(r"kBoardSourceNames\[\] = \{(.*?)\};", api, re.S).group(1)) == list(portal_model.BOARD_SOURCES)
+    for word in firmware_boards + firmware_sources:
+        assert f"`{word}`" in doc, f"board word {word} missing in PORTAL-API.md"
+    # /api/info reports the same board name
+    assert "board().name()" in read("src/network/update_server.cpp")
+    # bounds: the constants of the encoder, the mirror and the document agree
+    assert re.search(r"PORTAL_DIAGNOSTICS_FLOAT_MAX\s*=\s*1000000000\.0;", header)
+    assert portal_model.DIAGNOSTICS_FLOAT_MAX == 1e9
+    assert re.search(r"PORTAL_DIAGNOSTICS_LATENCY_MAX_MS\s*=\s*1000000\.0f;", header)
+    assert portal_model.DIAGNOSTICS_LATENCY_MAX_MS == 1e6
+    assert re.search(r"PORTAL_DIAGNOSTICS_RSSI_MIN_DBM\s*=\s*-127;", header)
+    assert portal_model.DIAGNOSTICS_RSSI_MIN_DBM == -127
+    # vectors: every word, the unknown signal and the non-finite inputs are covered; the longest reply fits its buffer
+    cases = VECTORS["diagnostics_cases"]
+    for case in cases:
+        assert list(case["input"]) == members and list(json.loads(case["json"])) == members, case["name"]
+    assert {c["input"]["ble"] for c in cases} == set(enum_words)
+    assert {c["input"]["board"] for c in cases} == set(firmware_boards)
+    assert {c["input"]["board_source"] for c in cases} == set(firmware_sources)
+    assert any(json.loads(c["json"])["wifi_rssi_dbm"] is None for c in cases)
+    assert any(c["input"]["cal_factor"] == "nan" for c in cases)
+    buffer_size = macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_JSON_MAX")
+    assert buffer_size == 320 and max(len(c["json"]) for c in cases) < buffer_size
+    assert f"{max(len(c['json']) for c in cases)} bytes" in doc, "the document names the longest reply"
+    # the route is read-only and additive: no write member, no new error code, the contract version is unchanged
+    assert VECTORS["version"] == 1
+
+
+# The GET /api/diagnostics handler only copies its snapshot slot and encodes it: none of these may appear in its text
+DIAGNOSTICS_HANDLER_FORBIDDEN = ("grind_controller", "hardware_manager", "weight_sensor", "noise_level", "lv_",
+                                 "Preferences", "ui_settings", "profile_controller", "LittleFS")
+DIAGNOSTICS_HANDLER_FORBIDDEN_WORDS = ("SD",)  # whole word only
+
+
+def diagnostics_handler_text(routes: str) -> str:
+    return re.search(r"int portal_handle_diagnostics\(.*?\n\}\n", routes, re.S).group(0)
+
+
+def assert_diagnostics_handler_reads_only_the_slot(handler: str) -> None:
+    for token in DIAGNOSTICS_HANDLER_FORBIDDEN:
+        assert token not in handler, f"portal_handle_diagnostics mentions {token}"
+    for word in DIAGNOSTICS_HANDLER_FORBIDDEN_WORDS:
+        assert not re.search(rf"\b{word}\b", handler), f"portal_handle_diagnostics mentions {word}"
+
+
+def test_diagnostics_route_is_wired_through_its_own_slot():
+    doc = read("docs/PORTAL-API.md")
+    routes = read("src/network/portal_routes.cpp")
+    handler = diagnostics_handler_text(routes)
+    assert_diagnostics_handler_reads_only_the_slot(handler)
+    assert "PortalRoute::API_READ" in handler and "read_diagnostics(" in handler and "PortalError::UI_BUSY" in handler
+    assert "ReplyBuffer json(PORTAL_DIAGNOSTICS_JSON_MAX)" in handler and "portal_encode_diagnostics(" in handler
+    assert 'log_stack_once(&stack_logged, "GET /api/diagnostics")' in handler
+    assert "wifi_manager" not in handler and "board()" not in handler, "the HTTP task only copies the slot"
+    # the gate: own lock, own age limit, cleared when the UI task goes away, no call out of the lock
+    gate = read("src/network/portal_command_gate.cpp")
+    reader = re.search(r"bool PortalCommandGate::read_diagnostics\(.*?\r?\n\}\r?\n", gate, re.S).group(0)
+    assert "diagnostics_mux_" in reader and "PORTAL_DIAGNOSTICS_STALE_MS" in reader
+    assert "PORTAL_SNAPSHOT_STALE_MS" not in reader and "LOG_" not in reader
+    writer = re.search(r"void PortalCommandGate::publish_diagnostics\(.*?\r?\n\}\r?\n", gate, re.S).group(0)
+    assert "diagnostics_mux_" in writer and "LOG_" not in writer and "malloc" not in writer and "new " not in writer
+    attach = re.search(r"void PortalCommandGate::attach_ui\(.*?\r?\n\}\r?\n", gate, re.S).group(0)
+    assert "diagnostics_published_ = false" in attach
+    # the UI task gathers on its own cadence, only inside the Web interface gate, from the getters the pages use
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    update = controller[controller.index("void PortalUIController::update()"):controller.index("// Snapshot")]
+    gate_at = update.index("if (!wifi_manager.web_enabled())")
+    gather_at = update.index("publish_diagnostics(gather_diagnostics())")
+    assert gate_at < gather_at
+    assert "return;" in update[gate_at:update.index("}", gate_at)], "the web gate must return before the gather"
+    assert "PORTAL_DIAGNOSTICS_REFRESH_MS" in update
+    gather = re.search(r"PortalDiagnostics PortalUIController::gather_diagnostics\(.*?\n\}\n", controller, re.S).group(0)
+    for call in ("is_calibrated()", "get_calibration_factor()", "get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)",
+                 "noise_level_diagnostic()", "get_detected_sample_rate_sps()", "get_motor_response_latency()",
+                 "wifi_manager.is_connected()", "wifi_manager.rssi()", "link_mode() == GlinkLinkMode::LINK_ONLY",
+                 "is_link_handshaken()", "bluetooth->is_enabled()", "board().name()", "board().source_name()",
+                 "wifi_manager.push_enabled()"):
+        assert call in gather, call
+    for token in ("LOG_", "malloc", "update_async", "get_raw_adc_data", "calibrate(", "Preferences"):
+        assert token not in gather, f"gather_diagnostics uses {token}"
+    # the sample rate does not depend on the heartbeat build flag
+    assert "get_current_sps" not in gather
+    # constants and the document agree
+    assert macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_STALE_MS") == 15000
+    assert macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_REFRESH_MS") == 2000
+    assert "13 of 16 used" in doc and "12 of 16" not in doc and "planned, G3b" not in doc
+    # the handler count the document states is the number of registered routes
+    server = read("src/network/update_server.cpp")
+    assert len(re.findall(r'\{"/[^"]*", HTTP_', server)) == 13
+    assert '{"/api/diagnostics", HTTP_GET, diagnostics_trampoline}' in server
+
+
+def test_diagnostics_route_slot_margin_and_document_numbers():
+    server = read("src/network/update_server.cpp")
+    routes = len(re.findall(r'\{"/[^"]*", HTTP_', server))
+    limit = int(macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS"))
+    assert routes == 13, f"{routes} registered routes"
+    assert routes + 3 <= limit, "fewer than 3 free handler slots"
+    assert "config.max_uri_handlers = UPDATE_HTTP_MAX_URI_HANDLERS;" in server
+    assert "esp_err_t diagnostics_trampoline(httpd_req_t* req) { return portal_handle_diagnostics(req); }" in server
+    # the document states the same numbers as the firmware: 13 of 16 slots, 15 s age limit, 2 s republish
+    doc = read("docs/PORTAL-API.md")
+    assert macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_STALE_MS") == 15000
+    assert macro(read("src/config/portal.h"), "PORTAL_DIAGNOSTICS_REFRESH_MS") == 2000
+    assert re.search(r"15 s \(`PORTAL_DIAGNOSTICS_STALE_MS`", doc), "doc does not state the 15 s age limit"
+    assert re.search(r"`PORTAL_DIAGNOSTICS_REFRESH_MS`, 2 s\)", doc), "doc does not state the 2 s republish"
+    assert f"{routes} of {limit} used" in doc
+    assert "handler slot 13 of 16" in read("docs/DESIGN-NOTES.md")
+
+
+def test_diagnostics_gather_runs_on_the_ui_task_only():
+    controller = read("src/ui/controllers/portal_ui_controller.cpp")
+    assert "publish_diagnostics(gather_diagnostics())" in controller
+    # the HTTP side, the gate and the server never gather: they only copy the slot
+    for module in ("src/network/portal_routes.cpp", "src/network/portal_routes.h", "src/network/update_server.cpp",
+                   "src/network/portal_command_gate.cpp", "src/network/portal_command_gate.h"):
+        assert "gather_diagnostics" not in read(module), f"{module} mentions gather_diagnostics"
+    # the one HTTP-side file that gets the same token guard as the other handlers
+    routes = read("src/network/portal_routes.cpp")
+    assert_diagnostics_handler_reads_only_the_slot(diagnostics_handler_text(routes))
+
+
 def test_http_task_code_stays_off_the_ui_side():
     # The HTTP task never calls LVGL, GrindController, ProfileController, UiSettings or NVS: its files do not even
     # include them (wifi_manager.h only gives the RAM copies of the switches and the host name)
@@ -548,7 +701,7 @@ def test_ui_task_wiring():
     server = read("src/network/update_server.cpp")
     for uri, method in (("/api/status", "HTTP_GET"), ("/api/stats", "HTTP_GET"), ("/api/schema", "HTTP_GET"),
                         ("/api/settings", "HTTP_GET"), ("/api/history", "HTTP_GET"),
-                        ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
+                        ("/api/diagnostics", "HTTP_GET"), ("/api/settings", "HTTP_PATCH"), ("/api/command", "HTTP_POST")):
         assert f'{{"{uri}", {method}, ' in server, f"{method} {uri} not registered"
     max_handlers = macro(read("src/config/update.h"), "UPDATE_HTTP_MAX_URI_HANDLERS")
     assert len(re.findall(r'\{"/[^"]*", HTTP_', server)) <= max_handlers
@@ -632,3 +785,104 @@ def test_touchscreen_grind_mode_paths_use_the_store_result():
     manager = read("src/network/wifi_manager.cpp")
     start = manager[manager.index("void WiFiManager::start_mdns()"):]
     assert "MDNS.end();" in start[:start.index("\n}\n")]
+
+
+# In-memory mutations (chg021 G3b): each guard must fail when the forbidden text is present. The edits are applied to
+# what read() returns for one test run only; no repo file changes on disk.
+THIS_MODULE = sys.modules[__name__]
+HANDLER_ANCHOR = "int portal_handle_diagnostics(httpd_req* req) {"
+
+
+@pytest.fixture
+def mutate(monkeypatch):
+    original = read
+
+    def apply(rel: str, edit) -> None:
+        def patched(path: str) -> str:
+            text = original(path)
+            if path != rel:
+                return text
+            edited = edit(text)
+            assert edited != text, f"mutation did not apply to {rel}"
+            return edited
+
+        monkeypatch.setattr(THIS_MODULE, "read", patched)
+
+    return apply
+
+
+def insert_after(anchor: str, addition: str):
+    return lambda text: text.replace(anchor, anchor + addition, 1)
+
+
+@pytest.mark.parametrize("token", [*DIAGNOSTICS_HANDLER_FORBIDDEN, *DIAGNOSTICS_HANDLER_FORBIDDEN_WORDS])
+def test_handler_guard_fails_when_a_forbidden_token_is_inserted(token):
+    handler = diagnostics_handler_text(read("src/network/portal_routes.cpp"))
+    assert_diagnostics_handler_reads_only_the_slot(handler)
+    mutated = handler.replace(HANDLER_ANCHOR, f"{HANDLER_ANCHOR}\n    // {token}", 1)
+    assert mutated != handler
+    with pytest.raises(AssertionError, match=re.escape(f"portal_handle_diagnostics mentions {token}")):
+        assert_diagnostics_handler_reads_only_the_slot(mutated)
+
+
+@pytest.mark.parametrize("token", ["lv_", "Preferences", "weight_sensor"])
+def test_diagnostics_route_test_fails_when_the_handler_file_is_mutated(mutate, token):
+    mutate("src/network/portal_routes.cpp", insert_after(HANDLER_ANCHOR, f"\n    // {token}"))
+    with pytest.raises(AssertionError, match=re.escape(f"portal_handle_diagnostics mentions {token}")):
+        test_diagnostics_route_is_wired_through_its_own_slot()
+
+
+@pytest.mark.parametrize("module", ["src/network/portal_routes.cpp", "src/network/portal_routes.h",
+                                    "src/network/update_server.cpp", "src/network/portal_command_gate.cpp",
+                                    "src/network/portal_command_gate.h"])
+def test_gather_guard_fails_when_the_http_side_calls_gather(mutate, module):
+    mutate(module, lambda text: text + "\n// gather_diagnostics();\n")
+    with pytest.raises(AssertionError, match=re.escape(f"{module} mentions gather_diagnostics")):
+        test_diagnostics_gather_runs_on_the_ui_task_only()
+
+
+def test_gather_guard_fails_when_gather_runs_before_the_web_gate(mutate):
+    mutate("src/ui/controllers/portal_ui_controller.cpp",
+           insert_after("void PortalUIController::update() {", "\n    portal_command_gate.publish_diagnostics(gather_diagnostics());"))
+    with pytest.raises(AssertionError):
+        test_diagnostics_route_is_wired_through_its_own_slot()
+
+
+@pytest.mark.parametrize("module", ["src/network/portal_routes.cpp", "src/network/portal_routes.h",
+                                    "src/network/portal_command_gate.cpp", "src/network/portal_command_gate.h"])
+def test_http_task_guard_covers_the_diagnostics_files(mutate, module):
+    mutate(module, lambda text: text + "\n// LittleFS\n")
+    with pytest.raises(AssertionError, match=re.escape(f"{module} (HTTP task) mentions LittleFS")):
+        test_http_task_code_stays_off_the_ui_side()
+
+
+def test_http_task_guard_fails_on_a_forbidden_include(mutate):
+    mutate("src/network/portal_command_gate.cpp", lambda text: '#include "lvgl.h"\n' + text)
+    with pytest.raises(AssertionError, match=re.escape("portal_command_gate.cpp (HTTP task) includes lvgl.h")):
+        test_http_task_code_stays_off_the_ui_side()
+
+
+def test_route_count_guard_fails_on_a_fourteenth_route(mutate):
+    anchor = '        {"/api/diagnostics", HTTP_GET, diagnostics_trampoline},\n'
+    mutate("src/network/update_server.cpp", insert_after(anchor, '        {"/api/extra", HTTP_GET, status_trampoline},\n'))
+    with pytest.raises(AssertionError, match="14 registered routes"):
+        test_diagnostics_route_slot_margin_and_document_numbers()
+
+
+def test_margin_guard_fails_when_fewer_than_three_slots_are_free(mutate):
+    mutate("src/config/update.h", lambda text: text.replace("#define UPDATE_HTTP_MAX_URI_HANDLERS 16",
+                                                           "#define UPDATE_HTTP_MAX_URI_HANDLERS 15", 1))
+    with pytest.raises(AssertionError, match="fewer than 3 free handler slots"):
+        test_diagnostics_route_slot_margin_and_document_numbers()
+
+
+def test_document_guard_fails_on_a_wrong_age_limit(mutate):
+    mutate("docs/PORTAL-API.md", lambda text: text.replace("15 s (`PORTAL_DIAGNOSTICS_STALE_MS`", "20 s (`PORTAL_DIAGNOSTICS_STALE_MS`", 1))
+    with pytest.raises(AssertionError, match="15 s age limit"):
+        test_diagnostics_route_slot_margin_and_document_numbers()
+
+
+def test_document_guard_fails_on_a_wrong_republish_interval(mutate):
+    mutate("docs/PORTAL-API.md", lambda text: text.replace("`PORTAL_DIAGNOSTICS_REFRESH_MS`, 2 s)", "`PORTAL_DIAGNOSTICS_REFRESH_MS`, 3 s)", 1))
+    with pytest.raises(AssertionError, match="2 s republish"):
+        test_diagnostics_route_slot_margin_and_document_numbers()

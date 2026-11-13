@@ -100,7 +100,17 @@ void CalibrationUIController::handle_ok() {
     CalibrationStep step = ui_manager_->calibration_screen.get_step();
     switch (step) {
         case CAL_STEP_EMPTY:
-            UIOperations::execute_tare(ui_manager_->get_hardware_manager(), [this]() {
+            UIOperations::execute_tare_checked(ui_manager_->get_hardware_manager(), [this](bool tare_ok) {
+                if (!ui_manager_) return;
+                CalibrationResult tare_result = calibration_tare_result(tare_ok);
+                if (tare_result != CalibrationResult::OK) {
+                    // Zero point is not trustworthy: do not advance. This runs from the overlay completion
+                    // (not inside a confirm callback), so the notice can be shown directly; its OK returns to
+                    // the calibration screen, which restarts at the empty step so OK retries the tare.
+                    // (show_notice_after_dialog is menu-only and would drop it here.)
+                    ui_manager_->show_calibration_failed_notice(tare_result);
+                    return;
+                }
                 // Capture baseline ADC value after taring
                 baseline_adc_value_ = ui_manager_->get_hardware_manager()->get_weight_sensor()->get_raw_adc_instant();
                 ui_manager_->calibration_screen.set_step(CAL_STEP_WEIGHT);

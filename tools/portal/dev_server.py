@@ -34,15 +34,21 @@ MOTOR_TEST_S = 1.5
 BLOCK_CODES = ("motor_disabled", "update_in_progress", "load_cell_not_connected", "load_cell_no_data",
                "load_cell_rate_invalid", "busy", "motor_fault")
 DEV_BOOL_KEYS = ("web_interface", "update_held", "in_flight", "drop_start", "ui_busy", "store_failed", "insights",
-                 "history_route", "history_persistent")
+                 "history_route", "history_persistent", "diagnostics_route")
 # Accepted by a POST, not part of the state a GET reports
 DEV_ACTION_KEYS = ("stats_reset", "history_clear", "history_fill", "history_restart")
 DEV_STATE_KEYS = DEV_BOOL_KEYS + ("ui_state", "start_block", "motor_test_block", "latency_ms", "weight", "warnings",
-                                  "stats") + DEV_ACTION_KEYS
+                                  "stats", "diagnostics") + DEV_ACTION_KEYS
 # Lifetime statistics a fresh simulated grinder starts with (the example of docs/PORTAL-API.md)
 START_STATS = {"total_grinds": 412, "single": 180, "double": 200, "custom": 32, "weight_mode": 390, "time_mode": 22,
                "total_weight_kg": 8.43, "motor_runtime_s": 5120, "avg_abs_error_g": 0.12, "total_pulses": 1100,
                "avg_pulses": 2.7, "time_pulses": 14, "powered_minutes": 22890}
+# What a fresh simulated grinder reports on /api/diagnostics (the example of docs/PORTAL-API.md)
+START_DIAGNOSTICS = {"calibrated": True, "cal_factor": 1234.56, "std_dev_g": 0.012, "noise_ok": True,
+                     "sample_rate_sps": 10.0, "motor_latency_ms": 50, "wifi_rssi_dbm": -58, "ble": "off", "board": "V2",
+                     "board_source": "probe", "push_armed": False}
+DIAGNOSTICS_BOOL_KEYS = ("calibrated", "noise_ok", "push_armed")
+DIAGNOSTICS_NUMBER_KEYS = ("cal_factor", "std_dev_g", "sample_rate_sps", "motor_latency_ms")
 # Sample grinds for the history_fill switch, newest first: profile, mode (0 weight, 1 time), target (g, or s in time
 # mode), final weight, time_ms, motor_ms, pulses, result code, seconds before now (every outcome and sign is there)
 HISTORY_SAMPLES = (
@@ -85,6 +91,8 @@ class SimGrinder:
         self.insights = True          # --no-insights: /api/stats and /api/history do not exist (404), like an old firmware
         self.history_route = True     # --no-history: only /api/history does not exist (a firmware from before step 12)
         self.history_persistent = True  # false: the flash store is unavailable, the list is only kept in RAM
+        self.diagnostics_route = True   # --no-diagnostics: /api/diagnostics does not exist (404), like an older firmware
+        self.diagnostics = dict(START_DIAGNOSTICS)  # members as the vector inputs of diagnostics_cases (bounded on the way out)
         self.history = []             # newest first; members as the vector inputs of history_cases (ended_s is uptime)
         self.history_next_id = 1
         self.legacy_status = False    # --legacy-status: the status has no "warnings" member (an older firmware)
@@ -227,7 +235,10 @@ class SimGrinder:
         return "predictive" if self.run["mode"] == "weight" else "time_grinding"
 
     def has_route(self, path):
-        """True for /api/stats and /api/history when this firmware has them (--no-insights, --no-history)."""
+        """True for /api/stats, /api/history and /api/diagnostics when this firmware has them (--no-insights,
+        --no-history, --no-diagnostics)."""
+        if path == "/api/diagnostics":
+            return self.diagnostics_route
         return self.insights and (path == "/api/stats" or (path == "/api/history" and self.history_route))
 
     # --- reads
@@ -265,6 +276,11 @@ class SimGrinder:
             doc["motor_runtime_s"] = int(self.motor_s)
             doc["powered_minutes"] += int((self.clock() - self.powered_origin) // 60)
             return model.stats_document(doc)
+
+    def diagnostics_doc(self):
+        with self.lock:
+            self._tick()
+            return model.diagnostics_document(self.diagnostics)
 
     def reset_stats(self):
         """Statistics reset to zero (a factory reset): the next grind is the first one."""
@@ -349,7 +365,8 @@ class SimGrinder:
                     "ui_busy": self.ui_busy, "store_failed": self.store_failed, "latency_ms": self.latency_ms,
                     "weight": self.weight_hold, "warnings": model.ordered_warnings(self.warnings),
                     "insights": self.insights, "history_route": self.history_route,
-                    "history_persistent": self.history_persistent, "stats": self.stats_doc()}
+                    "history_persistent": self.history_persistent, "stats": self.stats_doc(),
+                    "diagnostics_route": self.diagnostics_route, "diagnostics": self.diagnostics_doc()}
 
     @staticmethod
     def _stats_problem(value):
@@ -358,6 +375,30 @@ class SimGrinder:
         for v in value.values():
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1e12:
                 return "stats members must be numbers from 0 to 1e12"
+        return None
+
+    @staticmethod
+    def _diagnostics_problem(value):
+        if not isinstance(value, dict) or any(k not in model.DIAGNOSTICS_KEYS for k in value):
+            return "diagnostics must be an object with members of: " + ", ".join(model.DIAGNOSTICS_KEYS)
+        for key, v in value.items():
+            if key in DIAGNOSTICS_BOOL_KEYS:
+                if not isinstance(v, bool):
+                    return f"{key} must be true or false"
+            elif key in DIAGNOSTICS_NUMBER_KEYS:
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    return f"{key} must be a number (NaN and Infinity are accepted, the reply bounds them)"
+                try:
+                    float(v)
+                except OverflowError:
+                    return f"{key} is too large to be a number"
+            elif key == "wifi_rssi_dbm":
+                if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
+                    return "wifi_rssi_dbm must be null or a whole number"
+            else:
+                words = {"ble": model.BLE_STATES, "board": model.BOARD_NAMES, "board_source": model.BOARD_SOURCES}[key]
+                if v not in words:
+                    return f"{key} must be one of " + ", ".join(words)
         return None
 
     def _set_stats(self, value):
@@ -405,6 +446,10 @@ class SimGrinder:
                     problem = self._stats_problem(value)
                     if problem:
                         return problem
+                elif key == "diagnostics":
+                    problem = self._diagnostics_problem(value)
+                    if problem:
+                        return problem
                 elif key == "weight":
                     if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                               or abs(value) > WEIGHT_MAX_G):
@@ -425,6 +470,9 @@ class SimGrinder:
                     continue
                 if key == "stats":
                     self._set_stats(value)
+                    continue
+                if key == "diagnostics":
+                    self.diagnostics.update(value)
                     continue
                 if key == "warnings":
                     value = model.ordered_warnings(value)
@@ -511,17 +559,20 @@ def make_handler(sim, page_text):
             elif path in ("/", "/index.html"):
                 if self._admit(False):
                     self._send(200, page_bytes, "text/html; charset=utf-8", PAGE_HEADERS)
-            elif path in ("/api/stats", "/api/history") and not sim.has_route(path):
+            elif path in ("/api/stats", "/api/history", "/api/diagnostics") and not sim.has_route(path):
                 self._send(404, "Not found", "text/plain")  # the HTTP server of a firmware without the route
-            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats", "/api/history"):
+            elif path in ("/api/status", "/api/settings", "/api/schema", "/api/stats", "/api/history",
+                          "/api/diagnostics"):
                 if not self._admit(False):
                     return
                 if path == "/api/status":
                     self._api(200, sim.status_doc())
-                elif path in ("/api/stats", "/api/history"):
+                elif path in ("/api/stats", "/api/history", "/api/diagnostics"):
                     refusal = sim.read_settings_refusal()
                     if refusal:
                         self._refuse(refusal)
+                    elif path == "/api/diagnostics":
+                        self._api(200, sim.diagnostics_doc())
                     else:
                         self._api(200, sim.stats_doc() if path == "/api/stats" else sim.history_doc())
                 elif path == "/api/settings":
@@ -614,6 +665,8 @@ def build_parser():
                    help="GET /api/stats and /api/history answer 404, like a firmware from before chg016 step 8 (the page hides Insights)")
     p.add_argument("--no-history", action="store_true",
                    help="GET /api/history answers 404 but /api/stats works, like a firmware from before chg016 step 12")
+    p.add_argument("--no-diagnostics", action="store_true",
+                   help="GET /api/diagnostics answers 404, like a firmware from before chg021 step G3 (the page hides the Health card)")
     return p
 
 
@@ -628,6 +681,7 @@ def make_simulator(args):
     sim.legacy_status = args.legacy_status
     sim.insights = not args.no_insights
     sim.history_route = not args.no_history
+    sim.diagnostics_route = not args.no_diagnostics
     return sim
 
 

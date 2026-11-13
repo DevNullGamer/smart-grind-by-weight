@@ -127,6 +127,11 @@ void PortalUIController::update() {
         portal_command_gate.publish_stats(gather_stats());
         last_stats_ms_ = now;
     }
+    // Load cell noise, motor latency, WiFi signal, Bluetooth state and board: slow-moving, so a steady 2 s cadence
+    if (just_enabled || static_cast<uint32_t>(now - last_diagnostics_ms_) >= PORTAL_DIAGNOSTICS_REFRESH_MS) {
+        portal_command_gate.publish_diagnostics(gather_diagnostics());
+        last_diagnostics_ms_ = now;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -191,6 +196,43 @@ PortalStatusInputs PortalUIController::gather_status() const {
 // UI task only
 PortalStats PortalUIController::gather_stats() const {
     return portal_stats_from_counters(statistics_manager.get_snapshot());
+}
+
+// Every value comes from the getter the matching touchscreen page reads (menu_screen_diagnostics.cpp, _wifi.cpp,
+// _bluetooth.cpp). The load cell numbers go through the filter (CircularBufferMath), never the HX711 itself.
+PortalDiagnostics PortalUIController::gather_diagnostics() const {
+    PortalDiagnostics out;
+    auto* sensor = ui_manager_->hardware_manager ? ui_manager_->hardware_manager->get_weight_sensor() : nullptr;
+    if (sensor) {
+        out.calibrated = sensor->is_calibrated();
+        out.cal_factor = sensor->get_calibration_factor();
+        out.std_dev_g = sensor->get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);  // the Diagnostics page's window
+        out.noise_ok = sensor->noise_level_diagnostic();  // the page's "OK" / "Too High" (stateful: sustained 2 s)
+        out.sample_rate_sps = sensor->get_detected_sample_rate_sps();
+    }
+    if (ui_manager_->grind_controller) out.motor_latency_ms = ui_manager_->grind_controller->get_motor_response_latency();
+
+    // rssi() reads 0 while not connected: that is "unknown", never 0 dBm
+    if (wifi_manager.is_connected()) {
+        const int rssi = wifi_manager.rssi();
+        out.wifi_rssi_known = rssi != 0;
+        out.wifi_rssi_dbm = rssi;
+    }
+
+    // The words of the Bluetooth page: GaggiMate link (LINK_ONLY), else the Enabled toggle
+    auto* bluetooth = ui_manager_->bluetooth_manager;
+    if (bluetooth && bluetooth->link_mode() == GlinkLinkMode::LINK_ONLY) {
+        out.ble = bluetooth->is_connected()
+                      ? (bluetooth->is_link_handshaken() ? PortalBleState::LINK_LINKED : PortalBleState::LINK_CONNECTED)
+                      : PortalBleState::LINK_LISTENING;
+    } else if (bluetooth && bluetooth->is_enabled()) {
+        out.ble = bluetooth->is_connected() ? PortalBleState::CONNECTED : PortalBleState::ADVERTISING;
+    }
+
+    out.board = board().name();  // string literals: safe to hand to the HTTP task as pointers
+    out.board_source = board().source_name();
+    out.push_armed = wifi_manager.push_enabled();
+    return out;
 }
 
 // grind_history.snapshot() copies at most GRIND_HISTORY_RING_CAPACITY entries under a spinlock; the files are read

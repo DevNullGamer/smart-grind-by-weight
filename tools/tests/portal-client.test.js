@@ -288,7 +288,10 @@ test('the module has no console, storage, cookie or token code, and the page inl
         assert.ok(!code.includes(word), word);
     }
     const page = fs.readFileSync(path.join(ROOT, 'web', 'portal', 'index.html'), 'utf8');
-    assert.ok(page.replace(/\r\n/g, '\n').includes(clientSource.replace(/\r\n/g, '\n').trimEnd()), 'index.html is out of date: run python3 tools/portal/build_page.py');
+    // build_page.py inlines the source without full-line // comments, indentation and empty lines (strip_js)
+    const stripped = clientSource.replace(/\r\n/g, '\n').split('\n').map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('//')).join('\n');
+    assert.ok(page.replace(/\r\n/g, '\n').includes(stripped), 'index.html is out of date: run python3 tools/portal/build_page.py');
     assert.ok(!page.includes('console.'));
 });
 
@@ -392,4 +395,27 @@ test('getHistory reads GET /api/history; 404 is not_supported, 503 ui_busy and a
     await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'web_interface_off');
     f = fakeFetch(async () => reply(200, '<html>'));
     await assert.rejects(PC.createClient({ fetch: f.fetch }).getHistory(), (e) => e.code === 'bad_reply');
+});
+
+test('getDiagnostics reads GET /api/diagnostics; 404 is not_supported, 503 ui_busy and a bad body are told apart', async () => {
+    const doc = { calibrated: true, cal_factor: 1234.56, std_dev_g: 0.012, noise_ok: true, sample_rate_sps: 10.0, motor_latency_ms: 50,
+        wifi_rssi_dbm: -58, ble: 'off', board: 'V2', board_source: 'probe', push_armed: false };
+    let f = fakeFetch(async () => reply(200, doc));
+    assert.deepEqual(await PC.createClient({ fetch: f.fetch }).getDiagnostics(), doc);
+    assert.equal(f.stats.calls[0].url, '/api/diagnostics');
+    assert.equal(f.stats.calls[0].init.method, 'GET');
+    assert.equal(f.stats.calls[0].init.body, undefined);
+    assert.equal(f.stats.calls[0].init.headers['X-Grinder'], undefined); // a read carries no custom header
+    f = fakeFetch(async () => reply(404, 'Not found'));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'not_supported' && e.status === 404);
+    f = fakeFetch(async () => reply(503, { error: 'ui_busy', reason: 'busy' }));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'ui_busy' && e.status === 503);
+    f = fakeFetch(async () => reply(403, { error: 'web_interface_off', reason: 'off' }));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'web_interface_off');
+    f = fakeFetch(async () => reply(403, { error: 'bad_host', reason: 'host' }));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'bad_host');
+    f = fakeFetch(async () => reply(200, '<html>'));
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'bad_reply');
+    f = fakeFetch(async () => { throw new Error('boom'); });
+    await assert.rejects(PC.createClient({ fetch: f.fetch }).getDiagnostics(), (e) => e.code === 'network' && !/boom/.test(e.message));
 });

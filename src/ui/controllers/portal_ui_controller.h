@@ -23,6 +23,8 @@ class UIManager;
 //    soon as the ring or its flags changed (checked every PORTAL_STATUS_PUBLISH_MS) and otherwise every
 //    PORTAL_HISTORY_REFRESH_MS; a new grind also refreshes the statistics slot. The UI task never reads the history
 //    files and the HTTP task never reads the ring.
+//    The health numbers (GET /api/diagnostics) are gathered by gather_diagnostics() every PORTAL_DIAGNOSTICS_REFRESH_MS
+//    into their own slot; only this task calls the load cell, WiFi and Bluetooth getters.
 //  - Mailbox: takes a PATCH /api/settings request, decides it (portal_write_decide: READY or MENU only, never
 //    busy), applies it through the handlers the touchscreen uses (UiSettings, ProfileController, WiFiManager;
 //    order and failure rules in portal_apply.h) and then updates what is on screen: brightness, auto actions,
@@ -70,6 +72,9 @@ private:
     void load_values(PortalValues* out) const;
     PortalStatusInputs gather_status() const;
     PortalStats gather_stats() const;
+    // The health numbers of GET /api/diagnostics, read on the UI task from the same getters the Diagnostics, WiFi and
+    // Bluetooth pages use (no logging, no allocation)
+    PortalDiagnostics gather_diagnostics() const;
     // Copies the history ring into history_snap_ / history_view_ (one short spinlock section, no file access)
     void gather_history();
     // Publishes the history slot when the ring changed, when force is set or when it is due; true when the ring changed
@@ -85,6 +90,7 @@ private:
     bool publish_due_ = false;       // a write just finished: publish at once
     uint32_t last_publish_ms_ = 0;
     uint32_t last_stats_ms_ = 0;     // statistics snapshot, refreshed on its own (slower) schedule
+    uint32_t last_diagnostics_ms_ = 0;   // diagnostics snapshot, every PORTAL_DIAGNOSTICS_REFRESH_MS
     uint32_t last_history_check_ms_ = 0;
     uint32_t last_history_publish_ms_ = 0;
     bool history_seen_ = false;      // history_snap_ holds a copy that was published

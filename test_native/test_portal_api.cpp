@@ -829,6 +829,314 @@ static void test_stats_fractions_are_bounded_one_by_one() {
     TEST_ASSERT_TRUE(j.at("avg_pulses").n == 0.0);  // infinity is not a usable number either
 }
 
+static float diagnostics_float(const PJson& v) {
+    if (v.kind == PJson::STR) return v.s == "nan" ? NAN : (v.s == "inf" ? INFINITY : -INFINITY);
+    return static_cast<float>(v.n);
+}
+
+static PortalDiagnostics diagnostics_from_vector(const PJson& in) {
+    PortalDiagnostics d;
+    d.calibrated = in.at("calibrated").b;
+    d.cal_factor = diagnostics_float(in.at("cal_factor"));
+    d.std_dev_g = diagnostics_float(in.at("std_dev_g"));
+    d.noise_ok = in.at("noise_ok").b;
+    d.sample_rate_sps = diagnostics_float(in.at("sample_rate_sps"));
+    d.motor_latency_ms = diagnostics_float(in.at("motor_latency_ms"));
+    d.wifi_rssi_known = !in.at("wifi_rssi_dbm").is_null();
+    if (d.wifi_rssi_known) d.wifi_rssi_dbm = static_cast<int32_t>(in.at("wifi_rssi_dbm").n);
+    const std::string& ble = in.at("ble").s;
+    bool found = false;
+    for (size_t i = 0; i < PORTAL_BLE_STATE_COUNT; i++) {
+        if (ble == portal_ble_state_name(static_cast<PortalBleState>(i))) {
+            d.ble = static_cast<PortalBleState>(i);
+            found = true;
+        }
+    }
+    TEST_ASSERT_TRUE_MESSAGE(found, ble.c_str());
+    d.board = in.at("board").s.c_str();  // the vector outlives the encode call
+    d.board_source = in.at("board_source").s.c_str();
+    d.push_armed = in.at("push_armed").b;
+    return d;
+}
+
+static PortalDiagnostics diagnostics_at_every_maximum() {
+    PortalDiagnostics d;
+    d.calibrated = false;
+    d.cal_factor = -3.0e38f;
+    d.std_dev_g = d.sample_rate_sps = d.motor_latency_ms = 3.0e38f;
+    d.noise_ok = false;
+    d.wifi_rssi_known = true;
+    d.wifi_rssi_dbm = INT32_MIN;
+    d.ble = PortalBleState::LINK_CONNECTED;  // the longest words (14 characters; link_listening is as long)
+    d.board = "UNKNOWN";
+    d.board_source = "default";
+    return d;
+}
+
+static void test_diagnostics_vectors() {
+    const PJson& cases = portal_vectors().at("diagnostics_cases");
+    TEST_ASSERT_TRUE(cases.a.size() >= 20);
+    for (const PJson& c : cases.a) {
+        const std::string& name = c.at("name").s;
+        char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+        TEST_ASSERT_TRUE_MESSAGE(portal_encode_diagnostics(diagnostics_from_vector(c.at("input")), buf, sizeof(buf)),
+                                 name.c_str());
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(c.at("json").s.c_str(), buf, name.c_str());
+        PJson j;
+        TEST_ASSERT_TRUE_MESSAGE(encoded_is_json(buf, &j), name.c_str());
+    }
+}
+
+static void test_diagnostics_default_state_is_valid_json_with_null_signal() {
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(PortalDiagnostics(), buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_UINT32(11, j.o.size());
+    TEST_ASSERT_TRUE(j.at("wifi_rssi_dbm").is_null());
+    TEST_ASSERT_EQUAL_STRING("off", j.at("ble").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("UNKNOWN", j.at("board").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("none", j.at("board_source").s.c_str());
+}
+
+static void test_diagnostics_worst_case_is_under_320_bytes_with_margin() {
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(diagnostics_at_every_maximum(), buf, sizeof(buf)));
+    PJson j;
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_UINT32(320, PORTAL_DIAGNOSTICS_JSON_MAX);
+    TEST_ASSERT_TRUE(strlen(buf) < 320);
+    TEST_ASSERT_TRUE(strlen(buf) + 50 < PORTAL_DIAGNOSTICS_JSON_MAX);  // documented worst case 253 bytes
+    TEST_ASSERT_TRUE(j.at("cal_factor").n == -PORTAL_DIAGNOSTICS_FLOAT_MAX);
+    TEST_ASSERT_TRUE(j.at("std_dev_g").n == PORTAL_DIAGNOSTICS_FLOAT_MAX);
+    TEST_ASSERT_TRUE(j.at("motor_latency_ms").n == 1000000.0);
+    TEST_ASSERT_TRUE(j.at("wifi_rssi_dbm").n == PORTAL_DIAGNOSTICS_RSSI_MIN_DBM);
+}
+
+static void test_diagnostics_longest_ble_word_is_the_one_the_worst_case_uses() {
+    size_t longest = 0;
+    for (size_t i = 0; i < PORTAL_BLE_STATE_COUNT; i++) {
+        const size_t n = strlen(portal_ble_state_name(static_cast<PortalBleState>(i)));
+        if (n > longest) longest = n;
+    }
+    TEST_ASSERT_EQUAL_UINT32(strlen(portal_ble_state_name(PortalBleState::LINK_CONNECTED)), longest);
+    TEST_ASSERT_EQUAL_STRING("off", portal_ble_state_name(PortalBleState::OFF));
+    TEST_ASSERT_EQUAL_STRING("advertising", portal_ble_state_name(PortalBleState::ADVERTISING));
+    TEST_ASSERT_EQUAL_STRING("connected", portal_ble_state_name(PortalBleState::CONNECTED));
+    TEST_ASSERT_EQUAL_STRING("link_listening", portal_ble_state_name(PortalBleState::LINK_LISTENING));
+    TEST_ASSERT_EQUAL_STRING("link_connected", portal_ble_state_name(PortalBleState::LINK_CONNECTED));
+    TEST_ASSERT_EQUAL_STRING("link_linked", portal_ble_state_name(PortalBleState::LINK_LINKED));
+    TEST_ASSERT_EQUAL_STRING("off", portal_ble_state_name(PortalBleState::COUNT));  // out of range reads as off
+    TEST_ASSERT_EQUAL_STRING("off", portal_ble_state_name(static_cast<PortalBleState>(200)));
+}
+
+static void test_diagnostics_truncation_never_yields_a_complete_reply() {
+    const PortalDiagnostics d = diagnostics_at_every_maximum();
+    char full[PORTAL_DIAGNOSTICS_JSON_MAX];
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, full, sizeof(full)));
+    const size_t full_len = strlen(full);
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    for (size_t cap = 1; cap <= full_len; cap++) {  // every cut, including inside a number and inside a word
+        memset(buf, 'x', sizeof(buf));
+        TEST_ASSERT_FALSE(portal_encode_diagnostics(d, buf, cap));
+        TEST_ASSERT_EQUAL_UINT32(cap - 1, strlen(buf));
+    }
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, full_len + 1));
+    TEST_ASSERT_FALSE(portal_encode_diagnostics(d, buf, 0));
+    // the same for the default (null signal) reply
+    const PortalDiagnostics dflt;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(dflt, full, sizeof(full)));
+    const size_t dflt_len = strlen(full);
+    for (size_t cap = 1; cap <= dflt_len; cap++) {
+        memset(buf, 'x', sizeof(buf));
+        TEST_ASSERT_FALSE(portal_encode_diagnostics(dflt, buf, cap));
+        TEST_ASSERT_EQUAL_UINT32(cap - 1, strlen(buf));
+    }
+}
+
+static void test_diagnostics_numbers_are_bounded_one_by_one() {
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    PJson j;
+    PortalDiagnostics d;
+    d.cal_factor = NAN;
+    d.std_dev_g = -INFINITY;
+    d.sample_rate_sps = INFINITY;
+    d.motor_latency_ms = NAN;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_TRUE(j.at("cal_factor").n == 0.0 && j.at("std_dev_g").n == 0.0);
+    TEST_ASSERT_TRUE(j.at("sample_rate_sps").n == 0.0 && j.at("motor_latency_ms").n == 0.0);
+
+    d = PortalDiagnostics();
+    d.cal_factor = -0.0f;
+    d.std_dev_g = -0.0f;
+    d.motor_latency_ms = -INFINITY;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_NULL(strstr(buf, "-0"));  // never "-0.0"
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+
+    d = PortalDiagnostics();
+    d.cal_factor = INFINITY;  // an infinite factor is not a usable number: 0, not the bound
+    d.motor_latency_ms = INFINITY;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_TRUE(j.at("cal_factor").n == 0.0 && j.at("motor_latency_ms").n == 0.0);
+
+    d = PortalDiagnostics();
+    d.wifi_rssi_known = true;
+    d.wifi_rssi_dbm = 5;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wifi_rssi_dbm\":0,"));
+    d.wifi_rssi_dbm = -58;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_NOT_NULL(strstr(buf, "\"wifi_rssi_dbm\":-58,"));
+}
+
+static void test_diagnostics_board_words_outside_the_vocabulary_are_replaced() {
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    PJson j;
+    PortalDiagnostics d;
+    d.board = "a\"b\\c\n and a very long board name that must never reach the wire";
+    d.board_source = nullptr;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_STRING("UNKNOWN", j.at("board").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("none", j.at("board_source").s.c_str());
+    d.board = nullptr;
+    d.board_source = "v1";  // case matters: the words are exactly the ones BoardConfig spells
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_EQUAL_STRING("UNKNOWN", j.at("board").s.c_str());
+    TEST_ASSERT_EQUAL_STRING("none", j.at("board_source").s.c_str());
+    const char* const boards[] = {"V1", "V2", "UNKNOWN"};
+    const char* const sources[] = {"none", "probe", "user", "cached", "default"};
+    for (const char* b : boards) {
+        for (const char* s : sources) {
+            d.board = b;
+            d.board_source = s;
+            TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+            TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+            TEST_ASSERT_EQUAL_STRING(b, j.at("board").s.c_str());
+            TEST_ASSERT_EQUAL_STRING(s, j.at("board_source").s.c_str());
+        }
+    }
+}
+
+static void check_diag_order(const PJson& j) {
+    static const char* const keys[] = {"calibrated", "cal_factor", "std_dev_g", "noise_ok", "sample_rate_sps",
+                                       "motor_latency_ms", "wifi_rssi_dbm", "ble", "board", "board_source", "push_armed"};
+    TEST_ASSERT_EQUAL_UINT32(11, j.o.size());
+    for (size_t i = 0; i < 11; i++) TEST_ASSERT_EQUAL_STRING(keys[i], j.o[i].first.c_str());
+}
+
+static void test_diagnostics_g3a_edge_matrix() {
+    char buf[PORTAL_DIAGNOSTICS_JSON_MAX];
+    PJson j;
+    // every ble state, in order, and unknown rssi is null whatever the stored number
+    for (int st = 0; st < static_cast<int>(PORTAL_BLE_STATE_COUNT); st++) {
+        PortalDiagnostics d;
+        d.ble = static_cast<PortalBleState>(st);
+        for (int32_t junk : {0, 99, -50, INT32_MIN, INT32_MAX}) {
+            d.wifi_rssi_known = false;
+            d.wifi_rssi_dbm = junk;
+            TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+            TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+            check_diag_order(j);
+            TEST_ASSERT_TRUE(j.at("wifi_rssi_dbm").is_null());
+            TEST_ASSERT_EQUAL_STRING(portal_ble_state_name(d.ble), j.at("ble").s.c_str());
+        }
+    }
+    // rssi clamp
+    const struct { int32_t in; double out; } rssi[] = {{-127, -127}, {-128, -127}, {5, 0}, {0, 0}, {INT32_MIN, -127},
+                                                       {INT32_MAX, 0}, {-1, -1}};
+    for (const auto& r : rssi) {
+        PortalDiagnostics d;
+        d.wifi_rssi_known = true;
+        d.wifi_rssi_dbm = r.in;
+        TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+        TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+        TEST_ASSERT_TRUE(j.at("wifi_rssi_dbm").n == r.out);
+    }
+    // cal_factor
+    const struct { float in; double out; } cal[] = {{NAN, 0}, {INFINITY, 0}, {-INFINITY, 0}, {-0.0f, 0}, {1e9f, 1e9},
+                                                    {-1e9f, -1e9}, {1e10f, 1e9}, {-1e10f, -1e9}, {1e-9f, 0}};
+    for (const auto& c : cal) {
+        PortalDiagnostics d;
+        d.cal_factor = c.in;
+        TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+        TEST_ASSERT_NULL(strstr(buf, "-0.0"));
+        TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+        TEST_ASSERT_TRUE(j.at("cal_factor").n == c.out);
+    }
+    // latency
+    const struct { float in; double out; } lat[] = {{-5, 0}, {0, 0}, {0.4999f, 0}, {0.5f, 1}, {1e6f, 1e6}, {1e7f, 1e6},
+                                                    {NAN, 0}, {INFINITY, 0}, {-INFINITY, 0}};
+    for (const auto& c : lat) {
+        PortalDiagnostics d;
+        d.motor_latency_ms = c.in;
+        TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+        TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+        TEST_ASSERT_TRUE(j.at("motor_latency_ms").n == c.out);
+    }
+    // std_dev negative, rate huge
+    PortalDiagnostics d;
+    d.std_dev_g = -3.0f;
+    d.sample_rate_sps = 3e38f;
+    TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+    TEST_ASSERT_TRUE(j.at("std_dev_g").n == 0.0);
+    TEST_ASSERT_TRUE(j.at("sample_rate_sps").n == 1e9);
+    // words with an empty string, a quote or a backslash never reach the wire
+    const char* const bad[] = {"", "\"", "\\", "v2", "V2 ", "X\"Y\\"};
+    for (const char* b : bad) {
+        d = PortalDiagnostics();
+        d.board = b;
+        d.board_source = b;
+        TEST_ASSERT_TRUE(portal_encode_diagnostics(d, buf, sizeof(buf)));
+        TEST_ASSERT_TRUE(encoded_is_json(buf, &j));
+        TEST_ASSERT_EQUAL_STRING("UNKNOWN", j.at("board").s.c_str());
+        TEST_ASSERT_EQUAL_STRING("none", j.at("board_source").s.c_str());
+        TEST_ASSERT_NULL(strchr(buf, 92));  // 92 is the backslash
+    }
+}
+
+static void test_diagnostics_g3a_truncation_canary_every_capacity() {
+    PortalDiagnostics worst;
+    worst.cal_factor = -1e10f;
+    worst.std_dev_g = 1e10f;
+    worst.sample_rate_sps = 1e10f;
+    worst.motor_latency_ms = 1e7f;
+    worst.wifi_rssi_known = true;
+    worst.wifi_rssi_dbm = INT32_MIN;
+    worst.ble = PortalBleState::LINK_CONNECTED;
+    worst.board_source = "default";
+    const PortalDiagnostics cases[] = {worst, PortalDiagnostics()};
+    for (const auto& d : cases) {
+        char full[PORTAL_DIAGNOSTICS_JSON_MAX];
+        TEST_ASSERT_TRUE(portal_encode_diagnostics(d, full, sizeof(full)));
+        const size_t len = strlen(full);
+        for (size_t cap = 0; cap <= len + 1; cap++) {
+            char region[PORTAL_DIAGNOSTICS_JSON_MAX + 16];
+            memset(region, 0x5A, sizeof(region));
+            char* buf = region + 8;
+            const bool ok = portal_encode_diagnostics(d, buf, cap);
+            for (size_t k = cap; k < cap + 8; k++) TEST_ASSERT_EQUAL_UINT8(0x5A, static_cast<uint8_t>(buf[k]));
+            for (size_t k = 0; k < 8; k++) TEST_ASSERT_EQUAL_UINT8(0x5A, static_cast<uint8_t>(region[k]));
+            if (ok) {
+                TEST_ASSERT_TRUE(cap == len + 1);
+                TEST_ASSERT_EQUAL_STRING(full, buf);
+            } else {
+                TEST_ASSERT_TRUE(cap <= len);
+                if (cap > 0) {  // a strict prefix of the document: cannot be a complete object
+                    TEST_ASSERT_EQUAL_UINT32(cap - 1, strlen(buf));
+                    TEST_ASSERT_EQUAL_INT(0, strncmp(buf, full, cap - 1));
+                    TEST_ASSERT_TRUE(strlen(buf) == 0 || buf[strlen(buf) - 1] != '}');
+                }
+            }
+        }
+    }
+}
+
 static void test_encode_escapes_control_characters() {
     char buf[256];
     PortalStatus s;
@@ -1123,6 +1431,15 @@ void run_portal_api_tests() {
     RUN_TEST(test_stats_worst_case_fits_its_buffer_with_margin);
     RUN_TEST(test_stats_truncation_never_yields_a_complete_reply);
     RUN_TEST(test_stats_fractions_are_bounded_one_by_one);
+    RUN_TEST(test_diagnostics_vectors);
+    RUN_TEST(test_diagnostics_default_state_is_valid_json_with_null_signal);
+    RUN_TEST(test_diagnostics_worst_case_is_under_320_bytes_with_margin);
+    RUN_TEST(test_diagnostics_longest_ble_word_is_the_one_the_worst_case_uses);
+    RUN_TEST(test_diagnostics_truncation_never_yields_a_complete_reply);
+    RUN_TEST(test_diagnostics_numbers_are_bounded_one_by_one);
+    RUN_TEST(test_diagnostics_board_words_outside_the_vocabulary_are_replaced);
+    RUN_TEST(test_diagnostics_g3a_edge_matrix);
+    RUN_TEST(test_diagnostics_g3a_truncation_canary_every_capacity);
     RUN_TEST(test_encode_escapes_control_characters);
     RUN_TEST(test_encoders_truncate_safely);
     RUN_TEST(test_encoded_sizes_fit_a_reasonable_buffer);

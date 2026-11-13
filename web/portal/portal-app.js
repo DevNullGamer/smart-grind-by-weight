@@ -1,7 +1,10 @@
 // DOM glue of the web panel: reads elements, attaches events, writes text. No logic that node cannot test (that goes
 // into portal-view.js). Values are written with textContent only, never as markup. Inlined by build_page.py.
 // The Grind, Settings and Insights tabs are live (chg016 steps 2, 3, 9 and 12; the Insights tab shows once the
-// firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history).
+// firmware has sent its statistics, and its recent-grinds list only where the firmware has /api/history). The Device
+// tab shows the About card from /api/info and the uptime (chg021 G1) and the Health card from /api/diagnostics
+// (G3c, fetched only while the Device section is shown); the Grind tab has the Last grind card with the weight curve
+// the page collected during the grind (chg021 G2).
 (function () {
   'use strict';
   var P = PortalClient;
@@ -33,26 +36,35 @@
   var quietRefresh = false; // the next settings reload follows a failed save: no "changed" notice
   var stats = V.newStats(); // lifetime statistics (GET /api/stats), see portal-view.js
   var history = V.newStats(); // recent grinds (GET /api/history): the same state shape, see V.historyLoaded
+  var diag = V.newStats(); // health numbers (GET /api/diagnostics): the same state shape, see V.diagnosticsLoaded
+  var info = null; // the whole GET /api/info document (null until it has arrived), see V.aboutView
+  var track = V.newGrindTrack(); // the weights seen during the latest grind and what became of it, see V.lastGrindView
   var polling = false;
   var pollTimer = null;
   var statusAt = null; // when the latest status reply was received (the lead-in must not judge a stale status)
   var forceStatus = false; // the last settings or info request failed: status goes next
   var quickNext = false; // a request went well and settings or info are still missing: the next one follows at once
 
-  // matchMedia may be missing in old browsers: then the narrow layout (one tab at a time) is assumed.
-  var wide = typeof window.matchMedia === 'function' ? window.matchMedia('(min-width: 900px)') : null;
   var requestedTab = 'grind';
+  var START_WORDS = V.PROFILE_NAMES.map(function (name) { return name.toUpperCase(); }); // the names the lead-in announces, as on the grinder
 
   function showTab(requested) {
     requestedTab = requested;
-    var name = V.tabForViewport(requested, !!(wide && wide.matches));
+    var name = V.tabForViewport(requested);
+    var deviceWasShown = !$('panel-device').hidden;
     V.TABS.forEach(function (tab) {
-      $('panel-' + tab).hidden = tab !== name;
+      setHidden($('panel-' + tab), tab !== name);
       var button = $('tab-' + tab);
       if (tab === name) button.setAttribute('aria-current', 'true');
       else button.removeAttribute('aria-current');
     });
     setSavebarHeight(); // the save bar only shows on the Settings tab: its height follows the tab
+    if (name === 'device') {
+      if (!deviceWasShown) diag = V.statsShown(diag, now()); // opening the section reads the numbers; a click on the open tab does not
+      renderAbout();
+      renderHealth();
+      if (!deviceWasShown) pollNow();
+    }
     if (name === 'insights') {
       stats = V.statsShown(stats, now()); // opening the tab fetches the numbers
       history = V.statsShown(history, now());
@@ -65,9 +77,25 @@
     if (el.textContent !== text) el.textContent = text;
   }
 
+  // Touches the class list only when the class really changes, so a poll leaves the element alone.
   function setClass(el, name, on) {
-    if (on) el.classList.add(name);
-    else el.classList.remove(name);
+    if (el.classList.contains(name) !== !!on) el.classList.toggle(name, !!on);
+  }
+
+  // Same for the hidden attribute: written only when it changes, so an idle poll causes no attribute mutation.
+  function setHidden(el, hidden) {
+    hidden = !!hidden;
+    if (el.hidden !== hidden) el.hidden = hidden;
+  }
+
+  // Same for an attribute (the SVG curve is redrawn only when its points change).
+  function setAttr(el, name, value) {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  function setDisabled(el, disabled) {
+    disabled = !!disabled;
+    if (el.disabled !== disabled) el.disabled = disabled;
   }
 
   // A repeated text is announced again: the region is emptied first and filled on the next tick.
@@ -87,19 +115,35 @@
     say(err && err.message ? err.message : fallback, true);
   }
 
+  // The "did not answer" refusal of a save that found the grinder screen busy. It is out of date once the user edits or
+  // saves again, so it leaves the alert line then (other alerts stay).
+  var busyAlert = '';
+  function clearBusyAlert() {
+    if (busyAlert !== '' && $('alert').textContent === busyAlert) setText($('alert'), '');
+    busyAlert = '';
+  }
+
   // --- rendering
   function leadInIsActive() { return V.leadInActive(leadIn); }
 
   function setControl(button, reasonEl, control) {
-    button.disabled = !control.enabled;
+    setDisabled(button, !control.enabled);
     setText(reasonEl, control.enabled ? '' : control.reason);
   }
+
+  // The colour of the state dot (see V.readoutView): ready and busy have a class, neutral has none, stale is is-stale.
+  function setTone(el, tone) {
+    setClass(el, 'is-ready', tone === 'ready');
+    setClass(el, 'is-busy', tone === 'busy');
+  }
+
+  var ringValue = ''; // the last value written to the countdown ring
 
   // The warnings card is rebuilt only when its rows change, so a poll does not re-announce an unchanged list.
   var warningsKey = '';
   function renderWarnings() {
     var view = V.warningsView(status, conn);
-    $('warnings').hidden = !view.visible;
+    setHidden($('warnings'), !view.visible);
     var key = JSON.stringify(view.rows);
     if (key === warningsKey) return;
     warningsKey = key;
@@ -122,29 +166,31 @@
     var view = V.statsView(stats, conn, now());
     var tab = $('tab-insights');
     if (tab.hidden === view.tabVisible) {
-      tab.hidden = !view.tabVisible;
+      setHidden(tab, !view.tabVisible);
       if (!view.tabVisible && requestedTab === 'insights') showTab('grind'); // the data went away: do not stay on an empty tab
     }
     setText($('insights-message'), view.message);
+    setClass($('insights-message'), 'is-empty', view.kind === 'empty');
+    setClass($('insights-message'), 'is-problem', view.kind === 'error');
     setText($('insights-note'), view.note);
-    $('tiles').hidden = view.tiles.length === 0;
-    $('mix').hidden = !view.mix.visible;
+    setHidden($('tiles'), view.tiles.length === 0);
+    setHidden($('mix'), !view.mix.visible);
     var key = JSON.stringify([view.tiles, view.mix]);
     if (key === insightsKey) return;
     insightsKey = key;
     var tiles = $('tiles');
     while (tiles.firstChild) tiles.removeChild(tiles.firstChild);
     view.tiles.forEach(function (tile) {
-      var item = el('div', 'tile');
-      item.appendChild(el('dt', '', tile.label));
+      var item = $('tile-row').content.firstElementChild.cloneNode(true);
+      item.querySelector('use').setAttribute('href', '#i-' + tile.icon);
+      item.querySelector('.tile-label').textContent = tile.label;
       // a line may break after a comma (never inside a group of digits): a <wbr> after each comma, so copied text stays clean
-      var value = el('dd', 'stat-value');
+      var value = item.querySelector('.stat-value');
       tile.value.split(',').forEach(function (part, n, parts) {
         if (n > 0) value.appendChild(el('wbr'));
         value.appendChild(document.createTextNode(n < parts.length - 1 ? part + ',' : part));
       });
-      item.appendChild(value);
-      item.appendChild(el('dd', 'stat-detail', tile.detail));
+      item.querySelector('.stat-detail').textContent = tile.detail;
       tiles.appendChild(item);
     });
     var bar = $('mix-bar');
@@ -171,17 +217,21 @@
   var historyKey = '';
   function renderHistory() {
     var view = V.historyView(history, conn, now());
-    $('history').hidden = !view.visible;
+    setHidden($('history'), !view.visible);
     setText($('history-message'), view.message);
+    setClass($('history-message'), 'is-empty', view.kind === 'empty');
+    setClass($('history-message'), 'is-problem', view.kind === 'error');
     setText($('history-note'), view.note);
     setText($('history-notice'), view.notice);
-    $('history-notice').hidden = view.notice === '';
-    $('history-chart').hidden = !view.chart.visible;
+    setHidden($('history-notice'), view.notice === '');
+    setHidden($('history-skel'), view.kind !== 'loading');
+    setClass($('history-skel'), 'is-loading', view.kind === 'loading');
+    setHidden($('history-chartbox'), !view.chart.visible);
     var key = JSON.stringify([view.rows, view.chart]);
     if (key === historyKey) return;
     historyKey = key;
     setText($('history-caption'), view.chart.caption);
-    var bars = $('history-bars');
+    var bars = $('history-chart'); // the bars only: the caption beside them is read by screen readers
     var list = $('history-list');
     while (bars.firstChild) bars.removeChild(bars.firstChild);
     while (list.firstChild) list.removeChild(list.firstChild);
@@ -208,8 +258,91 @@
       item.querySelector('.h-target').textContent = row.target;
       item.querySelector('.h-error').textContent = row.error;
       item.querySelector('.h-detail').textContent = row.detail;
+      item.querySelector('.h-motor-text').textContent = row.motor;
+      setHidden(item.querySelector('.h-motor'), row.motor === '');
       item.querySelector('.h-result').textContent = row.badge.label;
       item.querySelector('.h-badge').classList.add(row.badge.level);
+      list.appendChild(item);
+    });
+  }
+
+  // The Last grind card: each part is written only when it changes, so an idle poll leaves it alone. While a grind
+  // runs the curve and its caption follow the weight (the only text that is meant to move).
+  function renderLastGrind() {
+    var view = V.lastGrindView(track, now());
+    setHidden($('lastgrind'), !view.visible);
+    setClass($('grind-grid'), 'has-last', view.visible);
+    if (!view.visible) return;
+    setText($('lg-h'), view.title);
+    setText($('lg-age'), view.result.age);
+    setHidden($('lg-result'), !view.result.visible);
+    setText($('lg-final'), view.result.final);
+    setText($('lg-target'), view.result.target);
+    setHidden($('lg-badge'), !view.badge.visible);
+    setText($('lg-badge-text'), view.badge.label);
+    ['ok', 'warning', 'error', 'neutral'].forEach(function (level) {
+      setClass($('lg-badge'), level, view.badge.visible && view.badge.level === level);
+    });
+    setText($('lg-error'), view.result.error);
+    setText($('lg-detail'), view.result.detail);
+    setText($('lg-motor-text'), view.result.motor);
+    setHidden($('lg-motor'), view.result.motor === '');
+    setHidden($('lg-meta'), !view.badge.visible && view.result.error === '' && view.result.detail === '' && view.result.motor === '');
+    setText($('lg-message'), view.message);
+    setHidden($('lg-spark'), !view.spark.visible);
+    setAttr($('lg-line'), 'points', view.spark.points);
+    var targetLine = $('lg-target-line');
+    setClass(targetLine, 'is-off', view.spark.targetY === null);
+    if (view.spark.targetY !== null) {
+      setAttr(targetLine, 'y1', String(view.spark.targetY));
+      setAttr(targetLine, 'y2', String(view.spark.targetY));
+    }
+    setText($('lg-caption'), view.spark.caption);
+  }
+
+  // The About card (Device section). Drawn only while the section is shown: the uptime changes every second.
+  function renderAbout() {
+    if ($('panel-device').hidden) return;
+    var view = V.aboutView(info, status, { address: window.location.host, online: conn.state === 'online' });
+    setHidden($('about-loading'), !view.loading);
+    view.rows.forEach(function (row) {
+      setHidden($('about-row-' + row.id), !row.visible);
+      if (row.visible) setText($('about-' + row.id), row.value);
+    });
+    var note = view.rows.filter(function (row) { return row.id === 'confirm'; })[0].note;
+    setText($('about-confirm-note'), note);
+    setHidden($('about-confirm-note'), note === '');
+  }
+
+  // The Health card: its rows are rebuilt only when their content changes, so a poll with equal values writes nothing.
+  var healthKey = '';
+  function renderHealth() {
+    if ($('panel-device').hidden) return;
+    var view = V.diagnosticsView(diag, conn, now());
+    setHidden($('health'), !view.visible);
+    setText($('health-message'), view.message);
+    setClass($('health-message'), 'is-problem', view.kind === 'error');
+    setText($('health-note'), view.note);
+    setHidden($('health-list'), view.rows.length === 0);
+    var key = JSON.stringify(view.rows);
+    if (key === healthKey) return;
+    healthKey = key;
+    var list = $('health-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+    view.rows.forEach(function (row) {
+      var item = $('health-row').content.firstElementChild.cloneNode(true);
+      item.querySelector('dt').textContent = row.label;
+      var plain = row.level === 'plain'; // a level row shows its value as a badge (icon and word), never colour alone
+      var badge = item.querySelector('.h-badge');
+      var val = item.querySelector('.hp-val');
+      badge.hidden = plain;
+      val.hidden = !plain;
+      if (plain) val.textContent = row.value;
+      else {
+        badge.classList.add(row.level);
+        item.querySelector('.hp-badge-text').textContent = row.value;
+      }
+      item.querySelector('.about-note').textContent = row.note;
       list.appendChild(item);
     });
   }
@@ -218,32 +351,39 @@
     var t = now();
     var controls = V.deriveControls(status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     var view = V.connectionView(conn, t);
-    var readout = V.readoutView(status, conn, t);
+    var readout = V.readoutView(status, conn, t, { leadIn: leadInIsActive() });
 
     // connection chip, explanation, empty state
     setText($('conn-text'), view.label);
     var icon = '#i-' + view.icon;
     if ($('conn-icon').getAttribute('href') !== icon) $('conn-icon').setAttribute('href', icon);
+    if ($('conn-note-icon').getAttribute('href') !== icon) $('conn-note-icon').setAttribute('href', icon);
     var webOff = conn.state === 'web_off';
-    $('weboff').hidden = !webOff;
-    $('live').hidden = webOff;
-    $('conn-note').hidden = webOff || view.detail === '';
+    setHidden($('weboff'), !webOff);
+    setHidden($('live'), webOff);
+    setHidden($('conn-note'), webOff || view.detail === '');
     setText($('conn-detail'), view.detail);
-    $('retry').hidden = !view.retry;
+    setHidden($('retry'), !view.retry);
 
-    // readout
-    setText($('readout-state'), readout.state);
-    setText($('readout-weight'), readout.weight);
+    // readout (Grind section) and status bar: the bar has the short state words, the readout the full ones
+    setText($('readout-state'), readout.short);
+    setText($('readout-weight'), readout.value);
     setText($('readout-phase'), readout.phase);
+    setText($('readout-detail'), readout.detail);
     setText($('readout-hint'), readout.hint);
     setText($('readout-seen'), readout.seen);
     setClass($('readout'), 'is-stale', readout.stale);
-    setText($('strip-state'), readout.state);
+    setTone($('readout'), readout.tone);
+    setText($('strip-state'), readout.short);
+    if ($('strip-state').title !== readout.state) $('strip-state').title = readout.state; // the full words, for a pointer
     setText($('strip-weight'), readout.weight);
     setClass($('strip'), 'is-stale', readout.stale);
+    setClass($('strip'), 'is-reconnecting', conn.state === 'reconnecting');
+    setClass($('readout'), 'is-reconnecting', conn.state === 'reconnecting');
+    setTone($('strip'), readout.tone);
 
     // banner
-    $('banner').hidden = !controls.banner;
+    setHidden($('banner'), !controls.banner);
     if (controls.banner) {
       setText($('banner-text'), controls.banner.text);
       setClass($('banner'), 'error', controls.banner.level === 'error');
@@ -252,25 +392,39 @@
 
     // STOP: never disabled; emphasised while something runs
     setClass($('stop'), 'is-busy', controls.stop.emphasis);
-    setClass($('stop-pane'), 'is-busy', controls.stop.emphasis);
 
-    // lead-in card
+    // lead-in block: the ring is drawn by the stylesheet from one custom property
     var li = V.leadInView(leadIn, t);
-    $('leadin').hidden = !li.visible;
+    // the screen-reader line of a lead-in is written once when it starts (startProfile); it is emptied when the lead-in ends
+    // a dropped start is no countdown either: the line is empty then, so a retry of the same profile is written afresh
+    if (!li.visible || li.dropped) setText($('leadin-live'), '');
+    setHidden($('leadin'), !li.visible);
     setText($('leadin-text'), li.text);
+    setText($('ring-count'), li.count);
+    setClass($('leadin'), 'is-dropped', li.dropped);
+    var ring = li.fraction.toFixed(3);
+    if (ring !== ringValue) {
+      ringValue = ring;
+      $('ring').style.setProperty('--ring', ring);
+    }
 
-    // profile cards
+    // profile cards: the three Start buttons share one reason, shown once under the cards
     V.profileCards(settings).forEach(function (card) {
       setText($('target-' + card.index), card.target);
-      $('badge-' + card.index).hidden = !card.selected;
+      setHidden($('badge-' + card.index), !card.selected);
+      setClass($('profile-' + card.index), 'is-selected', card.selected);
       setControl($('start-' + card.index), $('reason-start-' + card.index), controls.start);
     });
+    setText($('reason-start'), controls.start.enabled ? '' : controls.start.reason);
     setControl($('tare'), $('reason-tare'), controls.tare);
     setControl($('motor-test'), $('reason-motor-test'), controls.motorTest);
     renderWarnings();
     renderSettings();
     renderInsights();
     renderHistory();
+    renderLastGrind();
+    renderAbout();
+    renderHealth();
   }
 
   // --- settings form
@@ -286,6 +440,7 @@
   }
 
   function onEdit(key, raw) {
+    clearBusyAlert();
     form = V.formSet(form, key, raw);
     delete fieldErrors[key];
     delete fieldNotes[key];
@@ -314,7 +469,7 @@
     var input;
 
     if (view.kind === 'switch') {
-      wrap = el('div', 'field');
+      wrap = el('div', 'field field-switch');
       var row = el('label', 'switch-row');
       row.setAttribute('for', id);
       row.appendChild(el('span', 'lbl', view.label));
@@ -329,7 +484,7 @@
       reg.focusEl = input;
       reg.write = function (raw) { input.checked = raw === true; };
     } else if (view.kind === 'segmented') {
-      wrap = el('fieldset', 'field');
+      wrap = el('fieldset', 'field field-seg');
       wrap.setAttribute('role', 'radiogroup');
       wrap.appendChild(el('legend', '', view.label));
       var opts = el('div', 'seg-opts');
@@ -422,7 +577,7 @@
       reg.write = function (raw) { setValue(input, typeof raw === 'string' ? raw : ''); };
     } else {
       // stepper: minus, number, plus. The step is a convenience; typing any value is allowed.
-      wrap = el('div', 'field');
+      wrap = el('div', 'field field-stepper');
       var numLabel = el('label', '', view.label);
       numLabel.setAttribute('for', id);
       wrap.appendChild(numLabel);
@@ -474,7 +629,11 @@
       var h = el('h2', '', group.title);
       h.id = headingId;
       card.setAttribute('aria-labelledby', headingId);
-      card.appendChild(h);
+      // the header icon is cloned from the <template> in the page (its own sprite symbol, named by the view module)
+      var head = $('group-head').content.firstElementChild.cloneNode(true);
+      head.querySelector('use').setAttribute('href', '#i-' + group.icon);
+      head.appendChild(h);
+      card.appendChild(head);
       if (group.hint) card.appendChild(el('p', 'hint', group.hint));
       if (group.id === 'profiles') {
         currentProfileEl = el('p', 'hint');
@@ -524,19 +683,19 @@
 
   function renderSettings() {
     var placeholder = V.settingsPlaceholder(!!schema, !!settings, conn, schemaMissing);
-    $('settings-status').hidden = placeholder === '';
+    setHidden($('settings-status'), placeholder === '');
     setText($('settings-status-text'), placeholder);
-    $('settings-form').hidden = !form;
-    if (!form) { $('savebar').hidden = true; $('settings-notice').hidden = true; setSavebarHeight(); return; }
+    setHidden($('settings-form'), !form);
+    if (!form) { setHidden($('savebar'), true); setHidden($('settings-notice'), true); setSavebarHeight(); return; }
 
     var bar = V.saveBarView(form, schema, status, conn, { leadIn: leadInIsActive(), commandPending: commandPending });
     if (!bar.visible) { settingsNotice = ''; formError = ''; }
-    $('savebar').hidden = !bar.visible;
+    setHidden($('savebar'), !bar.visible);
     setText($('save-count'), bar.countText);
     setText($('save-reason'), bar.reason);
     setText($('save-error'), formError);
-    $('save').disabled = !bar.canSave;
-    $('settings-notice').hidden = settingsNotice === '';
+    setDisabled($('save'), !bar.canSave);
+    setHidden($('settings-notice'), settingsNotice === '');
     setText($('settings-notice-text'), settingsNotice);
     if (currentProfileEl) setText(currentProfileEl, V.currentProfileText(settings));
     setSavebarHeight();
@@ -559,11 +718,11 @@
 
   function showRename(address) {
     var text = V.renameNotice(address);
-    $('rename').hidden = text === '';
+    setHidden($('rename'), text === '');
     setText($('rename-text'), text);
     var href = V.renameLink(address, window.location.protocol, window.location.port);
     var link = $('rename-link');
-    link.hidden = href === '';
+    setHidden(link, href === '');
     if (href) {
       setText(link, address);
       link.setAttribute('href', href);
@@ -571,6 +730,7 @@
   }
 
   function saveSettings() {
+    clearBusyAlert();
     if (!form) return;
     var patch = V.formPatch(form, schema);
     var count = Object.keys(patch).length;
@@ -609,6 +769,7 @@
       fieldErrors = shown.fields;
       formError = shown.form;
       say(err && err.message ? err.message : shown.form, true);
+      if (code === 'ui_busy') busyAlert = err.message || '';
       if (code === 'web_interface_off') conn = V.connectionFailed(conn, code, now());
       if (shown.reload) { needSettings = true; quietRefresh = true; }
       render();
@@ -662,19 +823,26 @@
       online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
       tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
     });
+    var lastGrindWaiting = V.lastGrindWaiting(track, now()); // the Last grind card wants one look at the history
     var historyDue = V.historyDue(history, {
       online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
-      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
+      tabShown: !$('panel-insights').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now(),
+      lastGrindWaiting: lastGrindWaiting
+    });
+    var diagnosticsDue = V.diagnosticsDue(diag, {
+      online: conn.state === 'online', haveStatus: status !== null, hidden: document.hidden,
+      tabShown: !$('panel-device').hidden, commandBusy: commandPending || client.pending() > 0, nowMs: now()
     });
     var task = V.nextPollTask({
       haveStatus: status !== null, needSchema: needSchema, needSettings: needSettings, needInfo: needInfo,
-      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue
+      online: conn.state === 'online', forceStatus: forceStatus, statsDue: statsDue, historyDue: historyDue,
+      diagnosticsDue: diagnosticsDue
     });
     forceStatus = false;
     quickNext = false;
     var request = task === 'schema' ? client.getSchema() : task === 'settings' ? client.getSettings() :
       task === 'info' ? client.getInfo() : task === 'stats' ? client.getStats() :
-      task === 'history' ? client.getHistory() : client.getStatus();
+      task === 'history' ? client.getHistory() : task === 'diagnostics' ? client.getDiagnostics() : client.getStatus();
     // Runs after success and after failure, even if the handler or render() throws: polling must go on.
     function finalize() {
       polling = false;
@@ -704,6 +872,8 @@
         statusAt = now();
         stats = V.statsOnStatus(stats, before, status.ui_state, statusAt);
         history = V.statsOnStatus(history, before, status.ui_state, statusAt);
+        // before the lead-in is cleared: it tells which profile this page started
+        track = V.grindTrackUpdate(track, status, { nowMs: statusAt, leadIn: leadIn, settings: settings, history: history });
         setLeadIn(V.leadInTick(leadIn, status, statusAt, statusAt));
       } else if (task === 'schema') {
         schema = doc && Array.isArray(doc.fields) ? doc.fields : [];
@@ -717,15 +887,24 @@
         stats = V.statsLoaded(stats, doc, now());
       } else if (task === 'history') {
         history = V.historyLoaded(history, doc, now());
+        track = V.grindTrackResolve(track, history, now());
+      } else if (task === 'diagnostics') {
+        diag = V.diagnosticsLoaded(diag, doc, now());
       } else {
-        setText($('name'), doc.name);
-        setText($('build'), 'Firmware ' + doc.version + ', build ' + doc.build);
+        info = doc && typeof doc === 'object' && !Array.isArray(doc) ? doc : {}; // the whole document; the view checks every member
+        setText($('name'), V.deviceName(info));
+        setText($('side-name'), V.deviceName(info));
+        setText($('build'), V.buildLine(info));
       }
       quickNext = next.quick;
     }, function (err) {
       var failed = V.pollFailed(task, err && err.code);
       if (task === 'stats') stats = V.statsFailed(stats, err && err.code, now());
-      if (task === 'history') history = V.statsFailed(history, err && err.code, now());
+      if (task === 'diagnostics') diag = V.diagnosticsFailed(diag, err && err.code, now());
+      if (task === 'history') {
+        history = V.statsFailed(history, err && err.code, now());
+        track = V.grindTrackResolve(track, history, now()); // a 404 ends the wait: the card shows the curve alone
+      }
       if (failed.schemaMissing) {
         // an older firmware without /api/schema: reachable, but there is no settings form
         schemaMissing = true;
@@ -739,13 +918,23 @@
 
   // --- commands
   // STOP always tries; a failure is reported in words (the page keeps no other state).
+  var stopsSending = 0; // STOP requests on the wire: the ring stays until the last one is answered
+  function stopSettled() {
+    stopsSending--;
+    setClass($('stop'), 'is-sending', stopsSending > 0);
+  }
+
   function stop() {
+    stopsSending++;
+    setClass($('stop'), 'is-sending', true); // the ring shows while the request is on the wire; STOP stays enabled
     client.command('stop').then(function () {
+      stopSettled();
       setLeadIn(V.leadInCancel());
       say('Stop sent.', false);
       render();
       pollNow();
     }, function (err) {
+      stopSettled();
       if (err && (err.code === 'network' || err.code === 'timeout')) {
         say('STOP was not confirmed by the grinder. Press STOP again and check the grinder. ' + (err.message || ''), true);
       } else {
@@ -776,7 +965,9 @@
   function startProfile(index) {
     runCommand('start', index, function (doc) {
       setLeadIn(V.leadInStart(index, doc.lead_in_ms, now()));
-      say(V.leadInView(leadIn, now()).text, false);
+      // written once, without the count (the countdown block is not live); the status line is cleared, later messages stay
+      setText($('message'), '');
+      setText($('leadin-live'), 'Starting ' + START_WORDS[index] + '. Touch the grinder or press STOP to cancel.');
     });
   }
 
@@ -784,7 +975,6 @@
     $('tab-' + tab).addEventListener('click', function () { showTab(tab); });
   });
   $('stop').addEventListener('click', stop);
-  $('stop-pane').addEventListener('click', stop);
   [0, 1, 2].forEach(function (i) {
     $('start-' + i).addEventListener('click', function () { startProfile(i); });
   });
@@ -801,16 +991,16 @@
   showTab('grind');
   // The save bar wraps differently at another width: keep the scroll padding in step.
   window.addEventListener('resize', setSavebarHeight);
-  // Widening or rotating across 900 px re-applies the tab so the right pane is never empty.
-  if (wide) {
-    if (typeof wide.addEventListener === 'function') wide.addEventListener('change', function () { showTab(requestedTab); });
-    else if (typeof wide.addListener === 'function') wide.addListener(function () { showTab(requestedTab); });
-  }
 
   // Polling pauses while the page is hidden and resumes at once when it is shown again.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) schedule(null);
-    else pollNow();
+    else {
+      // a grind whose result was not read while the tab was hidden gets one more look
+      track = V.grindTrackResume(track, now());
+      if (V.lastGrindWaiting(track, now())) history = V.statsRefresh(history, 0, now());
+      pollNow();
+    }
   });
   // The lead-in countdown and "last seen" move between polls.
   setInterval(function () {

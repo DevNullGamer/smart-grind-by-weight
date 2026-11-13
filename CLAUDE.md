@@ -1,115 +1,80 @@
 ## Project Overview
 
-ESP32-S3 intelligent coffee scale with grind-by-weight functionality. Features predictive grinding system, LVGL touch UI, and BLE OTA updates. Automatically grinds coffee beans to precise target weights using flow prediction and pulse correction algorithms.
+ESP32-S3 coffee scale with grind-by-weight: predictive flow control and pulse correction grind to a target weight; LVGL touch UI; BLE and WiFi updates.
 
 ## Essential Commands
 
-All development tasks use the unified cross-platform Python tool:
+All development tasks use the unified cross-platform Python tool `tools/grinder.py`:
 
-```bash
-# Build and upload
-python3 tools/grinder.py build-upload
-
-# Data analysis (exports data and launches Streamlit report)
-python3 tools/grinder.py analyze
-```
-
-**Common Commands:**
-- `python3 tools/grinder.py build` - Build firmware only (one image for V1 and V2 boards, detected at runtime; `--variant` is deprecated and ignored)
+- `python3 tools/grinder.py build-upload` - Build and upload
+- `python3 tools/grinder.py analyze` - Export data and launch the Streamlit report
+- `python3 tools/grinder.py build` - Build firmware only (one image for V1 and V2; `--variant` is deprecated and ignored)
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
-- `python3 tools/grinder.py export` - Export grind data to database
-- `python3 tools/grinder.py report` - Launch Streamlit report from existing data
-- `python3 tools/grinder.py scan` - Scan for BLE devices
-- `python3 tools/grinder.py info` - Get device system information
+- `python3 tools/grinder.py export` / `report` / `scan` / `info` / `clean` - export grind data, Streamlit report, BLE scan, device info, clean artifacts
 - WiFi commands (`wifi-info`, `wifi-upload`, `wifi-set`, `wifi-clear`): see `docs/DOC.md` "WiFi Setup" and "Update from the computer"
 - `python3 tools/portal/dev_server.py` - Web panel page with a simulated grinder, no hardware (open http://127.0.0.1:8080)
-- `python3 tools/grinder.py clean` - Clean build artifacts
 
 ## Architecture
 
-**4-Layer Architecture:**
-1. **Hardware Layer** (`src/hardware/`): ESP32-S3 peripheral abstraction
-2. **Control Layer** (`src/controllers/`): Business logic and algorithms
-3. **System Layer** (`src/system/`): State management
-4. **UI Layer** (`src/ui/`): LVGL touchscreen interface
+**4-Layer Architecture:** Hardware (`src/hardware/`, peripheral abstraction), Control (`src/controllers/`, logic and algorithms), System (`src/system/`, state management), UI (`src/ui/`, LVGL touchscreen).
 
-**Key Components** (details in `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md"):
-- **HardwareManager**: central hardware coordinator
-- **GrindController**: 17-phase state machine (`GrindPhase`) with predictive flow control and pulse corrections
-- **WeightSensor (HX711)**: multi-mode weight measurement, calibration flag, noise diagnostics
-- **DiagnosticsController**: system health monitoring and priority-based warnings
-- **UIManager**: 7 LVGL screens, menu and split-button layouts
-- **StateMachine**: central state coordination (READY -> GRINDING -> GRIND_COMPLETE)
+Key components, grind phases, purge/prime, time-mode pulses, Grind Settings prefs, colours, fonts, update intervals (`SYS_TASK_*_INTERVAL_MS` in `src/config/system.h`) and touch polling: `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md" and "Reference moved from CLAUDE.md (chg014 housekeeping)". Prefer `THEME_COLOR_*` (`src/config/theme.h`) over raw hex. Weight-mode grinding always runs purge/prime first.
 
-**Periodic tasks (chg017):** periodic tasks never write or delete files; the file-IO health probe (`FileIOTask::validate_filesystem_access()`) is read-only. Details in `docs/DESIGN-NOTES.md`, "Filesystem health check (chg017)".
+**Periodic tasks (chg017):** never write or delete files; the file-IO health probe (`FileIOTask::validate_filesystem_access()`) is read-only ("Filesystem health check (chg017)").
 
-**Screen off (chg018; details in `docs/DESIGN-NOTES.md`, "Screen off (chg018)"):**
-- Dim/off decisions are pure in `system/screen_power.*`; `ScreenTimeoutController` gathers the inputs and is the only code that applies them (OFF = brightness 0, no panel sleep).
-- Timeouts are cached (`reload_settings()`), never read per frame: the menu reloads via `SliderAfter::RELOAD_SCREEN_TIMEOUTS`, the web panel via `apply_to_screen`. Neither wakes nor darkens the screen.
+**Screen off (chg018; "Screen off (chg018)"):**
+- Dim/off decisions are pure in `system/screen_power.*`; `ScreenTimeoutController` is the only code that applies them (OFF = brightness 0, no panel sleep).
+- Timeouts are cached (`reload_settings()`), never read per frame.
 - While OFF, touch is blocked (`DisplayManager::set_input_blocked`) until the waking touch is released.
-- Never OFF while grinding, in a motor test, an update prompt or progress, a remote-start lead-in, on a screen other than READY/EDIT/MENU, on the WiFi page, or with a diagnostic other than `LOAD_CELL_NOT_CALIBRATED` / `LOAD_CELL_NOISY_SUSTAINED`.
+- Never OFF while grinding, in a motor test, an update prompt/progress, a remote-start lead-in, on a screen other than READY/EDIT/MENU, on the WiFi page, or with a diagnostic other than `LOAD_CELL_NOT_CALIBRATED` / `LOAD_CELL_NOISY_SUSTAINED`.
 
-**Board Detection (single firmware for Waveshare 1.64" V1 and V2):** design reasoning in `docs/DESIGN-NOTES.md`
+**Board Detection (single firmware for Waveshare 1.64" V1 and V2):**
 - One PlatformIO env/image (`waveshare-esp32s3-touch-amoled-164`; debug/mock derive from it). Bare `upload` needs a build of the main env.
-- Board is detected at runtime (signals and files: details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)"). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
+- Board is detected at runtime (details: "Reference moved from CLAUDE.md (chg014 housekeeping)"). Read pins/display params via `board()` (`src/config/board_config.h`), never compile-time board macros.
 - Motor is enabled only when the board is established by PROBE or USER (not UNKNOWN/CACHED). Never drive GPIO18 before the board is known or on V2 (touch INT). Pin parking happens at the top of `setup()`; `board_set()` runs before display init.
-- Override: NVS `board_override` (0 auto/1 V1/2 V2), set via Menu -> Hardware board, on-screen picker (UNKNOWN), or BLE `grinder.py board` (v1/v2 only while board not established).
-- One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free: LVGL allocates from PSRAM.
-- Dual wiring: HX711 SCK pulsed on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
+- Override: NVS `board_override` (0 auto/1 V1/2 V2) via Menu -> Hardware board, the on-screen picker, or BLE `grinder.py board` (only while board not established).
+- One esp_lcd SH8601 display path (PSRAM render buffer + internal DMA staging; never pass PSRAM buffers to esp_lcd draw). Keep internal heap free (LVGL uses PSRAM).
+- Dual wiring: HX711 SCK on GPIO1+2; motor GPIO16 always, GPIO18 only on V1.
 
-**WiFi / updates (invariants; details in `docs/DESIGN-NOTES.md`; BLE provisioning is host-tested only; the on-screen update check and install from the real Pages index ran on hardware (rc4 to rc6, 2026-11-04)):**
+**WiFi / updates (chg008 sections in `docs/DESIGN-NOTES.md`):**
 - Push is armed only by the Receive toggle (`push_enabled`, default off); Confirm/Accept (`accept`, default on) needs a tap on the grinder. Turning Confirm off needs the warning dialog.
 - Never call LVGL from the HTTP task or the `UpdatePull` worker; they talk to the UI only via `update_approval`, `UpdateStatus` and `update_pull` (polled by the UI task).
 - One update at a time: `UpdateGuard::is_held()` excludes push, pull and BLE OTA; `onConnect` refuses BLE while it is held.
 - Rollback: `boot_health` confirms a new image after 30 s (`BOOT_HEALTH_CONFIRM_MS`); updates are refused (409) until then. Do not add health criteria.
-- Pull TLS allocates from PSRAM only inside `TlsPsramScope`; the pull URL is the fixed `UPDATE_PULL_BASE_URL`, https only.
-- `DEBUG_PULL_*` and `DEBUG_UPDATE_PROMPT_AUTOREPLY` exist only in `...-wifi-dev*` envs (they `#error` otherwise). Erase NVS after using a wifi-dev env (it seeds a public token and arms push). `release.yml` builds only the main env.
+- Pull TLS allocates from PSRAM only inside `TlsPsramScope`; the pull URL is fixed (`UPDATE_PULL_BASE_URL`), https only.
+- `DEBUG_PULL_*` and `DEBUG_UPDATE_PROMPT_AUTOREPLY` exist only in `...-wifi-dev*` envs. Erase NVS after using one (it seeds a public token and arms push). `release.yml` builds only the main env.
 
-**Web panel (chg014, chg016; details in `docs/PORTAL-API.md` and `docs/DESIGN-NOTES.md` "Web panel (chg014)", "Web panel UI (chg016)"):**
-- The page is embedded from `web/portal/index.html`, generated by `tools/portal/build_page.py` from five sources in `web/portal/` (`page.src.html`, `portal.css`, `portal-client.js`, `portal-view.js`, `portal-app.js`; commit all six; regenerate with `python3 tools/portal/build_page.py`, a test fails on a stale `index.html`). Logic goes in the client/view modules (node-tested), `portal-app.js` is DOM glue. Gzip budget 64 KB (build fails above it); a test caps the page at 40 KB.
+**Web panel (details in `docs/PORTAL-API.md` and `docs/DESIGN-NOTES.md` "Web panel (chg014)", "Web panel UI (chg016)", "Web panel redesign (chg021)"):**
+- The page `web/portal/index.html` is generated by `python3 tools/portal/build_page.py` from the five sources in `web/portal/` (commit all six; a test fails on a stale `index.html`). Logic goes in the client/view modules (node-tested), `portal-app.js` is DOM glue. Gzip budget 64 KB, a test caps the page at 48 KB. Every animation sits in the one `prefers-reduced-motion: no-preference` block (a test enforces it). Own CSS and icons only, nothing copied from GaggiMate (CC BY-NC-SA; this project is GPL).
 - Server gate: each route checks its own switch. Web panel routes check the Web interface toggle (`web_enabled()`, NVS `web_enabled`, default off, changed only on the touchscreen, independent of Receive). Update routes keep checking `push_enabled()`; never drop that check.
-- Web panel routes (`portal_routes.cpp`) never call LVGL, GrindController, ProfileController, UiSettings or NVS. The HTTP task may call only `portal_stop_now()`; everything else goes through the mailbox to the UI task (`portal_ui_controller`), which decides with the touchscreen's checks. The read routes (`/api/status`, `/api/stats`, `/api/history`) only copy snapshot slots the UI task publishes (503 `ui_busy` when stale). History lives on LittleFS, written only by the file-IO task; the HTTP task never touches the filesystem. Details in `docs/DESIGN-NOTES.md` "Web panel (chg014)".
+- Web panel routes (`portal_routes.cpp`) never call LVGL, GrindController, ProfileController, UiSettings or NVS. The HTTP task may call only `portal_stop_now()`; everything else goes through the mailbox to the UI task (`portal_ui_controller`), which decides with the touchscreen's checks. Read routes only copy snapshot slots the UI task publishes (503 `ui_busy` when stale). History lives on LittleFS, written only by the file-IO task; the HTTP task never touches the filesystem.
 - Stop is always accepted while the Web interface is on. One command is in flight at a time; the remote-start lead-in (web or GLink) counts as in flight. Start and motor test are re-checked on the UI task.
 - No token for the web panel; the update token protects firmware push only.
 
-**Motor / grind safety (details and hardware-run status: `docs/DESIGN-NOTES.md`, "Safety batch 1" and its "Known limitations"; several checks are still not run on hardware):**
-- New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`. The PREDICTIVE stall abort (`Err: stalled`) its reference only rises; thresholds and limits in DESIGN-NOTES D14.
+**Motor / grind safety ("Safety batch 1", "Known limitations"; some checks not yet run on hardware):**
+- New grind aborts go through `GrindController::check_safety()` / `raise_safety()` (kill switch `GRIND_SAFETY_ABORTS_ENABLED`), logic in pure `grind_safety.*`. The PREDICTIVE stall abort (`Err: stalled`) reference only rises; thresholds and limits in DESIGN-NOTES D14.
 - Finite motor pulses come from `hardware/rmt_pulse_math.*`; never reintroduce `loop_count` for finite pulses (continuous run uses -1).
-- Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failure paths use `cleanup_failed_ota()` (unlocks); WiFi updates use `UpdateGuard` (same busy check and lock-out).
-- Self-test flags (`DEBUG_RMT_PULSE_SELFTEST`, `..._FORCE_BOARD_V2` (`#error`s without it), `DEBUG_GRINDER_DEADMAN_TEST`, `DEBUG_GRINDER_DEADMAN_AUTORUN` = motor runs 3 s on every boot) live only in the `...-rmt-selftest*` / `...-deadman-test` envs. `DEBUG_MENU_WALK` (bench UI/NVS walk) only in `...-menu-walk`. `DEBUG_BLE_ENABLE_STRESS` (150 Bluetooth mode cycles per core after boot) only in `...-ble-stress*`.
+- Continuous runs have the `Grinder` deadman (timeout + 2 s); a trip latches `MOTOR_FAULT` until reboot and refuses every start, Auto-Tune (also in `AutoTuneController::start()`) and Motor Test. OTA start refuses while a grind/autotune/motor is active, then `lock_out()`; failures use `cleanup_failed_ota()`; WiFi updates use `UpdateGuard`.
+- `DEBUG_*` self-test/bench flags (RMT pulse, deadman, menu walk, BLE stress) live only in their own special envs; `DEBUG_GRINDER_DEADMAN_AUTORUN` runs the motor 3 s on every boot. Full list: "Safety batch 1", "Debug-only flags", "Reference moved from CLAUDE.md (chg022 review)".
 - After exact pulses, saved latency is stale: re-run autotune.
 
-**LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness" in `docs/DESIGN-NOTES.md`):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
-- Anything updated per frame uses `set_label_text_if_changed`; no unguarded `lv_label_set_text` or style setters per frame.
+**LVGL (pinned 9.6.0; "LVGL pin and config" and "UI robustness"):** bump = change the pin, regenerate `include/lv_conf.h` from that template, run `tools/tests/test_lvgl_pin.py`. `LV_DISABLE_API_MAPPING` is on: use v9 names and per-flag setters (`lv_obj_set_hidden(o, true)`), not `lv_obj_add_flag`. Keep `LV_COLOR_16_SWAP 1` (display byte swap).
+- Per-frame updates use `set_label_text_if_changed`; no unguarded `lv_label_set_text` or style setters per frame.
 - `UIManager::init` needs an initialised display; if the display fails the UI stays off (update() no-op).
-- Menu NVS keys only in `system/ui_settings.*` (UI never opens `Preferences`); rows are table-driven (`menu_setting_table`).
+- Menu NVS keys only in `system/ui_settings.*` (UI never opens `Preferences`); rows are in `menu_setting_table`.
 
-**GLink / GaggiMate link (chg020; spec `docs/GLINK-PROTOCOL.md` is frozen; numbers, history, hardware status and open items in `docs/DESIGN-NOTES.md` "GaggiMate link (chg020)"):**
+**GLink / GaggiMate link (chg020; spec `docs/GLINK-PROTOCOL.md` is frozen; "GaggiMate link (chg020)"):**
 - No authentication, by decision: anyone in radio range with the link or Bluetooth on can read, write the Profile Dose, stop and start. Never describe it as secure; keep the spec 1.1 list in step with any new capability.
-- The Bluetooth task never calls LVGL, the controllers, `ProfileController`, `UiSettings` or NVS. Reads come from the snapshot the UI task publishes; writes and starts go through the one-slot `glink_command_gate` mailbox to `GlinkUIController`.
+- The Bluetooth task never calls LVGL, the controllers, `ProfileController`, `UiSettings` or NVS. Reads use the UI task's snapshot; writes and starts go through the `glink_command_gate` mailbox to `GlinkUIController`.
 - Stop is never queued: `portal_stop_now()` on the Bluetooth task, always accepted.
 - A BLE start uses the same checks as the web panel's start plus the profile checks, always behind the 3 s touch-to-cancel lead-in; it grinds in WEIGHT mode and restores the user's mode on return to READY. The lead-in is exclusive with the web panel's.
 - Only profile 3 (Profile Dose) is writable over BLE. One BLE client; a connected client blocks WiFi updates.
-- "GaggiMate link" (Bluetooth page, touch-only, default off) = LINK_ONLY: no timers, only the GLink characteristics work; the old OTA/data/sysinfo/diagnostics services stay closed in that mode.
+- "GaggiMate link" (Bluetooth page, touch-only, default off) = LINK_ONLY: no timers, only the GLink characteristics work; old OTA/data/sysinfo/diagnostics services stay closed.
 - Files shared by `gaggimate-plugin/` and `src/bluetooth/` stay byte-identical (`test_gaggimate_plugin_contract.py`); `src/config/bluetooth.h` GLINK_ constants, the spec tables and `tools/tests/glink_vectors.json` move together (`test_glink_contract.py`).
 
-**Profiles (chg020, "GaggiMate link (chg020)" in `docs/DESIGN-NOTES.md`):** `USER_PROFILE_COUNT` is 4; index 3 is the GaggiMate Profile Dose and exists only once stored (`ProfileController::has_dose_profile()`). The READY tabview has its PROFILE page only then (`ReadyUIController::sync_pages()` rebuilds READY). Menu tab index: `UIManager::menu_tab_index()`, never a literal. Profile writes are compare-first. Web panel and history stay at three profiles. Grind size is display-only (`controllers/grind_size.*`).
+**Profiles (chg020):** `USER_PROFILE_COUNT` is 4; index 3 (GaggiMate Profile Dose) exists only once stored (`ProfileController::has_dose_profile()`); the READY PROFILE page exists only then (`ReadyUIController::sync_pages()`). Menu tab index: `UIManager::menu_tab_index()`, never a literal. Profile writes are compare-first. Web panel and history stay at three profiles. Grind size is display-only.
 
-**Update Intervals** (`src/config/system.h`): details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
-
-**Load cell reads (chg004):** control code reads the load cell only through `CircularBufferMath` (spinlock; readers copy at most `CBM_MAX_WINDOW_SAMPLES` newest samples, other passes are bounded in-place walks of the 1024-entry ring; no logging or allocation inside the lock). `update_async()` and `get_raw_adc_data()` belong to the Core 0 sampling task only; `calibrate()` reads only the filter, never the HX711 (details in `docs/DESIGN-NOTES.md` "Tuning batch (chg004)").
-
-**Grind phases:** the full phase list, `TIME_ADDITIONAL_PULSE`, `PURGE_CONFIRM` and the 60 s timeout are in `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md".
-
-**Grinder purge/prime:** always runs before weight-mode grinding; modes, amounts and popup behaviour in the same DESIGN-NOTES section. Prefs: `grinder_mode`, `grinder_amt_g`.
-
-**Time mode pulses:** split-button completion screen (OK + PULSE) and the `TIME_ADDITIONAL_PULSE` phase; details in the same DESIGN-NOTES section.
-
-**Grind Settings** (Menu -> Grind Settings: mode, swipe, automation, purging). Prefs: `swipe.enabled`, `grind_mode`, `grinder_mode`, `grinder_amt_g`. Details in the same DESIGN-NOTES section.
-
-Theme colours: `THEME_COLOR_*` in `src/config/theme.h` (values in `docs/DESIGN-NOTES.md`); prefer them over raw hex.
-
-**Font Usage Hierarchy:** details in `docs/DESIGN-NOTES.md` "Reference moved from CLAUDE.md (chg014 housekeeping)".
+**Load cell reads (chg004; "Tuning batch (chg004)"):** control code reads the load cell only through `CircularBufferMath` (spinlock; readers copy at most `CBM_MAX_WINDOW_SAMPLES` newest samples; no logging or allocation inside the lock). `update_async()` and `get_raw_adc_data()` belong to the Core 0 sampling task only; `calibrate()` reads only the filter, never the HX711.
 
 ## Development Notes
 
@@ -130,6 +95,5 @@ Theme colours: `THEME_COLOR_*` in `src/config/theme.h` (values in `docs/DESIGN-N
 * UI/UX work: aim for designs that are attractive and easy to use, follow best practices, and pay attention to interaction patterns and micro-interactions.
 * When a feature has been added and tested, update the docs too.
 * Use the `src/config/constants.h` aggregation file to include constants and settings; do not refer to config files directly.
-* Touch polling and its I2C error toggle: see `docs/DESIGN-NOTES.md`, "Reference moved from CLAUDE.md".
 * `LOG_BLE(...)` (`src/config/logging.h`) is just `Serial.printf`, not a BLE log; BLE-specific verbose output is `LOG_BLE_DEBUG` behind `ENABLE_BLE_DEBUG_VERBOSE`.
 * CI (`.github/workflows/ci.yml`, also gates `release.yml`) runs ruff (errors only), compileall, pytest (`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) and the native tests; run them before pushing (commands in `docs/DEVELOPMENT.md`). The GaggiMate plugin host tests (`sh gaggimate-plugin/scripts/run_host_tests.sh`) are not in CI. `firmware_cache/<env>/` keeps the newest 20 builds; `tools/web-flasher/firmware/` is generated, never commit it.

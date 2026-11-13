@@ -6,19 +6,54 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const PV = require('../../web/portal/portal-view.js');
 
-test('tabForViewport keeps the picked tab on narrow screens', () => {
-    for (const tab of PV.TABS) assert.equal(PV.tabForViewport(tab, false), tab);
+test('the page has four sections, Device last', () => {
+    assert.deepEqual(PV.TABS, ['grind', 'settings', 'insights', 'device']);
 });
 
-test('tabForViewport replaces Grind by Settings from 900 px', () => {
-    assert.equal(PV.tabForViewport('grind', true), 'settings');
+test('tabForViewport keeps the picked tab at every width', () => {
+    for (const tab of PV.TABS) {
+        assert.equal(PV.tabForViewport(tab, false), tab);
+        assert.equal(PV.tabForViewport(tab, true), tab); // a second argument (the old wide flag) changes nothing
+    }
+});
+
+test('tabForViewport no longer replaces Grind by Settings on a wide screen', () => {
+    assert.equal(PV.tabForViewport('grind', true), 'grind');
     assert.equal(PV.tabForViewport('settings', true), 'settings');
     assert.equal(PV.tabForViewport('insights', true), 'insights');
 });
 
-test('tabForViewport falls back for an unknown tab', () => {
+test('tabForViewport falls back to Grind for an unknown tab', () => {
     assert.equal(PV.tabForViewport('nope', false), 'grind');
-    assert.equal(PV.tabForViewport(undefined, true), 'settings');
+    assert.equal(PV.tabForViewport(undefined, true), 'grind');
+});
+
+test('tabForViewport keeps Device, the new fourth section, at every width', () => {
+    assert.equal(PV.tabForViewport('device'), 'device');
+    assert.equal(PV.tabForViewport('device', false), 'device');
+    assert.equal(PV.tabForViewport('device', true), 'device');
+});
+
+test('tabForViewport always answers one of the four sections, Grind for anything else', () => {
+    const odd = [null, undefined, '', ' ', 0, 1, 3, NaN, true, false, {}, [], ['settings'], 'Grind', 'SETTINGS', ' device',
+        'device ', 'tab-device', 'panel-grind', 'length', 'constructor', '__proto__', 'toString', 'indexOf'];
+    for (const value of odd) {
+        for (const wide of [undefined, false, true]) {
+            assert.equal(PV.tabForViewport(value, wide), 'grind', String(value));
+        }
+    }
+    assert.equal(PV.tabForViewport(), 'grind');
+    for (const value of odd.concat(PV.TABS)) {
+        assert.ok(PV.TABS.includes(PV.tabForViewport(value)));
+    }
+});
+
+test('tabForViewport does not change the list of sections', () => {
+    const before = PV.TABS.slice();
+    PV.tabForViewport('device', true);
+    PV.tabForViewport('nope', true);
+    assert.deepEqual(PV.TABS, before);
+    assert.equal(PV.TABS.length, 4);
 });
 
 test('formatWeight shows one decimal and a placeholder without a number', () => {
@@ -393,6 +428,96 @@ test('readoutView: normal, null weight, hints, stale and unknown states', () => 
     assert.equal(PV.readoutView(status({ ui_state: 'new_thing' }), online(), 0).state, 'new_thing');
 });
 
+test('readoutView: stale without a status and while the web interface is off, live only online with a status', () => {
+    // before any status arrives the bar must not show a live (green) dot
+    assert.equal(PV.readoutView(null, PV.newConnection(), 0).stale, true);
+    assert.equal(PV.readoutView(null, online(), 0).stale, true);
+    assert.equal(PV.readoutView(null, offlineConn, 0).stale, true);
+    // web interface switched off: the last values stay but are marked old, without a "last seen" line
+    const webOff = PV.connectionFailed(online(), 'web_interface_off', 5000);
+    assert.equal(webOff.state, 'web_off');
+    let r = PV.readoutView(status({ weight_g: 18 }), webOff, 9000);
+    assert.deepEqual([r.state, r.weight, r.stale, r.seen], ['Ready', '18.0 g', true, '']);
+    r = PV.readoutView(null, webOff, 9000);
+    assert.deepEqual([r.state, r.weight, r.stale, r.seen], ['Web interface off', '-- g', true, '']);
+    // a lost connection stays stale; back online with a status it is live again, also while the screen is busy
+    assert.equal(PV.readoutView(status(), PV.connectionFailed(online(), 'network', 2), 3).stale, true);
+    assert.equal(PV.readoutView(status(), PV.connectionOk(webOff, 9500), 9600).stale, false);
+    assert.equal(PV.readoutView(status(), PV.connectionFailed(online(), 'ui_busy', 2), 3).stale, false);
+    assert.equal(PV.readoutView(status({ ui_state: 'grinding', busy: true }), online(), 0).stale, false);
+});
+
+test('leadInView: the ring fraction runs from 0 to 1 over the lead-in, with the seconds as its count', () => {
+    const li = PV.leadInStart(1, 3000, 10000);
+    assert.deepEqual([PV.leadInView(li, 10000).fraction, PV.leadInView(li, 10000).count], [0, '3']);
+    assert.deepEqual([PV.leadInView(li, 11500).fraction, PV.leadInView(li, 11500).count], [0.5, '2']);
+    assert.deepEqual([PV.leadInView(li, 13000).fraction, PV.leadInView(li, 13000).count], [1, '']);
+    assert.equal(PV.leadInView(li, 99999).fraction, 1);
+    assert.equal(PV.leadInView(li, 9000).fraction, 0); // a clock that stepped back never gives a negative ring
+    const watching = PV.leadInView(PV.leadInTick(li, status(), 13000), 13500);
+    assert.deepEqual([watching.fraction, watching.count, watching.dropped], [1, '', false]);
+    const dropped = PV.leadInView(PV.leadInTick(li, status(), 15000, 14000), 15000);
+    assert.deepEqual([dropped.fraction, dropped.count, dropped.dropped], [0, '', true]);
+    assert.deepEqual(PV.leadInView(null, 1), { visible: false, seconds: 0, fraction: 0, count: '', dropped: false, text: '' });
+    assert.equal(PV.leadInView(PV.leadInStart(0, 0, 0), 0).fraction, 1); // no lead-in time: full at once
+});
+
+test('readoutView: short words for the status bar, the full words as detail, the weight without its unit', () => {
+    let r = PV.readoutView(status({ weight_g: 12.34 }), online(), 0);
+    assert.deepEqual([r.short, r.detail, r.value], ['Ready', '', '12.3']);
+    r = PV.readoutView(status({ ui_state: 'menu' }), online(), 0);
+    assert.deepEqual([r.short, r.detail, r.state], ['Menu open', 'Menu open on the grinder screen', 'Menu open on the grinder screen']);
+    r = PV.readoutView(status({ ui_state: 'confirm' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['Confirm on grinder', 'Waiting for a confirmation on the grinder screen']);
+    // a hint already says where to look: no second sentence
+    r = PV.readoutView(status({ ui_state: 'grind_complete', grind_phase: 'completed' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['Grind complete', '']);
+    assert.notEqual(r.hint, '');
+    // an unknown state is shown as it came, in both places
+    r = PV.readoutView(status({ ui_state: 'new_thing' }), online(), 0);
+    assert.deepEqual([r.short, r.detail], ['new_thing', '']);
+    r = PV.readoutView(status({ weight_g: null }), online(), 0);
+    assert.equal(r.value, '--');
+    r = PV.readoutView(null, offlineConn, 0);
+    assert.deepEqual([r.short, r.detail, r.value], ['Offline', '', '--']);
+    // every known state has short words that are no longer than the full ones
+    for (const ui of Object.keys(PC.STATE_TEXT)) {
+        const short = PV.shortStateLabel(ui);
+        assert.ok(short.length > 0 && short.length <= 18 && short.length <= PC.STATE_TEXT[ui].length, ui);
+    }
+    // the lead-in of a remote start: the grinder still says ready, the short words say what happens
+    r = PV.readoutView(status(), online(), 0, { leadIn: true });
+    assert.deepEqual([r.short, r.state, r.detail], ['Starting', 'Ready', '']);
+});
+
+test('readoutView: the tone of the state dot is ready, busy, neutral or stale', () => {
+    const tone = (st, conn, extra) => PV.readoutView(st, conn, 0, extra).tone;
+    assert.equal(tone(status(), online()), 'ready');
+    assert.equal(tone(status({ ui_state: 'grinding', busy: true }), online()), 'busy');
+    assert.equal(tone(status({ busy: true }), online()), 'busy'); // a motor test on the main screen
+    assert.equal(tone(status(), online(), { leadIn: true }), 'busy');
+    assert.equal(tone(status(), online(), { leadIn: false }), 'ready');
+    // neither ready nor running: never the green dot
+    for (const ui of ['menu', 'confirm', 'edit', 'calibration', 'grind_complete', 'grind_timeout', 'purge_confirm',
+        'autotuning', 'ota_update', 'ota_update_failed', 'new_thing']) {
+        assert.equal(tone(status({ ui_state: ui }), online()), 'neutral', ui);
+    }
+    // the main screen, but a start would be refused: not green under the red banner
+    for (const over of [{ start_block: 'motor_fault' }, { start_block: 'motor_disabled' }, { start_block: 'load_cell_no_data' },
+        { start_block: 'update_in_progress' }, { motor_test_block: 'motor_fault' }, { motor_test_block: 'motor_disabled' },
+        { motor_available: false }, { warnings: ['motor_fault'] }, { warnings: ['motor_disabled'] }]) {
+        assert.equal(tone(status(over), online()), 'neutral', JSON.stringify(over));
+    }
+    // a warning that does not stop a start keeps the green dot; a running grind stays busy whatever is blocked
+    assert.equal(tone(status({ warnings: ['load_cell_not_calibrated'] }), online()), 'ready');
+    assert.equal(tone(status({ start_block: 'busy', busy: true }), online()), 'busy');
+    assert.equal(tone(null, PV.newConnection()), 'stale');
+    assert.equal(tone(null, online()), 'stale');
+    assert.equal(tone(status(), offlineConn), 'stale');
+    assert.equal(tone(status({ busy: true }), offlineConn, { leadIn: true }), 'stale');
+    assert.equal(tone(status(), PV.connectionFailed(online(), 'web_interface_off', 1)), 'stale');
+});
+
 test('profileCards: targets follow the grind mode, the selected profile is flagged', () => {
     const values = { grind_mode: 'weight', single_weight_g: 9, double_weight_g: 18, custom_weight_g: 21.5,
         single_time_s: 5, double_time_s: 10, custom_time_s: 12 };
@@ -477,6 +602,18 @@ test('settingsGroups: an unknown key lands in Other, an empty group is left out'
     const onlyDevice = PV.settingsGroups(FIELDS.filter((f) => f.key === 'device_name'));
     assert.deepEqual(onlyDevice.map((g) => g.title), ['Device']);
     assert.deepEqual(PV.settingsGroups([]), []);
+});
+
+test('chg021 V5: every settings group icon (Other included) is a symbol in page.src.html', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const ids = new Set([...html.matchAll(/id="i-([a-z-]+)"/g)].map((m) => m[1]));
+    const extra = { key: 'new_thing', type: 'number', group: 'settings', min: 0, max: 5 };
+    const groups = PV.settingsGroups(FIELDS.concat([extra]));
+    assert.deepEqual(groups.map((g) => g.id), ['profiles', 'display', 'grinding', 'device', 'other']);
+    for (const g of groups) {
+        assert.equal(typeof g.icon, 'string', g.id);
+        assert.ok(ids.has(g.icon), `group ${g.id}: icon "${g.icon}" has no id="i-${g.icon}" symbol`);
+    }
 });
 
 test('fieldView: widget per key and type', () => {
@@ -1284,8 +1421,11 @@ test('the Insights tab is wired in the page: definition lists, a named region, n
     assert.match(app, /client\.getStats\(\)/);
     assert.match(app, /commandBusy: commandPending \|\| client\.pending\(\) > 0/);
     assert.equal(app.includes('innerHTML'), false);
-    // the warnings card sits above Profiles and Tools in the left pane, so it is not behind a long scroll at 900 px and up
-    assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<section id="warnings"'));
+    // the warnings sit above the readout, Profiles and Tools in the Grind section (chg021 V4: alerts first), so they
+    // are not behind a long scroll
+    assert.ok(html.indexOf('<section id="warnings"') > 0 && html.indexOf('<div id="readout"') > 0);
+    assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<div id="readout"'));
+    assert.ok(html.indexOf('<div id="readout"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<section id="warnings"') < html.indexOf('<h2>Profiles</h2>'));
     assert.ok(html.indexOf('<h2>Profiles</h2>') < html.indexOf('<h2>Tools</h2>'));
 });
@@ -1343,8 +1483,8 @@ test('parseHistory: needs a grinds array; skips what is no object; keeps only us
     assert.equal(PV.parseHistory({ grinds: 'x' }), null);
     const parsed = PV.parseHistory({ persistent: true, grinds: [null, 5, [], grind({ final_g: 'x', target_g: NaN, profile: 7, time_ms: null, pulses: 'many', age_s: -4, result: 'bogus' })] });
     assert.equal(parsed.grinds.length, 1);
-    assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, timeMs: null,
-        pulses: null, result: 'unknown' });
+    assert.deepEqual(parsed.grinds[0], { ageS: undefined, profile: null, time: false, target: null, final: null, id: 1, timeMs: null,
+        motorMs: 9800, pulses: null, result: 'unknown' });
     assert.equal(PV.parseHistory({ grinds: [] }).persistent, true); // a missing flag is not an alarm
     assert.equal(PV.parseHistory({ persistent: false, grinds: [] }).persistent, false);
     assert.equal(PV.parseHistory({ grinds: new Array(25).fill(grind()) }).grinds.length, 10);
@@ -1375,7 +1515,7 @@ test('every shared history vector parses and shows: rows match the entries, noth
 test('historyView: a weight-mode row shows age, profile, final against target, error, badge and details', () => {
     const view = PV.historyView(historyState(historyDoc([grind()])), ONLINE, 0);
     assert.deepEqual(view.rows, [{ name: 'Double', age: '2 min ago', final: '18.1 g', target: 'target 18.0 g', error: '+0.1 g over',
-        badge: { label: 'Complete', level: 'ok' }, detail: '14.2 s \u00b7 2 pulses' }]);
+        badge: { label: 'Complete', level: 'ok' }, detail: '14.2 s \u00b7 2 pulses', motor: 'motor 9.8 s' }]);
     assert.equal(view.kind, 'ready');
     assert.equal(view.message, '');
     assert.equal(view.note, '');
@@ -1532,6 +1672,14 @@ test('the recent-grinds list is wired in the page: a named list, a hidden chart,
     assert.match(html, /<section id="history"[^>]*aria-labelledby="history-h"[^>]*hidden>/);
     assert.match(html, /<ul id="history-list"[^>]*role="list"[^>]*aria-labelledby="history-h"/);
     assert.match(html, /<div id="history-chart"[^>]*aria-hidden="true"/);
+    // the caption is announced, so it must sit before the aria-hidden bars and outside any aria-hidden element
+    const chartbox = html.match(/<div id="history-chartbox"([^>]*)>([\s\S]*?)<ul id="history-list"/);
+    assert.ok(chartbox, 'history-chartbox block found');
+    assert.match(chartbox[1], /\shidden$/, 'history-chartbox starts hidden');
+    assert.equal(/aria-hidden/.test(chartbox[1]), false, 'history-chartbox is not aria-hidden');
+    const captionAt = chartbox[2].indexOf('<p id="history-caption"');
+    const barsAt = chartbox[2].indexOf('<div id="history-chart"');
+    assert.ok(captionAt >= 0 && captionAt < barsAt, 'history-caption is outside the aria-hidden bars');
     assert.match(html, /<template id="history-row">/);
     assert.match(app, /V\.historyView\(history, conn, now\(\)\)/);
     assert.match(app, /client\.getHistory\(\)/);
@@ -1559,4 +1707,118 @@ test('screen keys sit in Display after the brightness sliders; Never sorts last;
     assert.deepEqual(PV.selectOptions('freshness_hours', 8).map((o) => o.label),
         ['30 minutes', '1 hour', '2 hours', '3 hours', '4 hours', '8 hours', '12 hours', '24 hours', '48 hours']);
     assert.equal(PV.selectOptions('screen_dim_min', 120).slice(-2)[0].label, '2 hours');
+});
+
+test('msText and historyRow motor: milliseconds to text; missing, null, negative and not-a-number give nothing', () => {
+    assert.equal(PV.msText(9800), '9.8 s');
+    assert.equal(PV.msText(0), '0.0 s');
+    assert.equal(PV.msText(59949), '59.9 s');
+    assert.equal(PV.msText(75000), '1 min 15 s');
+    assert.equal(PV.msText(4294967295), '49 d 17 h'); // a huge value stays readable
+    for (const bad of [-1, -0.5, null, undefined, NaN, Infinity, '9800']) assert.equal(PV.msText(bad), '', String(bad));
+    const motor = (over) => PV.historyView(historyState(historyDoc([grind(over)])), ONLINE, 0).rows[0].motor;
+    assert.equal(motor({}), 'motor 9.8 s');
+    assert.equal(motor({ motor_ms: 0 }), 'motor 0.0 s');
+    assert.equal(motor({ motor_ms: 125000 }), 'motor 2 min 5 s');
+    assert.equal(motor({ motor_ms: null }), '');
+    assert.equal(motor({ motor_ms: -5 }), '');
+    assert.equal(motor({ motor_ms: 'x' }), '');
+    assert.equal(PV.historyView(historyState(historyDoc([{ mode: 'weight', result: 'complete' }])), ONLINE, 0).rows[0].motor, ''); // member missing
+    assert.equal(motor({ motor_ms: 4294967295 }), 'motor 49 d 17 h');
+});
+
+test('chg021 V6: historyRow/parseHistory motor_ms edge values (0, normal, null, negative, NaN-like, huge, missing, older firmware)', () => {
+    const motorOf = (over) => PV.historyView(historyState(historyDoc([grind(over)])), ONLINE, 0).rows[0].motor;
+    const parsedOf = (over) => PV.parseHistory(historyDoc([grind(over)])).grinds[0].motorMs;
+    // zero and a normal value are shown; the parsed number is kept as is
+    assert.equal(parsedOf({ motor_ms: 0 }), 0);
+    assert.equal(motorOf({ motor_ms: 0 }), 'motor 0.0 s');
+    assert.equal(parsedOf({ motor_ms: 9800 }), 9800);
+    assert.equal(motorOf({ motor_ms: 9800 }), 'motor 9.8 s');
+    // null, negative, NaN-like and string values give no text and never "undefined" or "NaN"
+    for (const bad of [null, -1, -0.001, NaN, Infinity, -Infinity, '9800', 'NaN', true, {}, [], []]) {
+        assert.equal(motorOf({ motor_ms: bad }), '', String(bad));
+    }
+    assert.equal(parsedOf({ motor_ms: null }), null);
+    assert.equal(parsedOf({ motor_ms: NaN }), null);
+    // huge values stay readable text
+    for (const huge of [4294967295, 1e12, Number.MAX_SAFE_INTEGER]) {
+        const t = motorOf({ motor_ms: huge });
+        assert.match(t, /^motor [0-9]/, String(huge));
+        assert.doesNotMatch(t, /NaN|undefined|Infinity|e\+/, String(huge));
+    }
+    // member missing, and an entry from older firmware that never had it
+    const older = grind();
+    delete older.motor_ms;
+    const row = PV.historyView(historyState(historyDoc([older])), ONLINE, 0).rows[0];
+    assert.equal(row.motor, '');
+    assert.equal(PV.parseHistory(historyDoc([older])).grinds[0].motorMs, null);
+    assert.equal(row.final, '18.1 g'); // the rest of the row is intact
+    assert.equal(row.detail, '14.2 s · 2 pulses');
+    // the motor text never leaks into the detail text
+    assert.doesNotMatch(row.detail, /motor/);
+    // a mixed list keeps each row's own value
+    const rows = PV.historyView(historyState(historyDoc([grind({ motor_ms: 1500 }), older, grind({ motor_ms: -3 })])), ONLINE, 0).rows;
+    assert.deepEqual(rows.map((r) => r.motor), ['motor 1.5 s', '', '']);
+});
+
+test('chg021 V6: all seven stat tiles carry an icon that exists as a symbol in page.src.html', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const ids = new Set([...html.matchAll(/id="i-([a-z-]+)"/g)].map((m) => m[1]));
+    const checks = [loadedStats(), loadedStats({ single: 0, double: 0, custom: 0 })];
+    for (const st of checks) {
+        const tiles = PV.statsView(st, online(), 1000).tiles;
+        assert.equal(tiles.length, 7);
+        assert.equal(new Set(tiles.map((t) => t.id)).size, 7);
+        for (const t of tiles) {
+            assert.equal(typeof t.icon, 'string', t.id);
+            assert.ok(t.icon.length > 0, t.id);
+            assert.ok(ids.has(t.icon), `tile ${t.id}: icon "${t.icon}" has no id="i-${t.icon}" symbol`);
+        }
+    }
+});
+
+test('chg021 V6: skeleton placeholders carry hidden and aria-hidden in the markup, and the app only toggles them', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    for (const id of ['history-skel']) {
+        const tag = html.match(new RegExp('<div id="' + id + '"[^>]*>'));
+        assert.ok(tag, id + ' is missing');
+        assert.match(tag[0], /\baria-hidden="true"/, id);
+        assert.match(tag[0], /\shidden[\s>]/, id);
+        assert.ok(app.includes("setHidden($('" + id + "')"), id + ' is never toggled');
+        // placeholders hold only empty skeleton blocks, no text a screen reader could read
+        const block = html.slice(html.indexOf(tag[0]));
+        const inner = block.slice(tag[0].length, block.indexOf('</div></div>') + 6);
+        assert.doesNotMatch(inner.replace(/<[^>]*>/g, ''), /\S/, id + ' holds text');
+    }
+});
+
+test('chg021 V8: the lead-in is announced once in a live line outside the countdown; the countdown never reaches the status line', () => {
+    const html = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'page.src.html'), 'utf8');
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    // the live line: a status region, screen-reader only, and not inside the hidden countdown block
+    const tag = html.match(/<p id="leadin-live"[^>]*>/);
+    assert.ok(tag, 'leadin-live is missing');
+    assert.match(tag[0], /class="sr-only"/);
+    assert.match(tag[0], /role="status"/);
+    const leadin = html.indexOf('<div id="leadin"');
+    const leadinEnd = html.indexOf('<p id="leadin-text">');
+    assert.ok(leadin !== -1 && leadinEnd !== -1, 'the countdown block is missing');
+    const at = html.indexOf(tag[0]);
+    assert.ok(at < leadin || at > leadinEnd + 40, 'leadin-live sits inside #leadin');
+    // the countdown text (with its count) is never said or written to the status line
+    assert.doesNotMatch(app, /say\(V\.leadInView\(leadIn/, 'the countdown text is still announced');
+    assert.equal(app.match(/setText\(\$\('message'\), ''\)/g).length, 1, 'the status line is cleared only where a lead-in starts');
+    assert.doesNotMatch(app, /setText\(\$\('message'\), V\./, 'a view text is written to the status line');
+    // the live line is written once, at the start, and cleared when the lead-in is over
+    assert.match(app, /setText\(\$\('leadin-live'\), 'Starting ' \+ START_WORDS\[index\]/);
+    assert.match(app, /if \(!li\.visible \|\| li\.dropped\) setText\(\$\('leadin-live'\), ''\);/);
+});
+
+test('chg021 V8: the "did not answer" alert leaves on an edit and at the next save', () => {
+    const app = fs3.readFileSync(path3.join(__dirname, '..', '..', 'web', 'portal', 'portal-app.js'), 'utf8');
+    assert.match(app, /function onEdit\(key, raw\) \{\s*clearBusyAlert\(\);/);
+    assert.match(app, /function saveSettings\(\) \{\s*clearBusyAlert\(\);/);
+    assert.match(app, /if \(code === 'ui_busy'\) busyAlert = err\.message \|\| ''/);
 });
