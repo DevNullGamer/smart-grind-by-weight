@@ -219,6 +219,10 @@ void GlinkSession::note_activity(uint32_t now_ms) {
     connect_ms_ = now_ms;
 }
 
+uint16_t glink_effective_mtu(uint16_t reported_mtu, uint16_t stack_mtu) {
+    return reported_mtu > stack_mtu ? reported_mtu : stack_mtu;
+}
+
 size_t GlinkSession::packet_len() const {
     if (mtu_ <= 3) return GLINK_DEFAULT_PACKET_BYTES;
     const size_t value = static_cast<size_t>(mtu_) - 3;

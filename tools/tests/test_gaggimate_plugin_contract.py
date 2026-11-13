@@ -37,6 +37,7 @@ PURE = [
     GLINK / "GLinkMessages.cpp",
     GLINK / "GLinkClient.h",
     GLINK / "GLinkClient.cpp",
+    GLINK / "RxRing.h",
     GLINK / "bluetooth" / "glink_frame.h",
     GLINK / "bluetooth" / "glink_frame.cpp",
     GLINK / "bluetooth" / "glink_json.h",
@@ -64,7 +65,7 @@ def test_shared_file_is_identical_with_the_firmware(copy, original):
 
 def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
-    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp"}
+    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp", "RxRing.h"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"

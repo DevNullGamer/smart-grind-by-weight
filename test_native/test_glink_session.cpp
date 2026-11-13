@@ -337,6 +337,22 @@ static void test_session_packet_len_follows_mtu() {
     TEST_ASSERT_EQUAL(GLINK_DEFAULT_PACKET_BYTES, s.packet_len());
 }
 
+// Regression: the grinder saw an ATT MTU of 0 (callback value missing) while the stack had negotiated 247, so it sent the hello
+// reply as 17 packets of 20 bytes and the GaggiMate plugin dropped the link ("notification queue overflow").
+static void test_effective_mtu_falls_back_to_the_stack_value() {
+    TEST_ASSERT_EQUAL(247, glink_effective_mtu(0, 247));
+    TEST_ASSERT_EQUAL(247, glink_effective_mtu(247, 0));
+    TEST_ASSERT_EQUAL(247, glink_effective_mtu(247, 23));
+    TEST_ASSERT_EQUAL(0, glink_effective_mtu(0, 0));
+    GlinkSession s;
+    s.on_connect(0);
+    s.set_mtu(glink_effective_mtu(0, 247));
+    TEST_ASSERT_EQUAL(244, s.packet_len());
+    // baseInfo (about 200 bytes) is then 1 packet instead of 17
+    TEST_ASSERT_EQUAL(1, glink_fragment_count(200, s.packet_len()));
+    TEST_ASSERT_EQUAL(17, glink_fragment_count(200, GLINK_DEFAULT_PACKET_BYTES));
+}
+
 static void test_session_handshake_timeout() {
     GlinkSession s;
     TEST_ASSERT_FALSE(s.handshake_timed_out(100000));  // nobody connected
@@ -469,6 +485,7 @@ void run_glink_session_tests() {
     RUN_TEST(test_cadence_dev_state_change_is_not_capped_while_grinding);
     RUN_TEST(test_cadence_force_next_and_clock_wrap);
     RUN_TEST(test_session_packet_len_follows_mtu);
+    RUN_TEST(test_effective_mtu_falls_back_to_the_stack_value);
     RUN_TEST(test_session_handshake_timeout);
     RUN_TEST(test_session_full_client_without_glink_activity_is_never_dropped);
     RUN_TEST(test_session_full_clock_starts_at_first_activity);
