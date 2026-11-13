@@ -75,13 +75,18 @@ static void test_null_out_pointer_tolerated() {
 static void test_failure_notices_have_text() {
     const CalibrationResult failures[] = {
         CalibrationResult::INVALID_WEIGHT, CalibrationResult::HARDWARE_FAULT, CalibrationResult::SETTLE_TIMEOUT,
-        CalibrationResult::SIGNAL_TOO_SMALL, CalibrationResult::INVALID_FACTOR};
+        CalibrationResult::SIGNAL_TOO_SMALL, CalibrationResult::INVALID_FACTOR, CalibrationResult::TARE_FAILED};
     for (CalibrationResult r : failures) {
         TEST_ASSERT_TRUE(strlen(calibration_result_title(r)) > 0);
         TEST_ASSERT_TRUE(strlen(calibration_result_message(r)) > 0);
     }
     TEST_ASSERT_EQUAL_STRING("", calibration_result_title(CalibrationResult::OK));
     TEST_ASSERT_EQUAL_STRING("", calibration_result_message(CalibrationResult::OK));
+}
+
+static void test_tare_result_only_ok_lets_calibration_advance() {
+    TEST_ASSERT_EQUAL(CalibrationResult::OK, calibration_tare_result(true));
+    TEST_ASSERT_EQUAL(CalibrationResult::TARE_FAILED, calibration_tare_result(false));
 }
 
 void run_calibration_math_tests() {
@@ -95,4 +100,5 @@ void run_calibration_math_tests() {
     RUN_TEST(test_extreme_raw_does_not_overflow);
     RUN_TEST(test_null_out_pointer_tolerated);
     RUN_TEST(test_failure_notices_have_text);
+    RUN_TEST(test_tare_result_only_ok_lets_calibration_advance);
 }
