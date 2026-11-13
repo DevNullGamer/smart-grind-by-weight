@@ -581,10 +581,10 @@ The host and token come from `~/.grinder-wifi.json` (written by `wifi-set` or th
 
 - **Name**, **Version**, **Build**: the device name, the installed firmware version and build number.
 - **Board**: the detected board, `V1`, `V2` or `UNKNOWN` (see [Board revisions](#board-revisions-v1-and-v2)).
-- **Busy**: `true` while an update is running, or while a grind, Auto-Tune or motor test is active. `false` means the grinder is idle.
-- **Confirm**: `true` while Confirm is on, so every update needs a tap on the grinder.
+- **Busy**: `True` while an update is running, or while a grind, Auto-Tune or motor test is active. `False` means the grinder is idle.
+- **Confirm**: `True` while Confirm is on, so every update needs a tap on the grinder.
 
-> **`/api/info` needs no token.** Anyone on the same WiFi can read these fields, including Confirm, which shows whether a tap is needed. The name, version, build and board were readable before Confirm was added, and this was accepted. Only `wifi-upload` and the other update routes need the token.
+> **`/api/info` needs no token.** While Receive or the Web interface is on, anyone on the same WiFi can read these fields, including Confirm, which shows whether a tap is needed. The name, version, build and board were readable before Confirm was added, and this was accepted. Only `wifi-upload` and the other update routes need the token.
 
 ### Update from the menu
 
