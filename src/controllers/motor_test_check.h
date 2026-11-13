@@ -19,6 +19,11 @@ enum class MotorTestBlock : uint8_t {
 // First applicable block, in this order: fault latched, motor disabled, lock-out, busy.
 MotorTestBlock motor_test_block(bool motor_available, bool locked_out, bool busy, bool fault_latched);
 
+// Whether Auto-Tune may start. Same order and texts as motor_test_block(): Auto-Tune drives the motor
+// with finite pulses, so a latched deadman fault refuses it too. `busy` = an autotune run is already active.
+// AutoTuneController::start() asks this itself, so no entry point can bypass the touchscreen checks.
+MotorTestBlock autotune_start_block(bool motor_available, bool locked_out, bool busy, bool fault_latched);
+
 // Whether Start on Cup may start a grind: not while a Motor Test drives the output (two motor paths).
 // The caller passes MenuUIController::is_motor_test_active(), which is derived from the poll timer and
 // so is false again after every way out of a test.

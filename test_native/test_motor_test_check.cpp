@@ -190,7 +190,30 @@ static void test_auto_start_allowed_again_after_test_ends() {
     TEST_ASSERT_TRUE(auto_start_allowed(false));
 }
 
+// A6: a latched deadman fault refuses Auto-Tune, even when every other input is clear
+static void test_autotune_refused_while_fault_latched() {
+    TEST_ASSERT_EQUAL(MotorTestBlock::MOTOR_FAULT, autotune_start_block(true, false, false, true));
+    TEST_ASSERT_EQUAL(MotorTestBlock::NONE, autotune_start_block(true, false, false, false));
+}
+
+static void test_autotune_block_matches_motor_test_block() {
+    for (int i = 0; i < 16; i++) {
+        TEST_ASSERT_EQUAL(motor_test_block(i & 1, i & 2, i & 4, i & 8),
+                          autotune_start_block(i & 1, i & 2, i & 4, i & 8));
+    }
+}
+
+static void test_autotune_fault_wins_and_has_restart_notice() {
+    // A failed output halt also clears "available"; the user must still be told to restart
+    TEST_ASSERT_EQUAL(MotorTestBlock::MOTOR_FAULT, autotune_start_block(false, true, true, true));
+    TEST_ASSERT_EQUAL_STRING("MOTOR FAULT", motor_test_block_title(MotorTestBlock::MOTOR_FAULT));
+    TEST_ASSERT_NOT_NULL(strstr(motor_test_block_message(MotorTestBlock::MOTOR_FAULT), "Restart"));
+}
+
 void run_motor_test_check_tests() {
+    RUN_TEST(test_autotune_refused_while_fault_latched);
+    RUN_TEST(test_autotune_block_matches_motor_test_block);
+    RUN_TEST(test_autotune_fault_wins_and_has_restart_notice);
     RUN_TEST(test_auto_start_allowed_idle);
     RUN_TEST(test_auto_start_blocked_while_motor_test_active);
     RUN_TEST(test_auto_start_allowed_again_after_test_ends);

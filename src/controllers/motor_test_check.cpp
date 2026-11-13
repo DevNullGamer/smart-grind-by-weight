@@ -24,6 +24,10 @@ MotorTestBlock motor_test_block(bool motor_available, bool locked_out, bool busy
     return MotorTestBlock::NONE;
 }
 
+MotorTestBlock autotune_start_block(bool motor_available, bool locked_out, bool busy, bool fault_latched) {
+    return motor_test_block(motor_available, locked_out, busy, fault_latched);
+}
+
 bool auto_start_allowed(bool motor_test_active) {
     return !motor_test_active;
 }
