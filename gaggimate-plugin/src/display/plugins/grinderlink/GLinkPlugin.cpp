@@ -117,6 +117,7 @@ void GLinkPlugin::setup(Controller *_controller, PluginManager *_pluginManager) 
     if (!client || !rxStorage || !scratch) {
         ESP_LOGE(TAG, "Out of memory, GrinderLink is off");
         client.reset();
+        rxRing.init(nullptr, 0);  // no dangling pointer to the storage released next
         rxStorage.reset();
         scratch.reset();
         return;

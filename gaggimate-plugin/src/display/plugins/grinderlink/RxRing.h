@@ -36,7 +36,9 @@ class RxRing {
     size_t pop(uint8_t *out, size_t out_cap) {
         if (count_ == 0)
             return 0;
-        const size_t len = static_cast<size_t>(take()) | (static_cast<size_t>(take()) << 8);
+        const size_t lo = take();  // two statements: the evaluation order of the operands of | is unspecified
+        const size_t hi = take();
+        const size_t len = lo | (hi << 8);
         const bool fits = len <= out_cap;
         for (size_t i = 0; i < len; i++) {
             const uint8_t b = take();
