@@ -568,7 +568,7 @@ The Web interface switch is separate from **Receive**: Receive still only contro
 2. Build or download the firmware image (`.bin`), then run:
 
 ```bash
-python3 tools/grinder.py wifi-info                # check that the grinder answers (name, version, build, Confirm)
+python3 tools/grinder.py wifi-info                # check that the grinder answers (name, version, build, board, busy, Confirm)
 python3 tools/grinder.py wifi-upload              # uploads the latest build
 python3 tools/grinder.py wifi-upload path/to/firmware.bin
 ```
@@ -576,6 +576,15 @@ python3 tools/grinder.py wifi-upload path/to/firmware.bin
 The host and token come from `~/.grinder-wifi.json` (written by `wifi-set` or the downloaded web flasher config), from `--host` / `--token`, or from the environment variables `GRINDER_WIFI_HOST` / `GRINDER_WIFI_TOKEN`. The grinder is reachable as `grindbyweight.local`; if your system cannot resolve that name, use the IP address shown in **Menu → WiFi**.
 
 3. The tool prints "Confirm the update on the grinder screen (30 s)...". Tap **INSTALL**. The screen shows a progress arc; the grinder restarts by itself when the image is installed. At weak signal an upload can take several minutes.
+
+`wifi-info` shows what the grinder reports on `GET /api/info`:
+
+- **Name**, **Version**, **Build**: the device name, the installed firmware version and build number.
+- **Board**: the detected board, `V1`, `V2` or `UNKNOWN` (see [Board revisions](#board-revisions-v1-and-v2)).
+- **Busy**: `true` while an update is running, or while a grind, Auto-Tune or motor test is active. `false` means the grinder is idle.
+- **Confirm**: `true` while Confirm is on, so every update needs a tap on the grinder.
+
+> **`/api/info` needs no token.** Anyone on the same WiFi can read these fields, including Confirm, which shows whether a tap is needed. The name, version, build and board were readable before Confirm was added, and this was accepted. Only `wifi-upload` and the other update routes need the token.
 
 ### Update from the menu
 
