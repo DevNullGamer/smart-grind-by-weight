@@ -1489,8 +1489,8 @@ void BluetoothManager::glink_pump_tx(uint32_t now_ms) {
     static uint32_t size_logged_epoch = 0;  // one line per connection: the packet size the first message uses
     if (size_logged_epoch != link_epoch.load()) {
         size_logged_epoch = link_epoch.load();
-        log("GLink: packet size %u (ATT MTU %u)\n", static_cast<unsigned>(glink_session.packet_len()),
-            static_cast<unsigned>(glink_session.mtu()));
+        log("GLink: packet size %u (ATT MTU %u, callback value %u)\n", static_cast<unsigned>(glink_session.packet_len()),
+            static_cast<unsigned>(glink_session.mtu()), static_cast<unsigned>(att_mtu.load()));
     }
 
     uint8_t packet[GLINK_MAX_PACKET_BYTES];
