@@ -6,6 +6,7 @@
 #ifndef GAGGIMATE_SIM
 
 #include "GLinkClient.h"
+#include "GLinkReconnect.h"
 #include "RxRing.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -65,7 +66,7 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
         bool hasSize = false;
         bool sizeNull = false;
         float size = 0.0f;
-        bool keepalive = false; // CONNECT: only refresh the idle timer, never make a link
+        bool keepalive = false; // CONNECT: accepted for old cards; linked answers OK, otherwise NOT_CONNECTED, never makes a link
         String badField;        // present with the wrong type, or missing: INVALID_PARAM
         bool hasUnit = false;
         bool unitNull = false;
@@ -102,6 +103,9 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
         GLinkPlugin &owner;
     };
 
+    // NimBLE GAP listener (host task). Stores the disconnect reason of the grinder's own connection only.
+    static int onGapEvent(struct ble_gap_event *event, void *arg);
+
     struct RxPacket {
         uint16_t len = 0;
         uint8_t data[GLINK_MAX_PACKET_BYTES];
@@ -133,12 +137,17 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
     void finishScan();
     void selectDevice(const Command &cmd);
     void forget(const Command &cmd);
-    bool connectLink(uint32_t now);
+    // manual: a Connect press (clears the start/stop warnings, 5 s timeout); automatic: the reconnect policy (3 s timeout)
+    bool connectLink(uint32_t now, uint8_t timeoutSeconds, bool manual);
+    void autoReconnect(uint32_t now);
+    void refreshGrinderStored();
+    bool gaggimateBusy() const;
     void dropLink(const char *reason, bool userRequested);
     void drainRx(uint32_t now);
+    void logLostReason();
+    void logConnectFailure(uint32_t seqAtAttempt);
+    void logLinkRssi(uint32_t now);
     void autoFetch(uint32_t now);
-    void updateIdle(uint32_t now);
-    bool grinderBusy() const;
     bool ready() const { return client != nullptr && client->state() == glinkc::LinkState::READY; }
     bool clientBusy() const { return inflight.valid || (client != nullptr && client->pending() != glinkc::RequestKind::NONE); }
     void beginClientOp(const Command &cmd, uint32_t now);
@@ -183,9 +192,23 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
     NimBLERemoteCharacteristic *tx = nullptr;
     LinkPhase phase = LinkPhase::IDLE;
     std::atomic<bool> linkLost{false};
+    std::atomic<int> linkDownReason{-1};      // NimBLE host task -> loop task: reason of the grinder link, -1 none
+    std::atomic<uint16_t> linkHandle{0xFFFF}; // connection handle of the grinder link, 0xFFFF none
+    std::atomic<uint32_t> disconnectSeq{0};   // NimBLE host task: counts every disconnect of any connection
+    std::atomic<uint32_t> lastDisconnect{0};  // latest disconnect of any connection: (conn handle << 16) | reason
     std::atomic<uint32_t> linkEpoch{0}; // changes on every connect and every drop
     uint32_t lastConnectAttempt = 0;
-    uint32_t lastUse = 0;
+    uint32_t rssiDue = 0;     // loop task: when the next RSSI read is due (wrap-safe signed difference)
+    uint32_t rssiLogDue = 0;  // loop task: when the next serial RSSI line is due
+    int linkRssi = 0;         // dBm of the grinder link, 0 = none; shown on the card
+    int txPowerDbm = 0;       // this screen's TX power at link-up
+    bool txPowerKnown = false;
+    // Auto-reconnect (chg023 part 2)
+    glinkc::Reconnect reconnect_;
+    bool grinderStored = false;         // cached: a grinder address is saved (refreshGrinderStored())
+    bool grinderStoredKnown = false;
+    std::atomic<bool> standbyLatch{false}; // controller:mode:change (any task) saw STANDBY; consumed by loop()
+    bool autoReconnectLogged = false;   // the stack high-water mark was logged after the first automatic reconnect
     bool connectAttempted = false;
     bool disconnectWanted = false;
     String disconnectReason;

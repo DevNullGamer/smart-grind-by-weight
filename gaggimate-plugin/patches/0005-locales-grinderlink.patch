@@ -1,8 +1,8 @@
 diff --git a/web/src/locales/de/messages.po b/web/src/locales/de/messages.po
-index d98931d5..12669293 100644
+index d98931d5..6846bf67 100644
 --- a/web/src/locales/de/messages.po
 +++ b/web/src/locales/de/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "Dein Smartphone muss im selben Wi-Fi-Netzwerk wie die Maschine sein."
+@@ -5760,3 +5760,99 @@ msgstr "Dein Smartphone muss im selben Wi-Fi-Netzwerk wie die Maschine sein."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "Deine gespeicherten Shots und Profile direkt aus dem internen Speicher von GaggiMate."
@@ -94,11 +94,19 @@ index d98931d5..12669293 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "Anfrage fehlgeschlagen"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Signal"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "Sendeleistung"
 diff --git a/web/src/locales/en/messages.po b/web/src/locales/en/messages.po
-index 1868492d..96fec1f7 100644
+index 1868492d..d15979b6 100644
 --- a/web/src/locales/en/messages.po
 +++ b/web/src/locales/en/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "Your phone needs to be on the same Wi-Fi network as the machine."
+@@ -5760,3 +5760,99 @@ msgstr "Your phone needs to be on the same Wi-Fi network as the machine."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "Your saved shots and profiles directly from the GaggiMate internal storage."
@@ -190,11 +198,19 @@ index 1868492d..96fec1f7 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "Request failed"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Signal"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "TX power"
 diff --git a/web/src/locales/es/messages.po b/web/src/locales/es/messages.po
-index 832af6d7..76400f41 100644
+index 832af6d7..4ecd8d85 100644
 --- a/web/src/locales/es/messages.po
 +++ b/web/src/locales/es/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "Tu teléfono debe estar en la misma red Wi-Fi que la máquina."
+@@ -5760,3 +5760,99 @@ msgstr "Tu teléfono debe estar en la misma red Wi-Fi que la máquina."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "Tus extracciones y perfiles guardados, directamente desde el almacenamiento interno de GaggiMate."
@@ -286,11 +302,19 @@ index 832af6d7..76400f41 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "La solicitud falló"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Señal"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "Potencia de TX"
 diff --git a/web/src/locales/fr/messages.po b/web/src/locales/fr/messages.po
-index e5d8f858..5c8860a5 100644
+index e5d8f858..a65a031c 100644
 --- a/web/src/locales/fr/messages.po
 +++ b/web/src/locales/fr/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "Votre téléphone doit être sur le même réseau Wi-Fi que la machine."
+@@ -5760,3 +5760,99 @@ msgstr "Votre téléphone doit être sur le même réseau Wi-Fi que la machine."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "Vos shots et profils enregistrés, directement depuis le stockage interne de GaggiMate."
@@ -382,11 +406,19 @@ index e5d8f858..5c8860a5 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "Échec de la requête"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Signal"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "Puissance d'émission"
 diff --git a/web/src/locales/it/messages.po b/web/src/locales/it/messages.po
-index 04f30fd3..29bba498 100644
+index 04f30fd3..fb237f9a 100644
 --- a/web/src/locales/it/messages.po
 +++ b/web/src/locales/it/messages.po
-@@ -5764,3 +5764,91 @@ msgstr "Il telefono deve essere sulla stessa rete Wi-Fi della macchina."
+@@ -5764,3 +5764,99 @@ msgstr "Il telefono deve essere sulla stessa rete Wi-Fi della macchina."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "Gli shot e i profili salvati, direttamente dalla memoria interna di GaggiMate."
@@ -478,11 +510,19 @@ index 04f30fd3..29bba498 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "Richiesta non riuscita"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Segnale"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "Potenza TX"
 diff --git a/web/src/locales/ja/messages.po b/web/src/locales/ja/messages.po
-index 10c91dfc..e561ac1b 100644
+index 10c91dfc..c5473ec7 100644
 --- a/web/src/locales/ja/messages.po
 +++ b/web/src/locales/ja/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "スマートフォンをマシンと同じ Wi-Fi ネットワークに
+@@ -5760,3 +5760,99 @@ msgstr "スマートフォンをマシンと同じ Wi-Fi ネットワークに
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "GaggiMate の内部ストレージに保存されたショットとプロファイルを直接表示します。"
@@ -574,11 +614,19 @@ index 10c91dfc..e561ac1b 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "リクエストに失敗しました"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "信号"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "送信出力"
 diff --git a/web/src/locales/zh/messages.po b/web/src/locales/zh/messages.po
-index 27095dd0..714c9174 100644
+index 27095dd0..61242f69 100644
 --- a/web/src/locales/zh/messages.po
 +++ b/web/src/locales/zh/messages.po
-@@ -5760,3 +5760,91 @@ msgstr "手机需要与咖啡机处于同一 Wi-Fi 网络。"
+@@ -5760,3 +5760,99 @@ msgstr "手机需要与咖啡机处于同一 Wi-Fi 网络。"
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
  msgstr "直接来自 GaggiMate 内部存储的已保存萃取和曲线。"
@@ -670,3 +718,11 @@ index 27095dd0..714c9174 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Request failed"
 +msgstr "请求失败"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "信号"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "发射功率"

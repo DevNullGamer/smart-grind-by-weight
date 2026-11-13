@@ -3,5 +3,6 @@
 // compile this file.
 #include "../../src/display/plugins/grinderlink/GLinkClient.cpp"
 #include "../../src/display/plugins/grinderlink/GLinkMessages.cpp"
+#include "../../src/display/plugins/grinderlink/GLinkReconnect.cpp"
 #include "../../src/display/plugins/grinderlink/bluetooth/glink_frame.cpp"
 #include "../../src/display/plugins/grinderlink/bluetooth/glink_json.cpp"

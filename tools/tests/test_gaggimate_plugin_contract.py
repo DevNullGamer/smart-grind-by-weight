@@ -26,6 +26,8 @@ SHARED = {
     GLINK / "bluetooth" / "glink_frame.cpp": ROOT / "src" / "bluetooth" / "glink_frame.cpp",
     GLINK / "bluetooth" / "glink_json.h": ROOT / "src" / "bluetooth" / "glink_json.h",
     GLINK / "bluetooth" / "glink_json.cpp": ROOT / "src" / "bluetooth" / "glink_json.cpp",
+    GLINK / "bluetooth" / "glink_disconnect.h": ROOT / "src" / "bluetooth" / "glink_disconnect.h",
+    GLINK / "bluetooth" / "glink_disconnect.cpp": ROOT / "src" / "bluetooth" / "glink_disconnect.cpp",
     PLUGIN / "docs" / "GLINK-PROTOCOL.md": ROOT / "docs" / "GLINK-PROTOCOL.md",
     PLUGIN / "tools" / "tests" / "glink_vectors.json": ROOT / "tools" / "tests" / "glink_vectors.json",
     PLUGIN / "test" / "test_grinderlink" / "glink_vectors.h": ROOT / "test_native" / "glink_vectors.h",
@@ -37,6 +39,8 @@ PURE = [
     GLINK / "GLinkMessages.cpp",
     GLINK / "GLinkClient.h",
     GLINK / "GLinkClient.cpp",
+    GLINK / "GLinkReconnect.h",
+    GLINK / "GLinkReconnect.cpp",
     GLINK / "RxRing.h",
     GLINK / "bluetooth" / "glink_frame.h",
     GLINK / "bluetooth" / "glink_frame.cpp",
@@ -65,7 +69,7 @@ def test_shared_file_is_identical_with_the_firmware(copy, original):
 
 def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
-    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp", "RxRing.h"}
+    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp", "GLinkReconnect.h", "GLinkReconnect.cpp", "RxRing.h"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"
@@ -231,6 +235,91 @@ def test_check_script_refuses_a_directory_that_is_not_empty(tmp_path):
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 2 and "BLOCKED" in r.stdout
     assert (tmp_path / "keep.txt").exists()
+
+
+# ---- chg023 step 5: signal display, no idle disconnect, reconnect path ---------------------------------------------
+
+LOCALES = ("de", "en", "es", "fr", "it", "ja", "zh")
+
+
+def function_body(text: str, signature: str) -> str:
+    """Text from `signature` to the closing brace of the function (brace counting; code comments are not stripped)."""
+    start = text.index(signature)
+    open_at = text.index("{", start)
+    depth = 0
+    for i in range(open_at, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    raise AssertionError(f"unbalanced braces after {signature}")
+
+
+def plugin_code() -> str:
+    return chr(10).join(code_lines(PLUGIN_CPP))
+
+
+def test_card_shows_signal_and_tx_power_with_translated_labels():
+    card = read_text(CARD)
+    assert "status.rssi" in card and "status.txPower" in card
+    assert "t`Signal`" in card and "t`TX power`" in card
+
+
+def test_locale_patch_has_signal_and_tx_power_in_all_seven_locales():
+    patch = read_text(PLUGIN / "patches" / "0005-locales-grinderlink.patch")
+    files = re.split(r"(?m)^diff --git ", patch)[1:]
+    assert len(files) == len(LOCALES)
+    for locale in LOCALES:
+        chunk = [f for f in files if f.startswith(f"a/web/src/locales/{locale}/messages.po ")]
+        assert len(chunk) == 1, f"no {locale} locale in the patch"
+        assert '+msgid "Signal"' in chunk[0], locale
+        assert '+msgid "TX power"' in chunk[0], locale
+
+
+def test_status_carries_rssi_and_tx_power_and_drop_link_clears_them():
+    code = plugin_code()
+    fill = function_body(code, "void GLinkPlugin::fillStatus")
+    assert '"rssi"' in fill and '"txPower"' in fill
+    drop = function_body(code, "void GLinkPlugin::dropLink")
+    assert re.search(r"\blinkRssi\s*=\s*0\s*;", drop)
+    assert re.search(r"\btxPowerDbm\s*=\s*0\s*;", drop)
+    assert re.search(r"\btxPowerKnown\s*=\s*false\s*;", drop)
+
+
+def test_idle_disconnect_is_gone():
+    texts = {p.name: read_text(p) for p in (PLUGIN_CPP, GLINK / "GLinkPlugin.h", PLUGIN / "README.md")}
+    for name in ("IDLE_DISCONNECT_MS", "updateIdle", "lastUse"):
+        for fname, text in texts.items():
+            assert name not in text, f"{name} still occurs in {fname}"
+
+
+def test_mode_change_handler_only_latches_an_atomic():
+    text = read_text(PLUGIN_CPP)
+    reg = text.index('pluginManager->on("controller:mode:change"')
+    end = text.index("});", reg)
+    handler = text[reg:end]
+    assert "standbyLatch" in handler
+    for forbidden in ("note_", "connectLink", "dropLink", "reconnect_"):
+        assert forbidden not in handler, f"mode:change handler calls {forbidden}"
+    assert re.search(r"std::atomic<bool>\s+standbyLatch", read_text(GLINK / "GLinkPlugin.h"))
+
+
+def test_automatic_reconnect_only_connects_and_never_sends_a_start():
+    body = function_body(plugin_code(), "void GLinkPlugin::autoReconnect")
+    assert "connectLink(" in body
+    assert "client->start(" not in body and "beginClientOp(" not in body
+    # the single start stays in beginClientOp
+    assert plugin_code().count("client->start(") == 1
+
+
+def test_reconnect_policy_has_no_due_method_and_documents_one_note_per_failure():
+    header = read_text(GLINK / "GLinkReconnect.h")
+    source = read_text(GLINK / "GLinkReconnect.cpp")
+    assert not re.search(r"\bdue\s*\(", header)
+    assert not re.search(r"\bdue\s*\(", source)
+    assert "exactly ONE of note_attempt(false) / note_link_lost per failed connect" in header
 
 
 # ---- README -----------------------------------------------------------------------------------------------------

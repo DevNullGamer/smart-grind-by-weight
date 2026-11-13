@@ -3,6 +3,7 @@
 void run_glink_plugin_messages_tests();
 void run_glink_plugin_client_tests();
 void run_glink_plugin_rx_ring_tests();
+void run_glink_plugin_reconnect_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -12,5 +13,6 @@ int main() {
     run_glink_plugin_messages_tests();
     run_glink_plugin_client_tests();
     run_glink_plugin_rx_ring_tests();
+    run_glink_plugin_reconnect_tests();
     return UNITY_END();
 }

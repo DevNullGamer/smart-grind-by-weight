@@ -6,7 +6,7 @@ import { ApiServiceContext } from '../../services/ApiService.js';
 // The plugin owns the Bluetooth link; this card only sends requests and shows the state it publishes.
 
 const PROFILE_DOSE = 3; // the one profile the grinder lets Bluetooth write
-const KEEPALIVE_MS = 20000; // the plugin drops an unused link after 60 s
+const KEEPALIVE_MS = 20000; // keeps the link alive; the card does not reconnect by itself (the plugin does)
 const STATUS_TIMEOUT_MS = 3000; // no answer means the plugin is not running (needs a restart)
 const ACTION_TIMEOUT_MS = 15000; // a connect can take a few seconds
 
@@ -170,6 +170,13 @@ export function GrinderLinkCard({ formData, onChange }) {
                   </code>
                   <span className='text-sm opacity-70'>{linkText}</span>
                 </div>
+                {linked && (
+                  <div className='mt-1 text-sm opacity-70'>
+                    {t`Signal`}: {Number.isFinite(status.rssi) ? `${status.rssi} dBm` : '–'}
+                    {Number.isFinite(status.txPower) &&
+                      ` · ${t`TX power`}: ${status.txPower > 0 ? '+' : ''}${status.txPower} dBm`}
+                  </div>
+                )}
                 {status.error && <div className='text-error mt-1 text-sm'>{status.error}</div>}
               </div>
               <div className='flex flex-wrap gap-2'>

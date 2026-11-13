@@ -1320,3 +1320,42 @@ CLAUDE.md was cut from 16.5 KB to about 12.8 KB (chg022 A3). The binding rules s
 - The READY tabview has its PROFILE page only once index 3 is stored (`ReadyUIController::sync_pages()` rebuilds READY). Grind size is display-only (`controllers/grind_size.*`).
 - GLink: the Bluetooth task reads the snapshot the UI task publishes; the mailbox is one slot. LINK_ONLY: no timers, only the GLink characteristics work.
 - Load cell: other `CircularBufferMath` passes are bounded in-place walks of the 1024-entry ring.
+
+## Auto-reconnect and link diagnostics (chg023)
+
+### Auto-reconnect (GaggiMate plugin)
+
+- Policy is pure (`gaggimate-plugin/.../grinderlink/GLinkReconnect.{h,cpp}`, no Arduino/NimBLE/heap, injected clock, wrap-safe); `GLinkPlugin` calls it from `loop()` and does the connect.
+- Attempts only while GaggiMate is idle (same predicate as manual Connect: not brewing, grinding or busy) and NOT in standby. First attempt right after wake-up and at boot once idle. Backoff 3 s, 10 s, then every 30 s forever.
+- Automatic connect timeout 3 s (manual Connect 5 s). Each attempt blocks the plugin's `loop()` for up to that long, only when idle.
+- A link that stayed up under 30 s does not reset the backoff (flapping link).
+- Disconnect (button or `req:grinderlink:disconnect`) keeps auto-reconnect off until GaggiMate has been in standby or restarted (RAM only, not saved). Select, forget and a manual Connect re-arm it.
+- The old 60 s idle drop is gone. The card's keep-alive is still accepted and does nothing.
+- A start is never replayed after a reconnect. `startOutcome`, `startTimedOut` and `stopUnconfirmed` are cleared only by a manual connect.
+- Consequence (user decision): while the link is up it holds the grinder's single BLE client slot, so `grinder.py` upload/WiFi tools, the web flasher and WiFi updates of the grinder are blocked until Disconnect on the GaggiMate card or the grinder's "GaggiMate link" off.
+- Residual: a shot that starts during an automatic connect (up to 3 s plus discovery) stalls the plugin loop for the rest of it, as with manual Connect.
+
+### Link diagnostics
+
+- Grinder log: `BLE: disconnect reason 0x08 (supervision timeout), conn handle N` (names from `glink_disconnect.*`, shared byte-identical with the plugin), `BLE: TX power +9 dBm` once per connection, `BLE: RSSI -NN dBm, conn handle N` every 5 s.
+- Screen log: `Grinder link lost, reason 0x..`, `Grinder connect failed, last disconnect ...`, `Grinder link RSSI -NN dBm` every 5 s, TX power at link-up ("TX unknown" instead of -128).
+- Plugin status object (`req:grinderlink:status`, `evt:grinderlink:state`) has `rssi` and `txPower` (dBm) while linked. The card shows `Signal: -62 dBm · TX power: +9 dBm`; new msgids `Signal` and `TX power` in the seven catalogs of patch 0005. RSSI is read about every 1 s while a browser is connected, else every 5 s.
+
+### Bench finding (2026-11-13, dev boards on USB)
+
+The link broke with reason 0x08 (supervision timeout) on both sides, once about 25 s after connect when the screen was moved from 10-15 cm to 50-60 cm. The grinder stack's default TX power is already +9 dBm (sdkconfig P9). Cause not found; suspects: weak link margin at 50-60 cm, WiFi/scale scan sharing the radio on the screen. No fix is claimed; the diagnostics above are meant to show it.
+
+### Build notes (GaggiMate display image)
+
+- The GaggiMate web UI is embedded in the display firmware image (not LittleFS). A card change needs, in the staged clone: `npm ci`, `npm run build`, gzip of `dist/assets/*.js`, `*.css` and `dist/*.html`, `python scripts/embed_webui.py --src web/dist --out src/display/webassets`, then `pio run -e display` and a flash of the firmware. `scripts/check_against_gaggimate.sh` does not do the web build.
+- Run `pio` only from PowerShell: Git Bash corrupts `~/.platformio/packages/tool-esptoolpy` ("MSys/Mingw is not supported").
+- Never run native tests during a firmware build in the same `.pio`. `pio run -t nobuild -t upload` does not work in this project.
+
+### Not verified on hardware
+
+1. Auto-reconnect after a power cycle of either side; no attempt in standby; first attempt after wake-up; the 3/10/30 s backoff; Disconnect staying off until standby/restart.
+2. No connect in the middle of a shot; a mid-shot drop reconnecting afterwards.
+3. Cost of the RSSI read (about 1 s with a browser connected) and the loop task's stack headroom.
+4. Interplay with the scale plugin (scan sharing).
+5. The cause of the 0x08 drop at 50-60 cm.
+6. The card text and the new locale strings (hand-written, web UI not rendered).

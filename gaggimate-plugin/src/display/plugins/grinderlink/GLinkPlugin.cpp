@@ -2,8 +2,12 @@
 
 #include "GLinkPlugin.h"
 
+#include "bluetooth/glink_disconnect.h"
+#include <esp_bt.h>
+#include <nimble/nimble/host/include/host/ble_hs.h>
 #include <cmath>
 #include <display/core/Controller.h>
+#include <display/core/constants.h>
 #include <display/core/Event.h>
 #include <display/core/PluginManager.h>
 #include <display/plugins/WebSocketHandler.h>
@@ -15,9 +19,9 @@ static_assert(CONFIG_BT_NIMBLE_MAX_CONNECTIONS >= 3, "GrinderLink needs CONFIG_B
 namespace {
 constexpr const char *TAG = "GLinkPlugin";
 constexpr uint32_t SCAN_WINDOW_MS = 6000;         // one Scan press listens this long
-constexpr uint32_t IDLE_DISCONNECT_MS = 60000;    // the link is dropped when the card has not asked for it this long
 constexpr uint32_t CONNECT_RETRY_MS = 3000;       // minimum gap between two connect attempts
-constexpr uint8_t CONNECT_TIMEOUT_S = 5;          // NimBLE's default of 30 s would block the main loop
+constexpr uint8_t CONNECT_TIMEOUT_S = 5;          // manual Connect; NimBLE's default of 30 s would block the main loop
+constexpr uint8_t AUTO_CONNECT_TIMEOUT_S = 3;     // automatic reconnect attempts block the loop task less
 constexpr uint32_t EVENT_MIN_INTERVAL_MS = 250;   // state events to the browser: 4 Hz at most
 constexpr uint32_t AUTO_FETCH_MIN_INTERVAL_MS = 2000;
 // Notification ring between the NimBLE task and loop(). One packet takes 2 + length bytes: 8 KB hold about 370 packets
@@ -27,6 +31,13 @@ constexpr size_t RX_RING_BYTES = 8192;
 constexpr size_t RX_DRAIN_PER_LOOP = 64;
 constexpr size_t MAX_FOUND = 8;
 constexpr size_t MAX_COMMANDS = 8;
+constexpr int NO_REASON = -1;
+constexpr uint16_t NO_LINK_HANDLE = 0xFFFF; // BLE_HS_CONN_HANDLE_NONE
+constexpr uint32_t RSSI_LOG_MS = 5000;      // the link's RSSI is logged this often while linked (chg023 1b)
+constexpr uint32_t RSSI_WATCH_MS = 1000;    // and read this often while a web page is connected (the card shows it)
+
+// Registered with NimBLE in connectLink(); the stack keeps the pointer, so it lives for the whole run.
+ble_gap_event_listener gapListener;
 
 bool isHex(char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); }
 
@@ -128,6 +139,12 @@ void GLinkPlugin::setup(Controller *_controller, PluginManager *_pluginManager) 
     // The prototype is driven from the settings card. A dose source and the exact wiring are for the maintainer to decide.
     pluginManager->on("controller:grind:start", [](Event const &) { ESP_LOGI(TAG, "GaggiMate grind started (no grinder action)"); });
     pluginManager->on("controller:grind:end", [](Event const &) { ESP_LOGI(TAG, "GaggiMate grind ended (no grinder action)"); });
+    // May run on the UI, button or AsyncTCP task: only latch STANDBY, loop() consumes it (a short standby between two
+    // loop passes must still clear the user's Disconnect and arm a reconnect).
+    pluginManager->on("controller:mode:change", [this](Event const &event) {
+        if (event.getInt("value") == MODE_STANDBY)
+            standbyLatch = true;
+    });
 }
 
 //------------------------------------------------------------------------------
@@ -234,16 +251,23 @@ void GLinkPlugin::loop() {
     if (!client)
         return;
     const uint32_t now = millis();
+    if (!grinderStoredKnown)
+        refreshGrinderStored(); // the settings are loaded before the first loop() pass
 
     if (scanning && static_cast<int32_t>(now - scanDeadline) >= 0)
         finishScan();
 
+    // Each lost link is reported to the reconnect policy exactly once (note_link_lost).
     if (rxOverflow.exchange(false) && phase == LinkPhase::LINKED) {
         ESP_LOGW(TAG, "Notification queue overflow, dropping the link");
         dropLink("notification queue overflow", false);
+        reconnect_.note_link_lost(now);
     }
-    if (linkLost.exchange(false) && phase == LinkPhase::LINKED)
+    if (linkLost.exchange(false) && phase == LinkPhase::LINKED) {
+        logLostReason();
         dropLink("link lost", false);
+        reconnect_.note_link_lost(now);
+    }
 
     if (phase == LinkPhase::LINKED) {
         drainRx(now);
@@ -251,6 +275,7 @@ void GLinkPlugin::loop() {
         if (disconnectWanted) {
             disconnectWanted = false;
             dropLink(disconnectReason.c_str(), false);
+            reconnect_.note_link_lost(now);
         }
     }
 
@@ -267,10 +292,12 @@ void GLinkPlugin::loop() {
     }
     if (have)
         handle(cmd, now);
+    else
+        autoReconnect(now); // not in the pass that handled a command: it may have changed the link or blocked for seconds
 
     if (phase == LinkPhase::LINKED) {
+        logLinkRssi(now);
         autoFetch(now);
-        updateIdle(now);
     }
     publishState(now);
 }
@@ -280,8 +307,6 @@ void GLinkPlugin::handle(const Command &cmd, uint32_t now) {
         replyError(cmd, "INVALID_PARAM", "missing or wrong type", cmd.badField.c_str());
         return;
     }
-    if (cmd.kind != CmdKind::STATUS && cmd.kind != CmdKind::SCAN && !cmd.keepalive)
-        lastUse = now;
     switch (cmd.kind) {
     case CmdKind::STATUS:
         replyOk(cmd, true);
@@ -296,16 +321,22 @@ void GLinkPlugin::handle(const Command &cmd, uint32_t now) {
         forget(cmd);
         break;
     case CmdKind::CONNECT:
+        if (phase != LinkPhase::LINKED && !cmd.keepalive)
+            reconnect_.note_grinder_changed(now); // a Connect press clears the user's Disconnect, even if answered BUSY
         if (phase == LinkPhase::LINKED) {
             replyOk(cmd, true);
         } else if (cmd.keepalive) {
             // A keep-alive never makes a link: it may have been sent just before the link was lost.
             replyError(cmd, "NOT_CONNECTED", "the link ended; press Connect");
-        } else if (controller->isActive() || controller->getSystemState() != SYSTEM_READY) {
+        } else if (gaggimateBusy()) {
             // A connect blocks loop() for seconds; not while a grind or brew runs (the scale heartbeat lives on this task).
             replyError(cmd, "BUSY", "GaggiMate is busy; connect when it is idle");
         } else {
-            const bool linked = connectLink(now);
+            const bool linked = connectLink(now, CONNECT_TIMEOUT_S, true);
+            if (linked)
+                reconnect_.note_connected(millis());
+            else
+                reconnect_.note_attempt(millis(), false);
             auto answer = [&](const Command &q) {
                 if (linked)
                     replyOk(q, true);
@@ -332,6 +363,7 @@ void GLinkPlugin::handle(const Command &cmd, uint32_t now) {
         break;
     case CmdKind::DISCONNECT:
         dropLink("", true);
+        reconnect_.note_user_disconnect(); // stays off until STANDBY, a restart, or a select/forget/Connect
         replyOk(cmd, true);
         break;
     case CmdKind::STOP:
@@ -474,17 +506,40 @@ void GLinkPlugin::autoFetch(uint32_t now) {
     inflight.kind = kind;
 }
 
-bool GLinkPlugin::grinderBusy() const {
-    if (!client)
-        return false;
-    return client->start_outcome_pending() || stopWaiting || clientBusy() || startTimedOut || stopUnconfirmed ||
-           (client->has_period() && isGrindingState(client->period().dev_state));
+// A connect blocks loop() for seconds, so it never starts while a grind or brew runs or the system is not ready.
+bool GLinkPlugin::gaggimateBusy() const { return controller->isActive() || controller->getSystemState() != SYSTEM_READY; }
+
+// The settings string is a heap copy: read it when the choice changes, never per loop pass.
+void GLinkPlugin::refreshGrinderStored() {
+    std::string address;
+    uint8_t type = BLE_ADDR_PUBLIC;
+    grinderStored = parseStored(controller->getSettings().getGrinderLinkAddress(), address, type);
+    grinderStoredKnown = true;
 }
 
-void GLinkPlugin::updateIdle(uint32_t now) {
-    if (now - lastUse > IDLE_DISCONNECT_MS && !grinderBusy()) {
-        ESP_LOGI(TAG, "Dropping the idle grinder link");
-        dropLink("", true);
+// Loop task, every pass without a command (chg023 part 2). The policy decides when; this only connects. The automatic path
+// calls connectLink() and nothing else: a start is only ever sent by beginClientOp().
+void GLinkPlugin::autoReconnect(uint32_t now) {
+    glinkc::GaggimateState state = glinkc::GaggimateState::IDLE;
+    if (standbyLatch.exchange(false) || controller->getMode() == MODE_STANDBY)
+        state = glinkc::GaggimateState::STANDBY;
+    else if (gaggimateBusy())
+        state = glinkc::GaggimateState::BUSY;
+    const glinkc::Inputs inputs{grinderStored, phase == LinkPhase::LINKED, scanning.load(), state};
+    if (reconnect_.poll(inputs, now) != glinkc::Action::ATTEMPT)
+        return;
+    // Ignored (the policy's safety deadline retries later) while a connect is pending or the machine got busy meanwhile.
+    if (phase != LinkPhase::IDLE || gaggimateBusy())
+        return;
+    if (connectLink(now, AUTO_CONNECT_TIMEOUT_S, false)) {
+        reconnect_.note_connected(millis());
+        if (!autoReconnectLogged) {
+            autoReconnectLogged = true;
+            ESP_LOGI(TAG, "Reconnected automatically; stack high-water mark of the loop task: %u bytes free at least",
+                     static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
+        }
+    } else {
+        reconnect_.note_attempt(millis(), false); // the connect blocked: the backoff counts from its end
     }
 }
 
@@ -529,6 +584,74 @@ void GLinkPlugin::ScanCallbacks::onResult(NimBLEAdvertisedDevice *device) {
 }
 
 void GLinkPlugin::LinkCallbacks::onDisconnect(NimBLEClient *) { owner.linkLost = true; }
+
+// NimBLE host task. The client callback above does not receive the reason, so the GAP listener keeps it: for this link
+// (linkDownReason) and as the latest disconnect of any connection (lastDisconnect, for a drop inside connect()).
+// No logging and no allocation here: the loop task logs it (logLostReason(), logConnectFailure()).
+int GLinkPlugin::onGapEvent(struct ble_gap_event *event, void *arg) {
+    if (event->type != BLE_GAP_EVENT_DISCONNECT)
+        return 0;
+    GLinkPlugin *self = static_cast<GLinkPlugin *>(arg);
+    const uint16_t handle = event->disconnect.conn.conn_handle;
+    const int reason = event->disconnect.reason;
+    self->lastDisconnect = (static_cast<uint32_t>(handle) << 16) | (static_cast<uint32_t>(reason) & 0xFFFF);
+    self->disconnectSeq++;
+    if (handle == self->linkHandle.load())
+        self->linkDownReason = reason;
+    return 0;
+}
+
+// Loop task: the reason the stack reported for the link that was just lost (the callback and the listener run on the
+// same disconnect, so the listener's value can be missing when the loop task gets there first)
+void GLinkPlugin::logLostReason() {
+    const int reason = linkDownReason.exchange(NO_REASON);
+    if (reason == NO_REASON) {
+        ESP_LOGW(TAG, "Grinder link lost, the stack reported no reason");
+        return;
+    }
+    char text[48];
+    glink_disconnect_describe(text, sizeof(text), reason);
+    ESP_LOGW(TAG, "Grinder link lost, %s", text);
+}
+
+// Loop task, while LINKED: reads the RSSI of the grinder link (every RSSI_WATCH_MS while a web page is connected, else every
+// RSSI_LOG_MS), caches it for the card and logs it every RSSI_LOG_MS (chg023 1b). getRssi() returns 0 when the read fails
+// (NimBLE-Arduino 1.4 NimBLEClient::getRssi): that clears the cached value and is not logged, a real reading is never
+// 0 dBm. A wrapped millis() does not matter (signed difference).
+void GLinkPlugin::logLinkRssi(uint32_t now) {
+    if (ble == nullptr || static_cast<int32_t>(now - rssiDue) < 0)
+        return;
+    rssiDue = now + (ws != nullptr && ws->hasClients() ? RSSI_WATCH_MS : RSSI_LOG_MS);
+    const int rssi = ble->getRssi();
+    if (rssi != linkRssi) {
+        linkRssi = rssi;
+        dirty = true;
+    }
+    if (rssi == 0 || static_cast<int32_t>(now - rssiLogDue) < 0)
+        return;
+    rssiLogDue = now + RSSI_LOG_MS;
+    char text[16];
+    glink_format_dbm(text, sizeof(text), rssi);
+    ESP_LOGI(TAG, "Grinder link RSSI %s", text);
+}
+
+// Loop task, a connect or setup that failed: names the grinder's own drop when the stack reported one, else the latest
+// disconnect of any connection since the attempt began (its handle is named, because the grinder's handle is not known
+// before connect() returns).
+void GLinkPlugin::logConnectFailure(uint32_t seqAtAttempt) {
+    char text[48];
+    const int reason = linkDownReason.exchange(NO_REASON);
+    if (reason != NO_REASON) {
+        glink_disconnect_describe(text, sizeof(text), reason);
+        ESP_LOGW(TAG, "Grinder link ended during connect, %s", text);
+        return;
+    }
+    if (disconnectSeq.load() == seqAtAttempt)
+        return;
+    const uint32_t last = lastDisconnect.load();
+    glink_disconnect_describe(text, sizeof(text), static_cast<int>(last & 0xFFFF));
+    ESP_LOGW(TAG, "Grinder connect failed, last disconnect on conn handle %u, %s", static_cast<unsigned>(last >> 16), text);
+}
 
 void GLinkPlugin::startScan(const Command &cmd, uint32_t now) {
     if (phase != LinkPhase::IDLE) {
@@ -588,6 +711,8 @@ void GLinkPlugin::selectDevice(const Command &cmd) {
     Settings &settings = controller->getSettings();
     settings.setGrinderLinkAddress(storedForm(address, cmd.addrType));
     settings.setGrinderLinkName(cmd.name.substring(0, 32));
+    refreshGrinderStored();
+    reconnect_.note_grinder_changed(millis()); // a new choice clears the user's Disconnect and connects at once
     lastError[0] = '\0';
     connectAttempted = false;
     dirty = true;
@@ -599,6 +724,8 @@ void GLinkPlugin::forget(const Command &cmd) {
     Settings &settings = controller->getSettings();
     settings.setGrinderLinkAddress("");
     settings.setGrinderLinkName("");
+    refreshGrinderStored();
+    reconnect_.note_grinder_changed(millis());
     lastError[0] = '\0';
     connectAttempted = false;
     hasShownPeriod = false;
@@ -616,7 +743,7 @@ void GLinkPlugin::setError(const char *text) {
     dirty = true;
 }
 
-bool GLinkPlugin::connectLink(uint32_t now) {
+bool GLinkPlugin::connectLink(uint32_t now, uint8_t timeoutSeconds, bool manual) {
     std::string address;
     uint8_t type = BLE_ADDR_PUBLIC;
     if (!parseStored(controller->getSettings().getGrinderLinkAddress(), address, type)) {
@@ -645,6 +772,13 @@ bool GLinkPlugin::connectLink(uint32_t now) {
         return false;
     }
 
+    // The reason of a drop comes from onGapEvent(); BLE_HS_EALREADY is the answer after the first connect
+    const int listenerRc = ble_gap_event_listener_register(&gapListener, &GLinkPlugin::onGapEvent, this);
+    if (listenerRc != 0 && listenerRc != BLE_HS_EALREADY)
+        ESP_LOGW(TAG, "Disconnect reasons will not be logged (listener rc %d)", listenerRc);
+    linkDownReason = NO_REASON;
+    const uint32_t seqAtAttempt = disconnectSeq.load();
+
     lastError[0] = '\0';
     phase = LinkPhase::CONNECTING;
     ble = NimBLEDevice::createClient(NimBLEAddress(address, type));
@@ -654,13 +788,14 @@ bool GLinkPlugin::connectLink(uint32_t now) {
         return false;
     }
     ble->setClientCallbacks(&linkCallbacks, false);
-    ble->setConnectTimeout(CONNECT_TIMEOUT_S);
+    ble->setConnectTimeout(timeoutSeconds);
     linkLost = false;
 
     const char *failure = nullptr;
     if (!ble->connect()) {
         failure = "could not connect to the grinder";
     } else {
+        linkHandle = ble->getConnId();
         NimBLERemoteService *service = ble->getService(NimBLEUUID(GLINK_SERVICE_UUID));
         rx = service != nullptr ? service->getCharacteristic(NimBLEUUID(GLINK_RX_CHAR_UUID)) : nullptr;
         tx = service != nullptr ? service->getCharacteristic(NimBLEUUID(GLINK_TX_CHAR_UUID)) : nullptr;
@@ -695,6 +830,7 @@ bool GLinkPlugin::connectLink(uint32_t now) {
     }
     if (failure != nullptr) {
         ESP_LOGW(TAG, "%s", failure);
+        logConnectFailure(seqAtAttempt); // before dropLink(): it clears linkHandle
         dropLink(failure, false); // cleans up whatever exists
         return false;
     }
@@ -703,13 +839,29 @@ bool GLinkPlugin::connectLink(uint32_t now) {
     const size_t packet = mtu > 23 ? std::min<size_t>(mtu - 3, GLINK_MAX_PACKET_BYTES) : GLINK_DEFAULT_PACKET_BYTES;
     phase = LinkPhase::LINKED;
     linkEpoch++;
-    lastUse = now;
     hasShownPeriod = false;
-    startOutcome = "";
-    startTimedOut = false;
-    stopUnconfirmed = false;
+    if (manual) { // an automatic reconnect keeps the "No start was seen" warning
+        startOutcome = "";
+        startTimedOut = false;
+        stopUnconfirmed = false;
+    }
     ESP_LOGI(TAG, "Linked to %s, packet size %u", address.c_str(), static_cast<unsigned>(packet));
+    // NimBLEDevice::getPower() returns -128 for levels outside its 8-level table: ask the controller and decode it.
+    int txDbm = 0;
+    txPowerKnown = glink_tx_power_level_dbm(static_cast<int>(esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT)), &txDbm);
+    txPowerDbm = txPowerKnown ? txDbm : 0;
+    if (txPowerKnown) {
+        char txText[16];
+        glink_format_dbm(txText, sizeof(txText), txDbm);
+        ESP_LOGI(TAG, "TX power %s", txText);
+    } else {
+        ESP_LOGI(TAG, "TX power unknown");
+    }
+    linkRssi = 0;
+    rssiDue = now; // read at once
+    rssiLogDue = now + RSSI_LOG_MS;
     if (!client->on_connected(packet, now)) {
+        logConnectFailure(seqAtAttempt);
         dropLink("the hello could not be written", false);
         return false;
     }
@@ -731,6 +883,10 @@ void GLinkPlugin::dropLink(const char *reason, bool userRequested) {
     }
     rx = nullptr;
     tx = nullptr;
+    linkHandle = NO_LINK_HANDLE;
+    linkRssi = 0;
+    txPowerDbm = 0;
+    txPowerKnown = false;
     const bool wasLinked = phase != LinkPhase::IDLE;
     phase = LinkPhase::IDLE;
     linkEpoch++;
@@ -975,6 +1131,10 @@ void GLinkPlugin::fillStatus(JsonObject out) {
 
     if (!client || phase != LinkPhase::LINKED)
         return;
+    if (linkRssi != 0)
+        out["rssi"] = linkRssi;
+    if (txPowerKnown)
+        out["txPower"] = txPowerDbm;
     if (client->has_base()) {
         const glinkc::BaseInfo &b = client->base();
         JsonObject o = out["device"].to<JsonObject>();

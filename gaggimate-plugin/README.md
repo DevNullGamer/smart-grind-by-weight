@@ -20,8 +20,10 @@ gaggimate-plugin/
     config/bluetooth.h                   byte-identical copy of the firmware's src/config/bluetooth.h (constants only)
     bluetooth/glink_frame.{h,cpp}        shared with the firmware: fragmenter, reassembler, bad-fragment window
     bluetooth/glink_json.{h,cpp}         shared with the firmware: bounded JSON reader and writer
+    bluetooth/glink_disconnect.{h,cpp}   shared with the firmware: names the HCI disconnect reason for the log (chg023)
     GLinkMessages.{h,cpp}                request builders; parsers for responses and broadcasts
     GLinkClient.{h,cpp}                  session: handshake, one request at a time, timeouts, start decision, tracking
+    GLinkReconnect.{h,cpp}               pure auto-reconnect policy: eligibility, 3/10/30 s backoff, user-disconnect flag (chg023)
     GLinkPlugin.{h,cpp}                  GaggiMate Plugin: NimBLE central, WebSocket requests and events (device only)
   web/src/pages/Settings/GrinderLinkCard.jsx   the settings card (toggle, scan/select/forget, dose, start/stop, status)
   test/test_grinderlink/                 host tests (Unity style) against the shared vectors
@@ -36,7 +38,7 @@ gaggimate-plugin/
 
 Shared files (must stay byte-identical with the firmware; `tools/tests/test_gaggimate_plugin_contract.py` compares
 them, line endings aside): `bluetooth.h`, `glink_frame.h`, `glink_frame.cpp`, `glink_json.h`, `glink_json.cpp`,
-`GLINK-PROTOCOL.md`, `glink_vectors.json`, `glink_vectors.h`. They keep the firmware's names (so the includes inside
+`GLINK-PROTOCOL.md`, `glink_vectors.json`, `glink_vectors.h`, `glink_disconnect.h`, `glink_disconnect.cpp`. They keep the firmware's names (so the includes inside
 them stay valid) instead of the `GLinkFrame.*` names the plan used. The transport carries no grinder-specific object, so
 a driver for another device (for example a Motto80) could reuse it unchanged; only the GLink driver exists.
 The plugin does not use the firmware's `glink_messages.*` (that is the device side: request parser and response
@@ -70,13 +72,20 @@ reboot; the whole file is empty under `GAGGIMATE_SIM`.
   task's stack high-water mark once, at the first ready link, so the margin can be read from the first hardware run.
 - **Link.** The grinder is chosen by Scan (name prefix `GrindByWeight`, 6 s window) and Select, and stored in the settings
   as `gl_ad` (`aa:bb:cc:dd:ee:ff`, or `aa:bb:cc:dd:ee:ff/r` for a random address) and `gl_n`. Connect is on demand
-  (Connect button; blocking, 5 s timeout), the card keeps it alive every 20 s with `keepalive:true`, and the plugin drops an
-  unused link after 60 s, but never while a start, stop or request is outstanding or the grinder is STARTING or GRINDING.
-  The link is never re-made by itself: a keep-alive only refreshes the idle timer and is answered `NOT_CONNECTED` when the
-  link is gone. Connect is answered `BUSY` while GaggiMate is active (grinding or brewing) or not ready, so the scale
+  (Connect button; blocking, 5 s timeout). **Auto-reconnect (chg023, `GLinkReconnect.{h,cpp}`, a pure policy):** the plugin
+  re-makes the link by itself, only while GaggiMate is idle (same predicate as Connect: not brewing, grinding or busy) and
+  not in standby; the first attempt comes right after wake-up and at boot once idle. Backoff 3 s, 10 s, then every 30 s
+  forever; an automatic attempt times out after 3 s (each attempt blocks the plugin's `loop()` for up to that long, only
+  when idle). A link that stayed up under 30 s does not reset the backoff. The Disconnect button (or
+  `req:grinderlink:disconnect`) keeps it off until GaggiMate has been in standby or restarted (RAM only, not saved);
+  select, forget and a manual Connect re-arm it. The old 60 s idle drop is gone; the card's keep-alive is still accepted and
+  does nothing. `startOutcome`, `startTimedOut` and `stopUnconfirmed` are cleared only by a manual connect. While the link
+  is up it holds the grinder's single BLE client slot: `grinder.py` upload and WiFi tools, the web flasher and WiFi updates
+  of the grinder are blocked until you press Disconnect or turn the grinder's "GaggiMate link" off. Connect is answered
+  `BUSY` while GaggiMate is active (grinding or brewing) or not ready, so the scale
   heartbeat on the main loop is not stalled mid-shot. **Residual stall:** an idle connect still blocks `loop()` for up to
-  about 5 s (connect timeout) plus service discovery and the CCCD write, and the 3 s retry throttle counts from the end
-  of the attempt; queued Connects share one attempt's answer. The ATT MTU is read after the connect: packet size is `min(MTU - 3, 512)`, else 20.
+  about 5 s (manual) or 3 s (automatic) plus service discovery and the CCCD write, and the 3 s retry throttle counts from the end
+  of the attempt; a shot that starts during an automatic connect stalls the loop for the rest of it; queued Connects share one attempt's answer. The ATT MTU is read after the connect: packet size is `min(MTU - 3, 512)`, else 20.
 - **Never replays a start.** A start is sent from one place, only for an explicit `req:grinderlink:start`, always with
   `expectDose` (the request's dose, else the dose cached from the grinder for that profile, else `NO_DOSE`). Requests
   queued before a link change are answered `STALE`; a request in flight when the link drops is answered `DISCONNECTED`;
@@ -99,7 +108,7 @@ of `BUSY`, `NOT_CONNECTED`, `CONNECT_FAILED`, `DISCONNECTED`, `STALE`, `NO_DOSE`
 | `req:grinderlink:scan` | | 6 s scan; hits arrive in `found` of the state events |
 | `req:grinderlink:select` | `address`, `addrType`, `name` | store the grinder (drops the current link) |
 | `req:grinderlink:forget` | | drop the link, clear address and name |
-| `req:grinderlink:connect` / `disconnect` | | link on demand / keep-alive; end the link |
+| `req:grinderlink:connect` / `disconnect` | | manual connect (re-arms auto-reconnect; `keepalive:true` is accepted and does nothing) / end the link and keep auto-reconnect off until standby or restart |
 | `req:grinderlink:profile:select` | `profile` | `grindProfile` `select` |
 | `req:grinderlink:profile:update` | `profile`, `dose`, `grindSize` (number or null), `grindUnit` (string or null) | `grindProfile` `update` |
 | `req:grinderlink:start` | `profile`, `dose` (optional, else the cached dose) | `grindControl` `start` with `expectDose` |
@@ -109,7 +118,9 @@ of `BUSY`, `NOT_CONNECTED`, `CONNECT_FAILED`, `DISCONNECTED`, `STALE`, `NO_DOSE`
 Events: `evt:grinderlink:state` (the status object, at most 4 per second, only when something changed) and
 `evt:grinderlink:result` (a new result). The status object has `active`, `address`, `name`, `link`
 (`idle`, `scanning`, `connecting`, `linked`, `ready`), `error`, `found`, `startOutcome`, `startNote`, `stopUnconfirmed`
-and, while linked, `device`, `period`, `profiles` and `lastResult`.
+and, while linked, `device`, `period`, `profiles`, `lastResult`, `rssi` (dBm) and `txPower` (dBm). RSSI is read about every
+1 s while a browser is connected, else every 5 s. The card shows `Signal: -62 dBm · TX power: +9 dBm` (new msgids `Signal`
+and `TX power` in the seven catalogs of patch 0005).
 
 ### Scan and the scale plugin
 
@@ -169,7 +180,7 @@ Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private
 ## Not verified
 
 - Nothing ran on a GaggiMate display or against a real grinder: the NimBLE connect, service discovery, subscribe, MTU read,
-  notification flow, write with response, the idle drop, the scan hand-over with the scale plugin and the stack use of
+  notification flow, write with response, the scan hand-over with the scale plugin and the stack use of
   `parse_message` on the loop task are compiled but untested (plan step 9).
 - The web card was only syntax-checked: not built with the web toolchain (`npm`, Vite, Lingui), not rendered, not run
   against the plugin. The new locale entries were written by hand (translations are mine; none were reviewed) and not
@@ -178,6 +189,17 @@ Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private
   related to this plugin; the other suites passed. The gate is the plugin suite.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the plugin is excluded there by
   `GAGGIMATE_SIM`).
+- Disconnect reasons (chg023): the plugin registers a NimBLE GAP listener (`ble_gap_event_listener_register`, from the
+  ESP-IDF NimBLE host headers the firmware compiles against) and asks the client for its connection handle
+  (`NimBLEClient::getConnId()`, and `BLE_HS_EALREADY`). NimBLE-Arduino 1.4.3 is not in the checkout used here, so these
+  calls were not compiled against it. The reason is logged as `Grinder link lost, reason 0x08 (supervision timeout)`;
+  a hardware run must show that line (or `the stack reported no reason`).
+- Radio diagnostics (chg023 1b): at link-up the log shows `TX power +N dBm` (`esp_ble_tx_power_get()` decoded by `glink_tx_power_level_dbm()`; `NimBLEDevice::getPower()` returns -128 for levels outside its table)
+  and every 5 s while linked `Grinder link RSSI -NN dBm` (`NimBLEClient::getRssi()`, read in the loop task; 0 means the read
+  failed and is skipped). Both calls are in NimBLE-Arduino 1.4.3 (checked in the staged clone, not compiled here).
+- Auto-reconnect on hardware (chg023): reconnect after a power cycle, no attempt in standby, first attempt after wake-up,
+  the 3/10/30 s backoff, Disconnect staying off, no connect in the middle of a shot, the cost of the RSSI read, the loop
+  task's stack headroom and the interplay with the scale (scan sharing) are covered by host tests of the policy only.
 - Whether three Bluetooth connections are enough in real use (controller, scale, grinder) is unknown.
 - The shared reader refuses exponents in numbers. The grinder never sends them; a client of another device would need a
   different reader.

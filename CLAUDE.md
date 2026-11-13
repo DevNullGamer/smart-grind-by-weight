@@ -70,6 +70,8 @@ Key components, grind phases, purge/prime, time-mode pulses, Grind Settings pref
 - A BLE start uses the same checks as the web panel's start plus the profile checks, always behind the 3 s touch-to-cancel lead-in; it grinds in WEIGHT mode and restores the user's mode on return to READY. The lead-in is exclusive with the web panel's.
 - Only profile 3 (Profile Dose) is writable over BLE. One BLE client; a connected client blocks WiFi updates.
 - "GaggiMate link" (Bluetooth page, touch-only, default off) = LINK_ONLY: no timers, only the GLink characteristics work; old OTA/data/sysinfo/diagnostics services stay closed.
+- The GaggiMate plugin re-makes the link by itself (chg023), so the single BLE client slot stays taken: BLE tools and WiFi updates are blocked until Disconnect on the GaggiMate card or "GaggiMate link" off.
+- The grinder logs disconnect reason, TX power and RSSI (every 5 s); the plugin status object has `rssi`/`txPower`. See "Auto-reconnect and link diagnostics (chg023)".
 - Files shared by `gaggimate-plugin/` and `src/bluetooth/` stay byte-identical (`test_gaggimate_plugin_contract.py`); `src/config/bluetooth.h` GLINK_ constants, the spec tables and `tools/tests/glink_vectors.json` move together (`test_glink_contract.py`).
 
 **Profiles (chg020):** `USER_PROFILE_COUNT` is 4; index 3 (GaggiMate Profile Dose) exists only once stored (`ProfileController::has_dose_profile()`); the READY PROFILE page exists only then (`ReadyUIController::sync_pages()`). Menu tab index: `UIManager::menu_tab_index()`, never a literal. Profile writes are compare-first. Web panel and history stay at three profiles. Grind size is display-only.
