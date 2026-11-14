@@ -6,6 +6,7 @@
 #ifndef GAGGIMATE_SIM
 
 #include "GLinkClient.h"
+#include "GLinkDoseSave.h"
 #include "GLinkReconnect.h"
 #include "RxRing.h"
 #include <Arduino.h>
@@ -148,6 +149,7 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
     void logConnectFailure(uint32_t seqAtAttempt);
     void logLinkRssi(uint32_t now);
     void autoFetch(uint32_t now);
+    void applyPendingDose(uint32_t now);
     bool ready() const { return client != nullptr && client->state() == glinkc::LinkState::READY; }
     bool clientBusy() const { return inflight.valid || (client != nullptr && client->pending() != glinkc::RequestKind::NONE); }
     void beginClientOp(const Command &cmd, uint32_t now);
@@ -205,6 +207,8 @@ class GLinkPlugin : public Plugin, private glinkc::Sink, private glinkc::Listene
     bool txPowerKnown = false;
     // Auto-reconnect (chg023 part 2)
     glinkc::Reconnect reconnect_;
+    // Dose save (chg024 part B). Loop task only; the listener callbacks only record into it, applyPendingDose() writes.
+    glinkc::DoseSave doseSave;
     bool grinderStored = false;         // cached: a grinder address is saved (refreshGrinderStored())
     bool grinderStoredKnown = false;
     std::atomic<bool> standbyLatch{false}; // controller:mode:change (any task) saw STANDBY; consumed by loop()

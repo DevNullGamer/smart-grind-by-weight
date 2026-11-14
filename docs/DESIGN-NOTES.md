@@ -1359,3 +1359,45 @@ The link broke with reason 0x08 (supervision timeout) on both sides, once about 
 4. Interplay with the scale plugin (scan sharing).
 5. The cause of the 0x08 drop at 50-60 cm.
 6. The card text and the new locale strings (hand-written, web UI not rendered).
+
+## GaggiMate re-pin and dose save (chg024)
+
+### Re-pin (plugin base b78beee to b564759)
+
+- The plugin now targets GaggiMate `b564759` (full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`, 55 commits past `b78beee`). Old `b78beee` is no longer named anywhere except history.
+- All five patches failed by context drift only and were regenerated. The `0004` anchors moved to `web/src/pages/Settings/settingsForm.js` (`CHECKBOX_KEYS`) and `PluginCard.jsx`. The locales are now eight (`pt` added); `0005` appends to each.
+- Host test count is 99 (`run_host_tests.sh`). The README and the DEVELOPMENT.md counts were stale (44 and 49).
+- `glink_sources.cpp` now includes `glink_disconnect.cpp` as well (it was missing).
+- Patch 0005 `Not connected` duplicated an identical upstream msgid (`SystemTab.jsx`); it was dropped from all eight catalogs. The card's `t`Not connected`` resolves via upstream's entry (`lingui compile` clean at b564759).
+
+### Save grind weight as dose: decisions
+
+- Source of the dose: the grinder's own `finalWeight` of a settled result (spec 5.6: OK, OVERSHOOT, MAX_PULSES), not a GaggiMate hook. The Smart Dosing mechanism of GaggiMate is reused as the destination only (profile dose field), and there is no code coupling: the plugin does not include Smart Dose. Last writer wins if both are on.
+- Once per result. The per-link baseline is the grinder's `resultSeq` at link-up; a result with a sequence number at or below the highest seen is never written. A result during a link gap is therefore skipped. A rebooted grinder is re-baselined at the next link.
+- Range 5.0 to 40.0 g, the same bounds as GaggiMate's `smartdose::validDose` (5 and 40). Out-of-range is skipped, not clamped: a clamped dose would be a wrong dose the user did not choose.
+- Held (latest result wins) up to 5 min while the machine is not idle: shot running, mode not BREW, updating, auto-tuning, or a utility profile. After 5 min it is dropped, so a stale result is not applied later.
+- Memory only, like Smart Dose. `gl_sd` is default on (chg024 plan).
+- Wizard does not save the GrinderLink toggles (`grinderLinkActive`, `grinderLinkSaveDose` are not in its key list).
+- Naming: the skip reason enum uses `FEATURE_OFF`, not `DISABLED`, because `Arduino.h` defines `DISABLED` as a macro (a clash found while writing `GLinkDoseSave.h`).
+
+### Dose save: layers and the process lock
+
+- `GLinkDoseSave.{h,cpp}` is pure (no Arduino, NimBLE or heap; in the `PURE` list of the contract test).
+- The listener callbacks (`on_result`, `on_ready`) run on the loop task and only record: they never touch the profile or the controller.
+- `GLinkPlugin::applyPendingDose(now)` is the only place that writes the profile dose. It is called from `loop()` on every pass (so expiry also runs while the machine is busy) and is cheap when nothing is pending (no lock, no settings read).
+- The write happens under `controller->getProcessLock()` (`std::recursive_mutex`), taken there and never while holding `cmdMutex`, `rxMutex` or `foundMutex`. The write is compare-first (an equal dose is not written again) and logged once.
+- The contract test guards this: one `profile.dose =` in the plugin, inside `applyPendingDose` under the lock; the callbacks do not reference the profile, the lock or `applyPendingDose`.
+
+### Procedure (staged build)
+
+1. Work in a fresh clone (or the staging script's clone), never in your own GaggiMate checkout: it can hold uncommitted work.
+2. `sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]` with a new or empty `DEST`. Under Git Bash it stages and prints the commands (`STAGE_ONLY=1` by default there).
+3. Run `pio` from PowerShell only (Git Bash corrupts `tool-esptoolpy`): `pio test -e native -f test_grinderlink`, then `pio run -e display`, optionally `display-headless`.
+4. `WEB_BUILD=1` builds and embeds the web UI (needs `npm`). Run it before the `display` build when the card changed.
+5. `tools/tests/test_gaggimate_plugin_contract.py` (pytest, `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) guards the shared files, the patch list, the pin and the dose-save text rules. The host tests (`run_host_tests.sh`) are not in CI.
+
+### Not verified on hardware
+
+- Nothing has run on a GaggiMate display or with a grinder for the dose save: the first result after link-up, the hold during a shot, the expiry and the range rule are covered by host tests of the policy and by text guards only. The revert after a profile reselect is inferred from how Smart Dose behaves in GaggiMate; no test covers it.
+- The translations of the new msgids (hand-written, not reviewed) are unreviewed.
+- Staged integration (B4, fresh clone at `b5647591`, `WEB_BUILD=1`): five patches apply, web build and embed OK, plugin native tests 99/99, `pio run -e display` (flash 62.3 %, RAM 29.6 %) and `-e display-headless` (flash 48.6 %) build, no warnings from the plugin files; full tools pytest 1796 passed / 2 skipped, host tests 99/0, ruff and compileall clean. Not flashed, not run on a device.

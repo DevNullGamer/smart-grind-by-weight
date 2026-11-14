@@ -8,7 +8,7 @@ This folder is a prototype kept in the grinder repository. It is to be contribut
 GaggiMate's terms; it carries no licence or CLA text. The `grindControl` object of the protocol is provisional.
 
 **Status: parts 8a (core) and 8b (NimBLE glue, web card, patches, staging script) exist and build inside GaggiMate
-b78beee. Nothing has run on a display or against a grinder yet** (plan step 9). See "Verified" and "Not verified".
+b564759 (full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`). Nothing has run on a display or against a grinder yet** (plan step 9). See "Verified" and "Not verified".
 
 ## Layout
 
@@ -24,16 +24,17 @@ gaggimate-plugin/
     GLinkMessages.{h,cpp}                request builders; parsers for responses and broadcasts
     GLinkClient.{h,cpp}                  session: handshake, one request at a time, timeouts, start decision, tracking
     GLinkReconnect.{h,cpp}               pure auto-reconnect policy: eligibility, 3/10/30 s backoff, user-disconnect flag (chg023)
+    GLinkDoseSave.{h,cpp}                pure policy: grind result to profile dose, once per result, range, hold and expiry (chg024)
     GLinkPlugin.{h,cpp}                  GaggiMate Plugin: NimBLE central, WebSocket requests and events (device only)
   web/src/pages/Settings/GrinderLinkCard.jsx   the settings card (toggle, scan/select/forget, dose, start/stop, status)
   test/test_grinderlink/                 host tests (Unity style) against the shared vectors
   test/test_grinderlink/glink_sources.cpp  compiles the pure sources into the test for `pio test -e native` only
   test/host/unity.h                      tiny Unity stand-in for the g++ run
   tools/tests/glink_vectors.json         copy of the shared conformance vectors
-  patches/                               unified diffs against GaggiMate b78beee
+  patches/                               unified diffs against GaggiMate b564759
   scripts/run_host_tests.sh              builds and runs the host tests with g++
   scripts/check_patches.sh               read-only `git apply --check` of the patches against a checkout
-  scripts/check_against_gaggimate.sh     clone b78beee into a NEW directory, apply, stage, `pio test`, `pio run`
+  scripts/check_against_gaggimate.sh     clone b564759 into a NEW directory, apply, stage, `pio test`, `pio run`
 ```
 
 Shared files (must stay byte-identical with the firmware; `tools/tests/test_gaggimate_plugin_contract.py` compares
@@ -120,7 +121,7 @@ Events: `evt:grinderlink:state` (the status object, at most 4 per second, only w
 (`idle`, `scanning`, `connecting`, `linked`, `ready`), `error`, `found`, `startOutcome`, `startNote`, `stopUnconfirmed`
 and, while linked, `device`, `period`, `profiles`, `lastResult`, `rssi` (dBm) and `txPower` (dBm). RSSI is read about every
 1 s while a browser is connected, else every 5 s. The card shows `Signal: -62 dBm · TX power: +9 dBm` (new msgids `Signal`
-and `TX power` in the seven catalogs of patch 0005).
+and `TX power` in the eight catalogs of patch 0005).
 
 ### Scan and the scale plugin
 
@@ -144,15 +145,42 @@ The controller link, a scale and the grinder use all three, with no spare. `conn
 when NimBLE already holds three clients. Raising it (`-DCONFIG_BT_NIMBLE_MAX_CONNECTIONS=4`) costs heap and is the
 maintainer's call.
 
-## Patches (against GaggiMate b78beee)
+## Save grind weight as dose (chg024)
+
+Setting `gl_sd` (`grinderLinkSaveDose`, default on), shown as the checkbox "Save grind weight as dose" on the card. When a
+grind finishes on the grinder with a settled weight (results OK, OVERSHOOT or MAX_PULSES, spec 5.6), the plugin writes
+the grinder's `finalWeight` into the dose of the profile selected in GaggiMate, the same way GaggiMate's Smart Dosing
+does. Rules:
+
+- once per result: a result is taken only if its sequence number is newer than the last one seen on this link. The
+  first `resultSeq` read at link-up is the baseline, so a grind that finished before the link came up, or during a
+  link gap, is never written. A grinder reboot is re-baselined on the next link;
+- only 5.0 to 40.0 g is written. A value outside that range is skipped, not clamped (the skip reason is shown in
+  `doseNote`);
+- the value is held (latest result wins, up to 5 min) while a shot runs, the mode is not BREW, the machine is busy
+  (updating, auto-tuning) or the selected profile is a utility profile; after 5 min it is dropped;
+- memory only: the dose reverts when the profile is reselected or the display restarts. Saving the profile in the
+  GaggiMate UI persists it, as it does for a Smart Dosing value;
+- last writer wins against Smart Dosing: both write the same field, whichever ran last holds;
+- the status object gets `doseSaved` (grams of the last dose applied by this plugin; absent until the first apply since the
+  display started; a compare-first skip may mean the dose already had that value) and `doseNote` (`waiting` while a value is held, else the reason the last result was not written:
+  `disabled`, `not_settled` or `out_of_range`; absent otherwise);
+- the GaggiMate setup wizard does not save the GrinderLink toggles (`grinderLinkActive`, `grinderLinkSaveDose` are not in
+  its key list).
+
+The listener callbacks only record the result; the write happens in `GLinkPlugin::applyPendingDose()`, called from
+`loop()` under GaggiMate's process lock. The policy is pure code in `GLinkDoseSave.{h,cpp}`. Nothing has been run on a
+grinder for this feature (see "Not verified").
+
+## Patches (against GaggiMate b564759, full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`)
 
 | Patch | What |
 |---|---|
-| `0001-settings-grinderlink.patch` | `Settings`: `grinderLinkActive` (`gl_a`), `grinderLinkAddress` (`gl_ad`), `grinderLinkName` (`gl_n`) |
+| `0001-settings-grinderlink.patch` | `Settings`: `grinderLinkActive` (`gl_a`), `grinderLinkAddress` (`gl_ad`), `grinderLinkName` (`gl_n`), `grinderLinkSaveDose` (`gl_sd`, default on) |
 | `0002-controller-register-plugin.patch` | `Controller::setup`: register `GLinkPlugin` when active (inside the device-only block) |
-| `0003-webui-grinderlink-settings.patch` | `WebUIPlugin`: accept `grinderLinkActive` in the settings POST; return the three values in the settings JSON |
-| `0004-webui-grinderlink-card-hook.patch` | web settings page: render `GrinderLinkCard` in the plugins tab; `grinderLinkActive` is a checkbox key; address and name are read-only keys (not saved, exported or imported) |
-| `0005-locales-grinderlink.patch` | the card's strings in the seven catalogs (appended; `lingui extract` will reorder them) |
+| `0003-webui-grinderlink-settings.patch` | `WebUIPlugin`: accept `grinderLinkActive` and `grinderLinkSaveDose` in the settings POST; return them in the settings JSON |
+| `0004-webui-grinderlink-card-hook.patch` | web settings page: render `GrinderLinkCard` in the plugins tab; `grinderLinkActive` and `grinderLinkSaveDose` are checkbox keys; address and name are read-only keys (not saved, exported or imported) |
+| `0005-locales-grinderlink.patch` | the card's strings in the eight catalogs (de en es fr it ja pt zh; appended; `lingui extract` will reorder them) |
 
 Address and name are set by the plugin (WebSocket requests), not by the settings POST.
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion.
@@ -163,28 +191,34 @@ The card file itself is copied by the staging script, not patched in.
 Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_DIR`):
 
 - the shared files are byte-identical with the firmware (contract test);
-- `scripts/run_host_tests.sh`: 49 host tests pass, compiled with `-Wall -Wextra -Werror`: the request builders
+- `scripts/run_host_tests.sh`: 99 host tests pass, compiled with `-Wall -Wextra -Werror`: the request builders
   reproduce the vector requests byte for byte and refuse what the grinder refuses; every response, `periodInfo`, `baseInfo`
   and `grindResult` text of the vectors parses to the values in the vector JSON; the hello is the golden handshake
   frames; sessions with a fake link cover the handshake, the 5 s ready and response timeouts (also across the clock
   wrap), one request at a time, response matching by object name, the stop reply, the start decision (grinding,
   cancelled, timeout), profile and result tracking, a grinder reboot, disconnect and reconnect, ten bad fragments,
   the sequence wrap, a failing link write, and packet sizes of 9, 20, 100 and 512 bytes;
-- `scripts/check_against_gaggimate.sh` on a fresh clone of the user's local checkout at b78beee (new empty directory,
-  the user's checkout untouched): the five patches apply in order; `pio test -e native -f test_grinderlink` (real Unity)
-  passes all 44 plugin test cases; `pio run -e display` links with `GLinkPlugin.cpp` compiled in, without a warning from
-  the plugin's files; `pio run -e display-headless` builds as well (display: flash 3140529 bytes, 47.9 %; headless: 2210661 bytes, 33.7 %);
-- the three C++ patches also pass `git apply --check` on the user's checkout, read-only (`scripts/check_patches.sh`);
+- chg024 A1, a fresh clone at b564759 (the user's checkout untouched): the five patches apply in order, and the
+  display and display-headless images build with the plugin compiled in;
+- chg024 B4, a fresh staged clone of the current code (dose save included) at b564759 with `WEB_BUILD=1`: all five
+  patches apply, the web UI builds and embeds (the bundle holds the new msgids), `pio test -e native -f test_grinderlink`
+  runs 99 of 99, and `pio run -e display` and `-e display-headless` build (no warnings from the plugin files).
+  Nothing was flashed or run on a device;
 - the card passes a JSX syntax-only transform (esbuild); its request and event names match what the plugin registers (contract test).
+- the dose-save policy (`GLinkDoseSave`, chg024 B1) has host tests in the plugin suite of `run_host_tests.sh`.
 
 ## Not verified
 
 - Nothing ran on a GaggiMate display or against a real grinder: the NimBLE connect, service discovery, subscribe, MTU read,
   notification flow, write with response, the scan hand-over with the scale plugin and the stack use of
   `parse_message` on the loop task are compiled but untested (plan step 9).
-- The web card was only syntax-checked: not built with the web toolchain (`npm`, Vite, Lingui), not rendered, not run
-  against the plugin. The new locale entries were written by hand (translations are mine; none were reviewed) and not
-  produced by `lingui extract`.
+- The web card was built with the web toolchain at b564759 (chg024 B2: `npm ci`, lint, build), but not rendered and not
+  run against the plugin. The locale entries (eight catalogs, including the dose-save texts) were written by hand, not
+  produced by `lingui extract`, and the translations are not reviewed by a native speaker. The `Not connected` entry
+  duplicated an upstream msgid and was dropped from the patch (the card's `t`Not connected`` resolves via upstream's entry).
+- Save grind weight as dose (chg024): nothing has run on a grinder. The dose path (grinder result to profile dose on the
+  display) is covered by the host tests of the policy and by the text guards of the contract test only. The revert after a profile reselect is inferred from Smart Dose and is not tested.
+- `scripts/check_patches.sh` was not re-run against the user's own checkout for b564759 (that checkout has uncommitted work).
 - `pio test -e native` for all suites: `test_ota_loadtest` does not compile on Windows (`arpa/inet.h`), which is not
   related to this plugin; the other suites passed. The gate is the plugin suite.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the plugin is excluded there by
@@ -209,18 +243,22 @@ Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private
 
 1. Hardware loop against the grinder (plan step 9): scan, select, connect, set dose, start with the lead-in, stop, result;
    read the logged stack high-water mark; try it with a scale connected.
-2. Build the web UI with GaggiMate's toolchain and run `lingui extract`.
-3. Decide with the GaggiMate maintainer where a dose can come from (`controller:grind:start` hook) and whether the
-   connection limit should rise.
+2. Run `lingui extract` (the web UI build itself was done in chg024 B2).
+3. Decide with the GaggiMate maintainer whether the connection limit should rise.
 
 ## Running the checks
 
 ```
 sh gaggimate-plugin/scripts/run_host_tests.sh                       # needs g++ (C++17)
 sh gaggimate-plugin/scripts/check_patches.sh /path/to/gaggimate     # read-only
-sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]  # DEST: new or empty directory; needs git, pio, network for libraries
+sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]  # DEST: new or empty directory; needs git, network for libraries, and pio unless STAGE_ONLY
 python3 -m pytest tools/tests/test_gaggimate_plugin_contract.py     # PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 in CI
 ```
+
+The staged check (`check_against_gaggimate.sh`) stages the plugin into a fresh clone. Under Git Bash `STAGE_ONLY`
+defaults to 1: it stages and prints the PowerShell commands, because `pio` must run from PowerShell (Git Bash corrupts
+the PlatformIO tool packages). `WEB_BUILD=1` also builds and embeds the web UI (needs `npm`). Never point `DEST` at your
+own GaggiMate checkout. The full procedure and the rules are in `docs/DEVELOPMENT.md` ("The staged check").
 
 On Windows keep DEST and `PLATFORMIO_CORE_DIR` paths short (for example a `subst` drive): the Xtensa GCC 8.4 toolchain fails with
 `CreateProcess: No such file or directory` on long paths. `PLATFORMIO_CORE_DIR` keeps the toolchain downloads away from

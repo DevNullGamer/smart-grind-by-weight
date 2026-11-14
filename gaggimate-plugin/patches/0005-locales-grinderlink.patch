@@ -1,11 +1,11 @@
 diff --git a/web/src/locales/de/messages.po b/web/src/locales/de/messages.po
-index d98931d5..6846bf67 100644
+index 253350e9..729061be 100644
 --- a/web/src/locales/de/messages.po
 +++ b/web/src/locales/de/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "Dein Smartphone muss im selben Wi-Fi-Netzwerk wie die Maschine sein."
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "Deine gespeicherten Shots und Profile direkt aus dem internen Speicher von GaggiMate."
+@@ -6563,3 +6563,107 @@ msgstr "Die Notizen für Shot #{shotId} konnten nicht geladen werden. Es wurde n
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "Die Notizen für Shot #{shotId} konnten nicht gespeichert werden. Prüfe die Verbindung und öffne diesen Shot erneut, bevor du weiterbearbeitest."
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -42,10 +42,6 @@ index d98931d5..6846bf67 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "Noch keine Mühle gefunden. Wecke die Mühle auf und suche erneut."
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "Nicht verbunden"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -102,14 +98,26 @@ index d98931d5..6846bf67 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "Sendeleistung"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Mahlgewicht als Dosis speichern"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "Setzt nach jedem erfolgreichen Mahlvorgang die Dosis des gewählten Profils auf das von der Mühle gemeldete Gewicht. Wird vom nächsten Shot verwendet. Wird nicht in der Profildatei gespeichert."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Zuletzt gespeicherte Dosis"
 diff --git a/web/src/locales/en/messages.po b/web/src/locales/en/messages.po
-index 1868492d..d15979b6 100644
+index e24abb92..a85149fa 100644
 --- a/web/src/locales/en/messages.po
 +++ b/web/src/locales/en/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "Your phone needs to be on the same Wi-Fi network as the machine."
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "Your saved shots and profiles directly from the GaggiMate internal storage."
+@@ -6563,3 +6563,107 @@ msgstr "Notes for shot #{shotId} could not be loaded. Nothing was overwritten. C
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -146,10 +154,6 @@ index 1868492d..d15979b6 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "No grinder found yet. Wake the grinder and scan again."
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "Not connected"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -206,14 +210,26 @@ index 1868492d..d15979b6 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "TX power"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Save grind weight as dose"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Last saved dose"
 diff --git a/web/src/locales/es/messages.po b/web/src/locales/es/messages.po
-index 832af6d7..4ecd8d85 100644
+index 703ce13d..512e2106 100644
 --- a/web/src/locales/es/messages.po
 +++ b/web/src/locales/es/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "Tu teléfono debe estar en la misma red Wi-Fi que la máquina."
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "Tus extracciones y perfiles guardados, directamente desde el almacenamiento interno de GaggiMate."
+@@ -6563,3 +6563,107 @@ msgstr "No se han podido cargar las notas de la extracción #{shotId}. No se ha
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "No se han podido guardar las notas de la extracción #{shotId}. Comprueba la conexión y vuelve a abrir esa extracción antes de seguir editando."
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -250,10 +266,6 @@ index 832af6d7..4ecd8d85 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "Aún no se encontró ningún molinillo. Despierta el molinillo y busca de nuevo."
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "No conectado"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -310,14 +322,26 @@ index 832af6d7..4ecd8d85 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "Potencia de TX"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Guardar el peso molido como dosis"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "Después de cada molido correcto, establece la dosis del perfil seleccionado con el peso que indica el molinillo. La usa el siguiente shot. No se guarda en el archivo del perfil."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Última dosis guardada"
 diff --git a/web/src/locales/fr/messages.po b/web/src/locales/fr/messages.po
-index e5d8f858..a65a031c 100644
+index 761f93d0..c2477576 100644
 --- a/web/src/locales/fr/messages.po
 +++ b/web/src/locales/fr/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "Votre téléphone doit être sur le même réseau Wi-Fi que la machine."
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "Vos shots et profils enregistrés, directement depuis le stockage interne de GaggiMate."
+@@ -6563,3 +6563,107 @@ msgstr "Les notes du shot #{shotId} n'ont pas pu être chargées. Aucune donnée
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "Les notes du shot #{shotId} n'ont pas pu être enregistrées. Vérifiez la connexion et rouvrez ce shot avant de reprendre les modifications."
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -354,10 +378,6 @@ index e5d8f858..a65a031c 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "Aucun moulin trouvé. Réveillez le moulin et relancez la recherche."
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "Non connecté"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -414,14 +434,26 @@ index e5d8f858..a65a031c 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "Puissance d'émission"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Enregistrer le poids moulu comme dose"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "Après chaque mouture réussie, règle la dose du profil sélectionné sur le poids indiqué par le moulin. Utilisée par le prochain shot. Non enregistrée dans le fichier du profil."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Dernière dose enregistrée"
 diff --git a/web/src/locales/it/messages.po b/web/src/locales/it/messages.po
-index 04f30fd3..fb237f9a 100644
+index 6e170ec8..42197d0c 100644
 --- a/web/src/locales/it/messages.po
 +++ b/web/src/locales/it/messages.po
-@@ -5764,3 +5764,99 @@ msgstr "Il telefono deve essere sulla stessa rete Wi-Fi della macchina."
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "Gli shot e i profili salvati, direttamente dalla memoria interna di GaggiMate."
+@@ -6566,3 +6566,107 @@ msgstr "Non è stato possibile caricare le note dello shot #{shotId}. Non è sta
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "Non è stato possibile salvare le note dello shot #{shotId}. Controlla la connessione e riapri lo shot prima di modificarlo di nuovo."
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -458,10 +490,6 @@ index 04f30fd3..fb237f9a 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "Nessun macinino trovato. Riattiva il macinino e cerca di nuovo."
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "Non connesso"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -518,14 +546,26 @@ index 04f30fd3..fb237f9a 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "Potenza TX"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Salva il peso macinato come dose"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "Dopo ogni macinatura riuscita, imposta la dose del profilo selezionato sul peso indicato dal macinacaffè. Usata dal prossimo shot. Non viene salvata nel file del profilo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Ultima dose salvata"
 diff --git a/web/src/locales/ja/messages.po b/web/src/locales/ja/messages.po
-index 10c91dfc..c5473ec7 100644
+index afcc775c..af8a3612 100644
 --- a/web/src/locales/ja/messages.po
 +++ b/web/src/locales/ja/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "スマートフォンをマシンと同じ Wi-Fi ネットワークに
- #: src/pages/ShotAnalyzer/components/EmptyState.jsx
- msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "GaggiMate の内部ストレージに保存されたショットとプロファイルを直接表示します。"
+@@ -6563,3 +6563,107 @@ msgstr "ショット #{shotId} のメモを読み込めませんでした。デ
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "ショット #{shotId} のメモを保存できませんでした。接続を確認し、編集を続ける前にこのショットを開き直してください。"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -562,10 +602,6 @@ index 10c91dfc..c5473ec7 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "グラインダーが見つかりません。グラインダーを起こして再度スキャンしてください。"
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "未接続"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -622,14 +658,138 @@ index 10c91dfc..c5473ec7 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "送信出力"
-diff --git a/web/src/locales/zh/messages.po b/web/src/locales/zh/messages.po
-index 27095dd0..61242f69 100644
---- a/web/src/locales/zh/messages.po
-+++ b/web/src/locales/zh/messages.po
-@@ -5760,3 +5760,99 @@ msgstr "手机需要与咖啡机处于同一 Wi-Fi 网络。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "挽いた重量を投入量として保存"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "挽き作業が正常に終わるたびに、選択中のプロファイルの投入量をグラインダーが報告した重量に設定します。次のショットで使用されます。プロファイルファイルには保存されません。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "最後に保存した投入量"
+diff --git a/web/src/locales/pt/messages.po b/web/src/locales/pt/messages.po
+index cc0677e8..d8ed0dc3 100644
+--- a/web/src/locales/pt/messages.po
++++ b/web/src/locales/pt/messages.po
+@@ -6539,3 +6539,107 @@ msgstr "Seu celular precisa estar na mesma rede Wi-Fi que a máquina."
  #: src/pages/ShotAnalyzer/components/EmptyState.jsx
  msgid "Your saved shots and profiles directly from the GaggiMate internal storage."
- msgstr "直接来自 GaggiMate 内部存储的已保存萃取和曲线。"
+ msgstr "Suas extrações e seus perfis salvos, direto do armazenamento interno do GaggiMate."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink (Smart Grind By Weight)"
++msgstr "GrinderLink (Smart Grind By Weight)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Enable GrinderLink"
++msgstr "Ativar GrinderLink"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Lets GaggiMate talk to a Smart Grind By Weight grinder over Bluetooth: set its dose, start and stop a grind and read the result. Save and restart to apply the switch."
++msgstr "Permite que o GaggiMate se comunique por Bluetooth com um moedor Smart Grind By Weight: ajustar a dose, iniciar e parar uma moagem e ler o resultado. Salve e reinicie para aplicar a chave."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "GrinderLink is not running yet. Save and restart GaggiMate to start it."
++msgstr "O GrinderLink ainda não está em execução. Salve e reinicie o GaggiMate para iniciá-lo."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder"
++msgstr "Moedor"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "None selected"
++msgstr "Nenhum selecionado"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Scan"
++msgstr "Buscar"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Select"
++msgstr "Selecionar"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No grinder found yet. Wake the grinder and scan again."
++msgstr "Nenhum moedor encontrado ainda. Acorde o moedor e busque novamente."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Waiting for the grinder"
++msgstr "Aguardando o moedor"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Dose (g)"
++msgstr "Dose (g)"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grind size"
++msgstr "Tamanho da moagem"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Unit"
++msgstr "Unidade"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Send to grinder"
++msgstr "Enviar ao moedor"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Start grind"
++msgstr "Iniciar moagem"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Stop"
++msgstr "Parar"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Grinder state"
++msgstr "Estado do moedor"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "The grinder did not take the start."
++msgstr "O moedor não aceitou o início."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "No start was seen. Check the grinder before you start again."
++msgstr "Nenhum início foi detectado. Verifique o moedor antes de iniciar novamente."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last result"
++msgstr "Último resultado"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Request failed"
++msgstr "A solicitação falhou"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Signal"
++msgstr "Sinal"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "TX power"
++msgstr "Potência de TX"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "Guardar o peso moído como dose"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "Após cada moagem bem-sucedida, define a dose do perfil selecionado com o peso indicado pelo moinho. Usada no próximo shot. Não é guardada no ficheiro do perfil."
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "Última dose guardada"
+diff --git a/web/src/locales/zh/messages.po b/web/src/locales/zh/messages.po
+index 19757403..5e47e830 100644
+--- a/web/src/locales/zh/messages.po
++++ b/web/src/locales/zh/messages.po
+@@ -6563,3 +6563,107 @@ msgstr "无法加载萃取 #{shotId} 的备注。未覆盖任何数据。请检
+ #: src/pages/ShotAnalyzer/components/useShotNotesState.js
+ msgid "Notes for shot #{shotId} could not be saved. Check the connection and reopen that shot before editing again."
+ msgstr "无法保存萃取 #{shotId} 的备注。请检查连接，重新打开该萃取后再继续编辑。"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "GrinderLink (Smart Grind By Weight)"
@@ -666,10 +826,6 @@ index 27095dd0..61242f69 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "No grinder found yet. Wake the grinder and scan again."
 +msgstr "尚未找到磨豆机。请唤醒磨豆机后重新扫描。"
-+
-+#: src/pages/Settings/GrinderLinkCard.jsx
-+msgid "Not connected"
-+msgstr "未连接"
 +
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "Waiting for the grinder"
@@ -726,3 +882,15 @@ index 27095dd0..61242f69 100644
 +#: src/pages/Settings/GrinderLinkCard.jsx
 +msgid "TX power"
 +msgstr "发射功率"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Save grind weight as dose"
++msgstr "将研磨重量保存为粉量"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "After each successful grind, sets the selected profile's dose to the weight the grinder reports. Used by the next shot. Not stored in the profile file."
++msgstr "每次研磨成功后，将所选配方的粉量设为磨豆机报告的重量。下一次萃取使用该值。不会保存到配方文件中。"
++
++#: src/pages/Settings/GrinderLinkCard.jsx
++msgid "Last saved dose"
++msgstr "上次保存的粉量"

@@ -41,6 +41,8 @@ PURE = [
     GLINK / "GLinkClient.cpp",
     GLINK / "GLinkReconnect.h",
     GLINK / "GLinkReconnect.cpp",
+    GLINK / "GLinkDoseSave.h",
+    GLINK / "GLinkDoseSave.cpp",
     GLINK / "RxRing.h",
     GLINK / "bluetooth" / "glink_frame.h",
     GLINK / "bluetooth" / "glink_frame.cpp",
@@ -52,7 +54,7 @@ PURE = [
 PATCH_ALLOWED = re.compile(
     r"^(src/display/core/(Settings|Controller)\.(h|cpp)|src/display/plugins/WebUIPlugin\.(h|cpp)|web/src/.+)$"
 )
-PINNED_COMMIT = "b78beee"
+PINNED_COMMIT = "b564759"  # short form; the full SHA in the scripts is checked against it, the README against the scripts
 
 
 def read_text(path: Path) -> str:
@@ -69,7 +71,7 @@ def test_shared_file_is_identical_with_the_firmware(copy, original):
 
 def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
-    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp", "GLinkReconnect.h", "GLinkReconnect.cpp", "RxRing.h"}
+    own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp", "GLinkReconnect.h", "GLinkReconnect.cpp", "GLinkDoseSave.h", "GLinkDoseSave.cpp", "RxRing.h"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"
@@ -126,6 +128,13 @@ def test_patch_list_is_consecutive_and_documented():
         assert p.name in readme, f"{p.name} is not listed in the README"
 
 
+@pytest.mark.parametrize("script", ["check_against_gaggimate.sh", "check_patches.sh"])
+def test_scripts_pin_the_full_sha_of_the_pinned_commit(script):
+    m = re.search(r"^PINNED=([0-9a-f]{40})$", read_text(PLUGIN / "scripts" / script), flags=re.M)
+    assert m, f"{script} has no full PINNED SHA"
+    assert m.group(1).startswith(PINNED_COMMIT), f"{script} pins {m.group(1)}"
+
+
 @pytest.mark.parametrize("patch", PATCHES, ids=lambda p: p.name)
 def test_patch_touches_only_allowed_files(patch):
     files = patch_files(patch)
@@ -149,7 +158,12 @@ def test_patch_nvs_keys_fit_the_15_character_limit():
 
 def test_patches_do_not_expose_a_secret_or_a_token():
     for p in PATCHES:
-        assert not re.search(r"(?i)password|token|secret", p.read_bytes().decode("utf-8")), p.name
+        # only lines the patch adds; context lines are GaggiMate's own (e.g. its homeAssistantPassword setting)
+        # only the two file headers are skipped; any other added line that starts with "+++" is checked
+        headers = ("+++ b/", "+++ /dev/null")
+        lines = p.read_bytes().decode("utf-8").splitlines()
+        added = "\n".join(l for l in lines if l.startswith("+") and not l.startswith(headers))
+        assert not re.search(r"(?i)password|token|secret", added), p.name
 
 
 def test_patch_script_blocks_without_a_checkout():
@@ -239,7 +253,7 @@ def test_check_script_refuses_a_directory_that_is_not_empty(tmp_path):
 
 # ---- chg023 step 5: signal display, no idle disconnect, reconnect path ---------------------------------------------
 
-LOCALES = ("de", "en", "es", "fr", "it", "ja", "zh")
+LOCALES = ("de", "en", "es", "fr", "it", "ja", "pt", "zh")
 
 
 def function_body(text: str, signature: str) -> str:
@@ -267,7 +281,7 @@ def test_card_shows_signal_and_tx_power_with_translated_labels():
     assert "t`Signal`" in card and "t`TX power`" in card
 
 
-def test_locale_patch_has_signal_and_tx_power_in_all_seven_locales():
+def test_locale_patch_has_signal_and_tx_power_in_all_eight_locales():
     patch = read_text(PLUGIN / "patches" / "0005-locales-grinderlink.patch")
     files = re.split(r"(?m)^diff --git ", patch)[1:]
     assert len(files) == len(LOCALES)
@@ -276,6 +290,12 @@ def test_locale_patch_has_signal_and_tx_power_in_all_seven_locales():
         assert len(chunk) == 1, f"no {locale} locale in the patch"
         assert '+msgid "Signal"' in chunk[0], locale
         assert '+msgid "TX power"' in chunk[0], locale
+
+
+def test_locale_patch_does_not_duplicate_upstream_not_connected():
+    patch = read_text(PLUGIN / "patches" / "0005-locales-grinderlink.patch")
+    assert 'msgid "Not connected"' not in patch
+    assert "t`Not connected`" in read_text(CARD)
 
 
 def test_status_carries_rssi_and_tx_power_and_drop_link_clears_them():
@@ -328,7 +348,11 @@ def test_readme_states_what_was_and_was_not_verified():
     readme = read_text(PLUGIN / "README.md")
     for heading in ("## Verified", "## Not verified", "## Still to do"):
         assert heading in readme, f"README lacks '{heading}'"
-    assert PINNED_COMMIT in readme
+    # the README names the pin by its full SHA, the same one the scripts pin; the old base is gone
+    full = re.search(r"^PINNED=([0-9a-f]{40})$", read_text(PLUGIN / "scripts" / "check_against_gaggimate.sh"), flags=re.M)
+    assert full and full.group(1) in readme, "README lacks the full SHA the scripts pin"
+    assert "b78beee" not in readme
+    assert "b78beee" not in read_text(ROOT / "docs" / "DEVELOPMENT.md")
     for f in SHARED:
         if f.suffix in (".h", ".cpp") and "grinderlink" in f.parts:
             assert f.name in readme, f"README does not mention the shared file {f.name}"
@@ -352,3 +376,91 @@ def test_plugin_host_tests_pass(tmp_path):
     r = subprocess.run([sh, str(PLUGIN / "scripts" / "run_host_tests.sh")], capture_output=True, text=True, env=env, timeout=600)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     assert re.search(r"\b\d+ tests, 0 failed", r.stdout), r.stdout[-500:]
+
+
+# ---- save grind weight as dose setting (chg024 B2) ---------------------------------------------------------------
+
+SAVE_DOSE_MSGIDS = [
+    "Save grind weight as dose",
+    "After each successful grind, sets the selected profile's dose to the weight the grinder reports. "
+    "Used by the next shot. Not stored in the profile file.",
+    "Last saved dose",
+]
+
+
+def test_save_dose_setting_is_in_the_settings_and_web_patches():
+    settings = read_text(PLUGIN / "patches" / "0001-settings-grinderlink.patch")
+    assert 'Property<bool> grinderLinkSaveDose{registry, "gl_sd", true}' in settings
+    assert "isGrinderLinkSaveDose()" in settings and "setGrinderLinkSaveDose(bool" in settings
+    web = read_text(PLUGIN / "patches" / "0003-webui-grinderlink-settings.patch")
+    assert 'hasArg("grinderLinkSaveDose")' in web
+    assert 'parseBoolArg(request->arg("grinderLinkSaveDose"))' in web
+    assert 'doc["grinderLinkSaveDose"] = settings.isGrinderLinkSaveDose()' in web
+    hook = read_text(PLUGIN / "patches" / "0004-webui-grinderlink-card-hook.patch")
+    assert "+  'grinderLinkSaveDose'," in hook
+
+
+def test_save_dose_nvs_key_is_at_most_five_characters():
+    settings = read_text(PLUGIN / "patches" / "0001-settings-grinderlink.patch")
+    assert len(re.search(r'grinderLinkSaveDose\{registry, "([^"]+)"', settings).group(1)) <= 5
+
+
+def test_card_binds_the_save_dose_checkbox_and_shows_the_saved_dose_defensively():
+    card = read_text(CARD)
+    assert "onChange('grinderLinkSaveDose')" in card and "formData.grinderLinkSaveDose" in card
+    assert "Save grind weight as dose" in card and "t`Last saved dose`" in card
+    assert "Number.isFinite(status?.doseSaved)" in card
+
+
+def test_locale_patch_has_the_save_dose_texts_in_all_eight_locales():
+    patch = read_text(PLUGIN / "patches" / "0005-locales-grinderlink.patch")
+    files = re.split(r"(?m)^diff --git ", patch)[1:]
+    for locale in LOCALES:
+        chunk = [f for f in files if f.startswith(f"a/web/src/locales/{locale}/messages.po ")]
+        assert len(chunk) == 1, f"no {locale} locale in the patch"
+        for msgid in SAVE_DOSE_MSGIDS:
+            assert f'+msgid "{msgid}"' + chr(10) + '+msgstr "' in chunk[0], f"{locale}: {msgid}"
+
+
+# ---- save grind weight as dose, plugin glue (chg024 B3) ------------------------------------------------------------
+
+def test_dose_write_is_one_place_under_the_process_lock():
+    code = plugin_code()
+    assert len(re.findall(r"profile\.dose\s*=[^=]", code)) == 1
+    body = function_body(code, "void GLinkPlugin::applyPendingDose")
+    assert re.search(r"profile\.dose\s*=[^=]", body)
+    assert "getSelectedProfile()" in body
+    assert re.search(r"std::lock_guard<std::recursive_mutex>\s+\w+\(controller->getProcessLock\(\)\)", body)
+    for forbidden in ("cmdMutex", "rxMutex", "foundMutex"):
+        assert forbidden not in body
+    # the busy checks of Smart Dose, and the toggle
+    for needed in ("MODE_BREW", "isActive()", "isUpdating()", "isAutotuning()", ".utility", "isGrinderLinkSaveDose()", "doseSave.cancel()"):
+        assert needed in body, needed
+    # called from loop() on every pass
+    assert "applyPendingDose(" in function_body(code, "void GLinkPlugin::loop")
+
+
+def test_listener_callbacks_only_record_the_dose_and_never_touch_the_profile():
+    code = plugin_code()
+    for signature in ("void GLinkPlugin::on_result", "void GLinkPlugin::on_ready"):
+        body = function_body(code, signature)
+        for forbidden in ("getProfileManager", "getSelectedProfile", "getProcessLock", "getMode()", "applyPendingDose", ".dose"):
+            assert forbidden not in body, f"{signature} uses {forbidden}"
+    assert "doseSave.on_result(" in function_body(code, "void GLinkPlugin::on_result")
+    assert "doseSave.on_ready(" in function_body(code, "void GLinkPlugin::on_ready")
+
+
+def test_link_changes_reset_the_dose_baseline():
+    code = plugin_code()
+    for signature in ("void GLinkPlugin::dropLink", "void GLinkPlugin::selectDevice", "void GLinkPlugin::forget"):
+        assert "doseSave.on_link_down()" in function_body(code, signature), signature
+
+
+def test_plugin_does_not_include_smart_dose():
+    for path in (PLUGIN_CPP, GLINK / "GLinkPlugin.h"):
+        assert not re.search(r"#\s*include\s*[<\"][^>\"]*SmartDose", read_text(path)), path.name
+
+
+def test_status_carries_the_dose_fields():
+    fill = function_body(plugin_code(), "void GLinkPlugin::fillStatus")
+    assert '"doseSaved"' in fill and '"doseNote"' in fill

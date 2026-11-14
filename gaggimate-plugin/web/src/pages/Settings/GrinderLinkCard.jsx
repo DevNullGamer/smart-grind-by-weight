@@ -70,7 +70,10 @@ export function GrinderLinkCard({ formData, onChange }) {
   const linked = status?.link === 'ready' || status?.link === 'linked';
   useEffect(() => {
     if (!linked) return undefined;
-    const timer = setInterval(() => ask('req:grinderlink:connect', { keepalive: true }, ACTION_TIMEOUT_MS).catch(() => {}), KEEPALIVE_MS);
+    const timer = setInterval(
+      () => ask('req:grinderlink:connect', { keepalive: true }, ACTION_TIMEOUT_MS).catch(() => {}),
+      KEEPALIVE_MS,
+    );
     return () => clearInterval(timer);
   }, [linked]);
 
@@ -90,7 +93,9 @@ export function GrinderLinkCard({ formData, onChange }) {
 
   const doseNumber = parseFloat(dose);
   const doseValid = Number.isFinite(doseNumber) && doseNumber >= 5 && doseNumber <= 60;
-  const sizeValid = size === '' || (Number.isFinite(parseFloat(size)) && parseFloat(size) >= 0 && parseFloat(size) <= 999.9);
+  const sizeValid =
+    size === '' ||
+    (Number.isFinite(parseFloat(size)) && parseFloat(size) >= 0 && parseFloat(size) <= 999.9);
   const unitValid = unit.length <= 6 && (size !== '' || unit === '');
 
   const profileBody = () => {
@@ -106,7 +111,11 @@ export function GrinderLinkCard({ formData, onChange }) {
 
   const select = found =>
     run(() =>
-      ask('req:grinderlink:select', { address: found.address, addrType: found.addrType, name: found.name }),
+      ask('req:grinderlink:select', {
+        address: found.address,
+        addrType: found.addrType,
+        name: found.name,
+      }),
     );
   const send = () => run(() => ask('req:grinderlink:profile:update', profileBody()));
   // The dose goes first, then the start with the same dose as expectDose (the plugin always sends it).
@@ -154,6 +163,34 @@ export function GrinderLinkCard({ formData, onChange }) {
               start and stop a grind and read the result. Save and restart to apply the switch.
             </Trans>
           </p>
+          <div className='form-control'>
+            <label className='flex cursor-pointer items-center gap-3' htmlFor='grinderLinkSaveDose'>
+              <input
+                id='grinderLinkSaveDose'
+                name='grinderLinkSaveDose'
+                value='grinderLinkSaveDose'
+                type='checkbox'
+                className='checkbox checkbox-primary'
+                checked={!!formData.grinderLinkSaveDose}
+                onChange={onChange('grinderLinkSaveDose')}
+              />
+              <span className='text-sm font-medium'>
+                <Trans>Save grind weight as dose</Trans>
+              </span>
+            </label>
+            <p className='mt-1 text-sm opacity-70'>
+              <Trans>
+                After each successful grind, sets the selected profile's dose to the weight the
+                grinder reports. Used by the next shot. Not stored in the profile file.
+              </Trans>
+            </p>
+            {Number.isFinite(status?.doseSaved) && (
+              <div className='mt-1 text-sm'>
+                <span className='opacity-70'>{t`Last saved dose`}: </span>
+                {status.doseSaved.toFixed(1)} g
+              </div>
+            )}
+          </div>
           {status === null ? (
             <p className='text-sm'>
               <Trans>GrinderLink is not running yet. Save and restart GaggiMate to start it.</Trans>

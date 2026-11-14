@@ -295,6 +295,8 @@ void GLinkPlugin::loop() {
     else
         autoReconnect(now); // not in the pass that handled a command: it may have changed the link or blocked for seconds
 
+    applyPendingDose(millis()); // every pass: a pending dose expires even while the machine is busy
+
     if (phase == LinkPhase::LINKED) {
         logLinkRssi(now);
         autoFetch(now);
@@ -506,6 +508,42 @@ void GLinkPlugin::autoFetch(uint32_t now) {
     inflight.kind = kind;
 }
 
+// Loop task, once per pass (chg024 part B). The only place that writes the selected profile's dose; the listener callbacks
+// only record into doseSave. The process lock is taken here and never while cmdMutex, rxMutex or foundMutex is held (loop()
+// holds none of them at this point). Like Smart Dose the write is memory-only: it is lost on a profile reselect or reboot.
+void GLinkPlugin::applyPendingDose(uint32_t now) {
+    if (!doseSave.has_pending())
+        return; // cheap path: no lock, no settings read
+    Settings &settings = controller->getSettings();
+    if (!settings.isGrinderLinkSaveDose()) {
+        doseSave.cancel();
+        dirty = true;
+        return;
+    }
+    int32_t doseTenths = 0;
+    uint32_t seq = 0;
+    bool taken = false;
+    {
+        std::lock_guard<std::recursive_mutex> lock(controller->getProcessLock());
+        Profile &profile = controller->getProfileManager()->getSelectedProfile();
+        const bool canApply = controller->getMode() == MODE_BREW && !controller->isActive() && !controller->isUpdating() &&
+                              !controller->isAutotuning() && !profile.utility;
+        taken = doseSave.take(canApply, now, &doseTenths, &seq);
+        if (taken) {
+            const float dose = static_cast<float>(doseTenths) / 10.0f;
+            if (fabsf(profile.dose - dose) >= 0.001f) // compare-first: an equal dose is not written again
+                profile.dose = dose;
+        }
+    }
+    if (taken) {
+        // Integers only: float printf is stack-hungry and the loop task has little headroom. Tenths are 50..400 here.
+        ESP_LOGI(TAG, "Dose set to %d.%d g from grind #%u", static_cast<int>(doseTenths / 10), static_cast<int>(doseTenths % 10),
+                 static_cast<unsigned>(seq));
+    }
+    if (taken || !doseSave.has_pending())
+        dirty = true; // written or expired: the card's note changed (a value that keeps waiting changes nothing)
+}
+
 // A connect blocks loop() for seconds, so it never starts while a grind or brew runs or the system is not ready.
 bool GLinkPlugin::gaggimateBusy() const { return controller->isActive() || controller->getSystemState() != SYSTEM_READY; }
 
@@ -708,6 +746,7 @@ void GLinkPlugin::selectDevice(const Command &cmd) {
     for (auto &c : address)
         c = static_cast<char>(tolower(c));
     dropLink("", true);
+    doseSave.on_link_down(); // a new choice starts without a baseline or pending dose
     Settings &settings = controller->getSettings();
     settings.setGrinderLinkAddress(storedForm(address, cmd.addrType));
     settings.setGrinderLinkName(cmd.name.substring(0, 32));
@@ -721,6 +760,7 @@ void GLinkPlugin::selectDevice(const Command &cmd) {
 
 void GLinkPlugin::forget(const Command &cmd) {
     dropLink("", true);
+    doseSave.on_link_down();
     Settings &settings = controller->getSettings();
     settings.setGrinderLinkAddress("");
     settings.setGrinderLinkName("");
@@ -872,6 +912,7 @@ bool GLinkPlugin::connectLink(uint32_t now, uint8_t timeoutSeconds, bool manual)
 // Ends the link and everything tied to it. Queued commands stay queued only if they are not tied to a request on the wire;
 // nothing that was waiting for an answer is replayed.
 void GLinkPlugin::dropLink(const char *reason, bool userRequested) {
+    doseSave.on_link_down(); // the baseline belongs to this link; a result that arrives during a gap is never written
     if (client)
         client->on_disconnected();
     if (ble != nullptr) {
@@ -940,6 +981,7 @@ bool GLinkPlugin::write_packet(const uint8_t *packet, size_t len) {
 void GLinkPlugin::on_ready() {
     ESP_LOGI(TAG, "Grinder ready");
     dirty = true;
+    doseSave.on_ready(client->period().result_seq); // the Client stored the first periodInfo before this call
     if (!stackLogged) {
         stackLogged = true;
         ESP_LOGI(TAG, "Stack high-water mark of the loop task: %u bytes free at least",
@@ -967,8 +1009,12 @@ void GLinkPlugin::on_period(const glinkc::PeriodInfo &period, bool) {
     }
 }
 
+// Listener callback on the loop task: it only records (no profile, controller or NVS access beyond one setting read);
+// applyPendingDose() decides and writes. weight_settled is spec 5.6: true exactly for OK, OVERSHOOT and MAX_PULSES.
 void GLinkPlugin::on_result(const glinkc::ResultInfo &result) {
     dirty = true;
+    doseSave.on_result(result.seq, result.weight_settled, result.final_weight_tenths,
+                       controller->getSettings().isGrinderLinkSaveDose(), millis());
     if (ws == nullptr || !ws->hasClients())
         return;
     JsonDocument doc(&psramAllocator);
@@ -1115,6 +1161,21 @@ void GLinkPlugin::fillStatus(JsonObject out) {
     if (startNote.length() > 0)
         out["startNote"] = startNote;
     out["stopUnconfirmed"] = stopUnconfirmed;
+    if (doseSave.last_saved_tenths() != 0)
+        out["doseSaved"] = fromTenths(doseSave.last_saved_tenths()); // last dose written by this plugin, grams
+    const char *doseNote = nullptr;
+    if (doseSave.has_pending()) {
+        doseNote = "waiting";
+    } else {
+        switch (doseSave.last_skip()) {
+        case glinkc::DoseSkip::FEATURE_OFF: doseNote = "disabled"; break;
+        case glinkc::DoseSkip::NOT_SETTLED: doseNote = "not_settled"; break;
+        case glinkc::DoseSkip::OUT_OF_RANGE: doseNote = "out_of_range"; break;
+        default: break;
+        }
+    }
+    if (doseNote != nullptr)
+        out["doseNote"] = doseNote;
 
     JsonArray list = out["found"].to<JsonArray>();
     {
