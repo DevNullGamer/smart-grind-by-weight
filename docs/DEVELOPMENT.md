@@ -260,7 +260,7 @@ After editing anything in `web/portal/`, run `python3 tools/portal/build_page.py
 GLink (GaggiMate link, chg020): the pure `src/bluetooth/glink_*` modules are in the native suite (`test_native/`), and `tools/tests/test_glink_*.py` keep the spec `docs/GLINK-PROTOCOL.md`, the constants in `src/config/bluetooth.h`, `tools/tests/glink_vectors.json` and the Python client/simulator (`tools/ble/glink_*.py`) equal; `test_glink_ble_task_guard.py` and `test_glink_start_guard.py` are text guards (Bluetooth task never calls LVGL/NVS/controllers; the start path). The GaggiMate plugin has its own checks, not run by CI (they need g++ or a GaggiMate clone):
 
 ```bash
-sh gaggimate-plugin/scripts/run_host_tests.sh                          # 145 plugin host tests with g++ (C++17), no PlatformIO
+sh gaggimate-plugin/scripts/run_host_tests.sh                          # 176 plugin host tests with g++ (C++17), no PlatformIO
 sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]   # clone GaggiMate 2e64abd into a NEW directory, apply the patches, stage (+ pio)
 python3 tools/ble/grinder-ble.py glink-info --sim                      # client against the simulated grinder, no hardware
 ```

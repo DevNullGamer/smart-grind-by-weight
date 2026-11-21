@@ -1,4 +1,4 @@
-# GLink grinder driver for GaggiMate (chg025)
+# GLink grinder driver for GaggiMate (chg025, chg026)
 
 A driver and a small plugin that make a Smart Grind By Weight grinder a grinder in GaggiMate's BluetoothDevices framework
 (`lib/BluetoothDevices`, branch `feature/bluetooth-devices-grinder`, pinned at commit `2e64abd`, full SHA
@@ -6,10 +6,12 @@ A driver and a small plugin that make a Smart Grind By Weight grinder a grinder 
 connect on sight, the disconnect at standby, Forget and the Bluetooth tab. The driver speaks GLink v1
 (`docs/GLINK-PROTOCOL.md`) to the grinder, which is the BLE peripheral. What it does:
 
-- pushes the dose (and the grind size, when the profile has one) of the profile selected in GaggiMate to the grinder's
-  Profile Dose, compare-first, and selects that profile on the grinder's screen after a stored change;
+- pushes the dose of the profile selected in GaggiMate to the grinder's Profile Dose, with its grind size and rpm when the
+  profile has them (a profile with only a dose is pushed too), compare-first, and selects that profile on the grinder's
+  screen after a stored change. A size or rpm that the profile no longer has is cleared on the grinder. The rpm (GLink 1.2,
+  display only) is sent only to a grinder that advertises `protoMinor` 2 or more;
 - reports a finished grind, so that its weight temporarily becomes the dose of the selected GaggiMate profile;
-- reports the grinder's state and the dose and size of the profile selected on the grinder.
+- reports the grinder's state and the dose, size and rpm of the profile selected on the grinder.
 
 Start and stop are not part of the driver (the framework has no interface for them yet); live data is parsed and held, not shown.
 
@@ -20,8 +22,8 @@ pinned at b564759) is retired; it lives only in the grinder repository's history
 `keep/own-glink-plugin-chg024`.
 
 **Status: built and host-tested; bench round 2 (2026-11-21) ran the real build with no bench variant. The link, the handshake,
-the dose push and the select work on the bench; grind-dependent checks and the grinder-side link tests are still open.** See
-"Verified" and "Not verified".
+the dose push and the select work on the bench; grind-dependent checks and the grinder-side link tests are still open.
+chg026 (rpm, dose-only push, clearing) is host-tested only; its bench items are open.** See "Verified" and "Not verified".
 
 ## Layout
 
@@ -79,13 +81,19 @@ under `GAGGIMATE_SIM` is empty in the simulator build.
 - **`update()`** runs about once a second while linked. It drains the whole ring into the core before the tick (a stalled
   loop must not fire the 5 s timeouts while the answer already sits in the ring), ticks the core, publishes the state, the
   reported settings and a finished grind to the framework, and logs. A ring overflow or a protocol error ends the link.
-- **Settings.** `applySettings()` hands the profile's dose (and grind size, when it has one) to the core as the wanted
-  Profile Dose and returns `isConnected()`. The grinder takes 5.0 to 60.0 g; a dose outside is not sent (log line). Grind
-  size 0.0 to 999.9, otherwise sent without it. No grind unit is ever sent. `supportsGrindSize()` is true; rpm and feed rpm are
-  not supported.
+- **Settings.** `applySettings()` hands the profile's dose, grind size and rpm (each when it has one; feed rpm is ignored) to
+  the core as the wanted Profile Dose and returns `isConnected()`. The grinder takes 5.0 to 60.0 g; a dose outside is not
+  sent (log line). Grind size 0.0 to 999.9. rpm 0 to 9999, a whole number; an rpm outside that range is treated as absent
+  (log line `rpm above 9999, not sent`), so a value the grinder holds for that profile is cleared. No grind unit is ever
+  sent. `supportsGrindSize()` is true; `supportsDose()` is true (patch 0004); `supportsRpm()` is true only on a ready link to
+  a grinder that advertised `protoMinor` 2 or more. Feed rpm is not supported.
+- **Mirror rule.** A size or rpm that the GaggiMate profile does not have is sent as `null` (`grindSize:null`, and
+  `rpm:null` only to a grinder that supports rpm), but only when the grinder holds one. The rpm is never sent to an older
+  grinder: a 1.1 grinder refuses the whole update for the unknown key, so the dose would be refused too. One note
+  (`rpm not supported by this grinder firmware, not sent`) is logged per wanted rpm.
 - **Order inside the core** (one request in flight): stale profiles are read first (`profile_get`), then the dose push
-  (`profile_update` of profile 3, only when entry 3 differs: compare-first), then `grindProfile select 3` after an update
-  that stored a change, then `result_get` when `resultSeq` is newer. Writes wait for a grinder state that accepts them
+  (`profile_update` of profile 3 with dose, size and rpm, only when entry 3 differs: compare-first), then `grindProfile
+  select 3` after an update that stored a change, then `result_get` when `resultSeq` is newer. Writes wait for a grinder state that accepts them
   (IDLE or WARNING, so a user in the grinder's menu is not disturbed). Stored changes keep 1.1 s apart (spec 7.3: a
   `RATE_LIMITED` answer retries after 1.1 s); `NOT_READY`, `EDIT_IN_PROGRESS` and the like wait for a suitable state; at
   most 3 attempts per stage, then it gives up and logs the code. The select follows only an update that stored a change, so a
@@ -101,8 +109,8 @@ under `GAGGIMATE_SIM` is empty in the simulator build.
   `reason 0x08 (supervision timeout)`.
 - **Logs** (serial, integers only): connect refusals, `Linked, packet size N, hello sent`, TX power at link-up, `Data channel
   ready` with the free internal heap before and after the connect, once the loop task's stack high-water mark, push progress
-  (queued, stored and selecting, in sync, giving up with the code), `Grind finished, N.N g`, and `RSSI -NN dBm` every 5 s
-  while linked. There is no card and no setting for any of it.
+  (queued, stored and selecting, in sync, giving up with the code), the rpm notes above, `Grind finished, N.N g`, and
+  `RSSI -NN dBm` every 5 s while linked. There is no card and no setting for any of it.
 
 ## The consumer plugin (`GLinkPlugin`)
 
@@ -122,7 +130,7 @@ against Smart Dose. It is always on: no setting, no web endpoint. `GLinkPlugin.h
 | `0001-grinder-finished-event.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.{h,cpp}` | `reportGrindFinished` / `takeGrindFinished` on `BluetoothGrinder`; `pollGrinderEvents` fires `grinder:grind:finished` (`value` = grams). No effect without a grinder. Proposed upstream. |
 | `0002-controller-register-glink-plugin.patch` | `src/display/core/Controller.cpp` | `#ifndef GAGGIMATE_SIM`: includes `GLinkPlugin.h` and registers `new GLinkPlugin()` after `&BLEDevices`, unconditionally (no setting). Goes away if the driver becomes a built-in. |
 | `0003-web-glink-model-name.patch` | `web/src/utils/bluetoothDevices.js` | `[/^GrindByWeight/i, 'Smart Grind By Weight']` in `GRINDER_MODELS`, so the Bluetooth tab shows the model name instead of the raw name. Not a translated string: no locale change. |
-| `0004-grinder-supports-dose.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.cpp` | `virtual bool supportsDose() const { return false; }` on `BluetoothGrinder`; `syncGrinderProfile()` also proceeds when the connected grinder `supportsDose()` and the profile dose is above 0 (before, a profile with a dose and no grind size was skipped), and logs one line for a real skip. Other drivers (Motto) are unchanged: the default is false. Added in chg026; can still be offered upstream. |
+| `0004-grinder-supports-dose.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.cpp` | `virtual bool supportsDose() const { return false; }` on `BluetoothGrinder`; `syncGrinderProfile()` also proceeds when the connected grinder `supportsDose()` and the profile dose is above 0 (before, a profile with a dose and no grind size was skipped), and logs one line for a real skip. Other drivers (Motto) are unchanged except that a profile with a dose but no grind settings now logs one skip line (`has nothing the connected grinder can take, not sent`): the default is false. Added in chg026; can still be offered upstream. |
 
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion. Without patch 0003
 the tab shows the raw name `GrindByWeight`.
@@ -135,8 +143,8 @@ the tab shows the raw name `GrindByWeight`.
 3. From then on GaggiMate's plugin connects whenever it sees the saved grinder, drops the link at standby and reconnects at
    wake-up on sight. Forget in the tab closes the link and stops it. There is no button of ours and no sticky disconnect.
 4. After the connect GaggiMate pushes the selected profile (it also does so on every profile select and save). The grinder's
-   PROFILE page appears the first time and shows the dose and size (the select is seen on the wire; the page itself was not
-   yet seen on the bench).
+   PROFILE page appears the first time and shows the dose, the size and the rpm (the select is seen on the wire; the page
+   itself was not yet seen on the bench, and the rpm line is not yet seen on a screen).
 5. A finished grind on the grinder sets the selected profile's dose in memory (see the consumer plugin).
 
 While linked the driver holds the grinder's single Bluetooth client slot: `grinder.py` upload and WiFi tools, the web flasher
@@ -147,6 +155,11 @@ Known limitations and things that do not map exactly:
 - **G1 (a profile with a dose but no grind size was not pushed): fixed by patch 0004 (chg026).** The driver reports
   `supportsDose()`, so such a profile is pushed; a profile with nothing the grinder can take is skipped with one log line.
   Not yet re-checked on the bench.
+- **rpm needs a grinder with `protoMinor` 2.** With an older grinder (chg025 image) the rpm is not sent and the dose and
+  size still arrive; one note says so. A chg025 build of this plugin never sends an rpm and never clears one, so an rpm
+  stored by a chg026 build stays on the grinder until the profile is removed there (Menu → Bluetooth → Remove GaggiMate
+  profile) or this plugin is used again.
+- The grinder shows the rpm as a second line under the grind size; its layout is checked by arithmetic only, not on a screen.
 - Signal strength and TX power are in the serial log only; the tab does not render RSSI. The old "last saved dose" line is
   gone: the new dose is the profile dose on the GaggiMate display and one serial log line.
 - A connect that is refused or fails during a shot raises GaggiMate's generic "found, but connection failed" banner on each retry.
@@ -166,8 +179,13 @@ weight reported by the grinder is range checked (5.0 to 40.0 g) before it can be
 
 Host side (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_DIR`):
 
-- `scripts/run_host_tests.sh`: 145 host tests pass, 0 failed, compiled with `-Wall -Wextra -Werror`, plus a syntax check of
-  `glink_sources.cpp` (all pure sources in one unit, as `pio test -e native` builds it).
+- `scripts/run_host_tests.sh`: 176 host tests pass, 0 failed (chg026 step 5; 145 before the rpm and dose-only work),
+  compiled with `-Wall -Wextra -Werror`, plus a syntax check of `glink_sources.cpp` (all pure sources in one unit, as
+  `pio test -e native` builds it).
+- chg026, host only: the rpm wire format (build and parse of `rpm`, `protoMinor` in `baseInfo`, the 0 to 9999 range), the
+  sync (rpm sent only when supported, the two notes, the mirror rule for size and rpm, compare-first) and the core's rpm
+  handling (`GLinkGrinderCore`). The firmware side (`-0.5` as `INVALID_PARAM`, the store, the label, the spec vectors) is
+  covered by the firmware's own suites. `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`) is compiled only, not run.
 - The shared files are byte-identical with the firmware (contract test).
 - A3: `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` is 3 in the display env. It is the NimBLE-Arduino default in `nimconfig.h`; 2e64abd's
   `platformio.ini`, board files and sources do not override it.
@@ -216,9 +234,13 @@ Forget; its results are superseded by round 2.
 
 The grinder dev board now holds a stored Profile Dose (index 3, about 21.0 g, grind size 15) and has profile 3 selected from
 the bench. This could not be reverted with the available tooling.
-- Clean-clone build (`WEB_BUILD=1`, web UI embedded): `-e display` RAM 29.7 % (97360 B), flash 61.5 % (4033485 B);
+- Clean-clone build of chg025 (`WEB_BUILD=1`, web UI embedded, before rpm): `-e display` RAM 29.7 % (97360 B), flash 61.5 % (4033485 B);
   `-e display-headless` RAM 25.5 % (83436 B), flash 47.8 % (3132309 B); `pio test -e native -f test_grinderlink` 145 of 145.
   The web UI is embedded, so the flash numbers are not comparable with the earlier step 5 numbers (49.5 %, 35.7 %).
+- chg026 (rpm, dose-only push), staged fresh clone of 2e64abd with patches 0001 to 0004 and `WEB_BUILD=1`: `pio test -e native -f
+  test_grinderlink` 176 of 176; `pio run -e display` RAM 29.7 %, flash 61.6 % (web UI embedded; chg025 was 61.5 %);
+  `pio run -e display-headless` RAM 25.5 %, flash 47.8 %. Without the web UI (chg026 steps 1 and 4 builds): display flash
+  49.5 %, headless flash 35.7 %.
 
 ## Not verified
 
@@ -236,6 +258,11 @@ the bench. This could not be reverted with the available tooling.
 - A refused connect during a shot (log lines, banner noise) and the cost of a blocking connect to the scale heartbeat.
 - That the revert of the dose after a profile reselect works as inferred from Smart Dose.
 - That a grinder in its menu (SETTING) holds a push until READY.
+- chg026 on hardware (step 6): the rpm line on READY and EDIT (layout, no clipping, nothing over the buttons); rpm reaching
+  the grinder and surviving a reboot; a rpm-only change (one update, the PROFILE page follows); `rpm:null` removing the
+  line; rpm 10000 not sent and the grinder's value cleared; a removed Profile Dose leaving no stale rpm; the old and new
+  combinations of the compatibility table (new plugin with the chg025 grinder image, old plugin with the new grinder); a
+  dose-only profile after a profile with a size (the size line disappears).
 - That the coalesced save stores the later value: the stored value was not read back.
 - The Motto 80 path is untouched by the patches; it was not run on a device.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the driver and plugin are empty
@@ -251,7 +278,7 @@ the bench. This could not be reverted with the available tooling.
 1. The controller is at protocol 16 now. Run the rest of the bench (see "Not verified": a grind for B3 and B10, a shot for B4,
    grinder-side link tests, a scale for B8, a BLE-capable PC for B5 and B9) and move what passes to "Verified".
 2. Decide upstream: the grind-finished event (patch 0001), the model name (patch 0003), and `supportsDose()` for dose-only
-   profiles (patch 0004, G1), which the maintainer would have to take.
+   profiles (patch 0004, G1), which the maintainer would have to take. The rpm (GLink 1.2) is in the protocol, not in a patch.
 3. Optional follow-ups, not built: a quiet "busy" reason instead of `connect_failed` in GaggiMate's connect path, start and
    stop on `BluetoothGrinder` (the maintainer's interface), and moving the driver into `lib/BluetoothDevices`.
 

@@ -1437,7 +1437,7 @@ The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy,
 
 ### Known limitation G1 and other gaps
 
-- G1: GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. Bench round 2 confirmed it on the real build: not pushed, no crash, and no log line is written. A `supportsDose()` patch was dropped by decision; the maintainer may take it.
+- G1 (**SUPERSEDED by chg026**, see "GLink 1.2 rpm and dose-only push (chg026)": patch 0004 adds `supportsDose()`, so a dose-only profile is pushed; not yet re-checked on the bench): GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. Bench round 2 confirmed it on the real build: not pushed, no crash, and no log line is written. The `supportsDose()` patch was dropped by decision in chg025; that decision is superseded in chg026 (user, 2026-11-21).
 - N1 RSSI and TX power are in the serial log only. N2 no "last saved dose" line: one log line per applied or skipped result. N3 a refused connect during a shot raises the generic "connection failed" banner. N4 the tab shows the raw name unless patch 0003 is applied. N5 the saved grinder is one string; the scan hit's `NimBLEAddress` carries the address type (read from source, bench B1 confirms). N6 the old keys `gl_a`, `gl_ad`, `gl_n`, `gl_sd` stay in flash on development units, unused; the user pairs again. N7 dose drift: saving a profile after a grind pushes the measured weight as the new target. N8 one grinder slot. N9 `WARNING` and `STARTING` have no framework state: IDLE to IDLE, GRINDING to GRINDING, every other known devState to BUSY, an unknown text to UNKNOWN.
 
 ### Build and test facts
@@ -1470,3 +1470,54 @@ Deviations (round 2):
 - The grinder dev board (COM15) now holds a stored Profile Dose (index 3, about 21.0 g, grind size 15) and has profile 3 selected from the bench. It could not be reverted with the available tooling.
 - GaggiMate `standbyTimeout` was set to 3600 for the B8 rerun and restored to 900; the settings JSON is identical to the start of the bench. The bench profile was deleted and `Default` is selected.
 - The grinder was reset by RTS for B7 and reconnected on sight. The display had one unexplained silent boot (weak lab WiFi, recovered by an RTS reset).
+
+## GLink 1.2 rpm and dose-only push (chg026)
+
+Adds an optional, display-only rpm per GaggiMate profile (GLink revision 1.2), clears a stale grind size or rpm on the grinder when the GaggiMate profile has none, and pushes dose-only profiles (plugin patch 0004, which supersedes the chg025 G1 limitation). Spec: `docs/GLINK-PROTOCOL.md`, revision 1.2 (header table, 4.2, 5.4). Commits on `chg025/gaggimate-grinder-driver`: `813183d` (spec, protocol layer, Python tools, vectors), `c4dd9db` (grinder store and display), `a65d9c9` (plugin driver), `2b44efc` (patch 0004).
+
+### Decisions (answers of the user, 2026-11-21)
+
+- **Q1 clear stale values.** When the GaggiMate profile has no grind size, the grinder clears the size it holds for that profile (`grindSize:null`). When it has no rpm, the grinder clears the rpm (`rpm:null`, sent only to a grinder that supports rpm). The READY and EDIT screens show no line for an unset value. The plugin side is the mirror rule in `GLinkSettingsSync`.
+- **Q2 range.** rpm is a whole number 0 to 9999 (`GLINK_RPM_MAX`). It is a label, never applied to a motor; `grindRpm` (a real motor setting, 500 to 1500) is unchanged.
+- **Q3 capability.** `baseInfo.protoMinor` 2 means the grinder takes `rpm`. A client sends rpm only to such a grinder. A refused update is not retried without rpm: the capability gate is the protection, not a fallback.
+- **Q4 revision label.** "1.2" is a revision label in the spec, with a revision table (1.1 is the first published text; 1.2 adds `rpm` and `protoMinor`). The wire `proto` stays 1.
+- **Q5 layout.** rpm is a second line under the grind size ("Grind: 14.5 um", then "600 rpm"). The two-line layout is to be checked on the device (step 6).
+- **Q6 CLI.** No rpm flag in `tools/ble/grinder-ble.py`; deferred.
+- **Q7 CLAUDE.md.** Two wording edits: the spec is "frozen at 1.1, extended only additively by 1.2", and the plugin is pinned "with four patches". The spec 1.1 security list already names the displayed rpm, so the CLAUDE.md list of what an unauthenticated peer can do is unchanged.
+
+### Finding: an old grinder refuses the whole update
+
+A 1.1 grinder treats `rpm` in a `grindProfile` `update` as an unknown key and answers `INVALID_PARAM` for the whole request. The dose and the grind size in the same request are then not stored either. So a client must not send `rpm` to a grinder that did not advertise `protoMinor` 2. The plugin checks that before it sends.
+
+### Compatibility
+
+| GaggiMate plugin | Grinder firmware | Dose and grind size | rpm | Dose-only profile |
+|---|---|---|---|---|
+| chg026 (patches 0001 to 0004) | 1.2 (`protoMinor` 2) | pushed; a missing size is cleared | pushed; a missing rpm is cleared | pushed |
+| chg026 | 1.1 (chg025 image, no `protoMinor`) | pushed as before | not sent: no `rpm` member in any update, one `RPM_NOT_SUPPORTED` note per wanted rpm, nothing cleared | pushed |
+| chg025 (patches 0001 to 0003) | 1.2 | pushed as before; a missing size is not cleared | never sent; an rpm (or size) already stored stays | not pushed (G1) |
+| chg025 | 1.1 | as before | never sent | not pushed (G1) |
+
+The chg025 rows are the old plugin, which never sends `rpm` and does not clear anything it does not send (absent keeps the stored value on the grinder). Removing the profile on the grinder (Menu → Bluetooth → Remove GaggiMate profile) clears both values.
+
+### Out-of-range and non-integer rpm
+
+- A non-integer rpm (`-0.5`, `600.5`) is `INVALID_PARAM` ("rpm must be an integer or null"), like any non-integer. The integer rule (4.2) is checked before the range, so a fraction is a type error. A negative whole number (`-1`) or one above 9999 (`10000`) is `OUT_OF_RANGE`. Test: `test_native/test_glink_messages.cpp`.
+- On the plugin side an rpm outside 0 to 9999 is treated as absent: it is not sent (note `RPM_OUT_OF_RANGE`, log "rpm above 9999, not sent"), and a value the grinder holds for that profile is cleared, as for an absent rpm.
+
+### Verification
+
+- Host, this step: `tools/tests` pytest 1956 passed, 2 skipped; `pio test -c platformio-native.ini -e native-test` 921 passed; plugin host tests (`sh gaggimate-plugin/scripts/run_host_tests.sh`) 176 passed, 0 failed.
+- Grinder firmware build #730 compiles (RAM 23.5 %, flash 81.1 %). It is not flashed.
+- Staged clone of 2e64abd with plugin patches 0001 to 0004 and `WEB_BUILD=1` (`gaggimate-plugin/README.md`, "Verified"): `pio test -e native -f test_grinderlink` 176 of 176; `pio run -e display` RAM 29.7 %, flash 61.6 % (web UI embedded); `pio run -e display-headless` RAM 25.5 %, flash 47.8 %. Without the web UI: display flash 49.5 %, headless flash 35.7 %.
+
+**Verified (host only):** the spec vectors and the Python client and codec (1.1 and 1.2 cases); the protocol parser and builder (`glink_messages`, `glink_decide`); the grind rpm store (load, store, clear, compare-first, the 9999 bound) and the label format; the plugin's sync (compare-first, the mirror rule, the two notes, rate limit and retry), the core and the protocol gate; the shared files stay byte-identical.
+
+**Not verified:**
+
+- Nothing has run on hardware in this step: no flash, no bench. The bench items (B1 to B4) are in `chg026/plan.md`, Step 6.
+- The two-line label on READY and EDIT: the layout was checked by arithmetic (line height against the label box), not on a screen. No clipping and no overlap with the buttons is unproven.
+- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled only. The device glue is not run; the core and the sync behind it are host-tested.
+- The compatibility table is from the spec and host tests, not from a bench run with the two firmware versions.
+- The staged PlatformIO build of the plugin with rpm is recorded under Verification above (host and build numbers only; nothing run on a device).
+
