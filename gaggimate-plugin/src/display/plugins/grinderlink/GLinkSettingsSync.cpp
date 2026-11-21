@@ -25,7 +25,7 @@ static bool is_wait_code(const char* code) {
            sync_same(code, "TIMEOUT");
 }
 
-void SettingsSync::set_wanted(int32_t dose_tenths, bool has_size, int32_t size_tenths) {
+void SettingsSync::set_wanted(int32_t dose_tenths, bool has_size, int32_t size_tenths, bool has_rpm, int32_t rpm) {
     if (!dose_ok(dose_tenths)) {
         clear_wanted();
         note_ = SyncNote::OUT_OF_RANGE_DOSE;
@@ -33,13 +33,20 @@ void SettingsSync::set_wanted(int32_t dose_tenths, bool has_size, int32_t size_t
     }
     const bool size_valid = has_size && size_tenths >= 0 && size_tenths <= SyncLimits::SIZE_MAX_TENTHS;
     const int32_t size = size_valid ? size_tenths : 0;
-    const bool identical = wanted_ && dose_ == dose_tenths && has_size_ == size_valid && size_ == size;
+    if (has_rpm && !rpm_ok(rpm)) note_ = SyncNote::RPM_OUT_OF_RANGE;
+    const bool rpm_valid = has_rpm && rpm_ok(rpm);
+    const int32_t rpm_value = rpm_valid ? rpm : 0;
+    const bool identical =
+        wanted_ && dose_ == dose_tenths && has_size_ == size_valid && size_ == size && has_rpm_ == rpm_valid && rpm_ == rpm_value;
     if (identical && (stage_ == SyncStage::UPDATE_PENDING || stage_ == SyncStage::SELECT_PENDING)) return;
     if (inflight_ != Inflight::NONE) dirty_ = true;
+    if (has_rpm_ != rpm_valid || rpm_ != rpm_value) rpm_noted_ = false;
     wanted_ = true;
     dose_ = dose_tenths;
     has_size_ = size_valid;
     size_ = size;
+    has_rpm_ = rpm_valid;
+    rpm_ = rpm_value;
     stage_ = SyncStage::UPDATE_PENDING;
     attempts_ = 0;
     retry_set_ = false;
@@ -67,8 +74,19 @@ SyncAction SettingsSync::next(const SyncView& view, uint32_t now, ProfileUpdate*
     if (!wanted_ || inflight_ != Inflight::NONE) return SyncAction::NONE;
     if (stage_ != SyncStage::UPDATE_PENDING && stage_ != SyncStage::SELECT_PENDING) return SyncAction::NONE;
 
+    // rpm goes out only to a grinder that advertises it; the drop is noted once per wanted rpm.
+    const bool rpm_send = has_rpm_ && view.rpm_supported;
+    if (view.ready && has_rpm_ && !view.rpm_supported && !rpm_noted_) {
+        rpm_noted_ = true;
+        note_ = SyncNote::RPM_NOT_SUPPORTED;
+    }
+    // Mirror: a size or rpm the GaggiMate profile does not have is cleared on the grinder, but only when it holds one.
+    const bool size_clear = !has_size_ && view.has_entry3 && view.entry_has_size;
+    const bool rpm_clear = !has_rpm_ && view.rpm_supported && view.has_entry3 && view.entry_has_rpm;
+
     if (stage_ == SyncStage::UPDATE_PENDING && view.ready && view.has_entry3 && view.entry_dose_tenths == dose_ &&
-        (!has_size_ || (view.entry_has_size && view.entry_size_tenths == size_))) {
+        (!has_size_ || (view.entry_has_size && view.entry_size_tenths == size_)) &&
+        (!rpm_send || (view.entry_has_rpm && view.entry_rpm == rpm_)) && !size_clear && !rpm_clear) {
         stage_ = SyncStage::IDLE;  // compare-first: already stored, no request and no select
         return SyncAction::NONE;
     }
@@ -89,6 +107,16 @@ SyncAction SettingsSync::next(const SyncView& view, uint32_t now, ProfileUpdate*
         if (has_size_) {
             u.has_size = true;
             u.size_tenths = size_;
+        } else if (size_clear) {
+            u.has_size = true;
+            u.size_null = true;
+        }
+        if (rpm_send) {
+            u.has_rpm = true;
+            u.rpm = rpm_;
+        } else if (rpm_clear) {
+            u.has_rpm = true;
+            u.rpm_null = true;
         }
         *out = u;
     }
@@ -175,6 +203,7 @@ void SettingsSync::on_link_down() {
     attempts_ = 0;
     retry_set_ = false;
     wait_state_ = false;
+    rpm_noted_ = false;  // the next session may be another grinder
     if (stage_ == SyncStage::SELECT_PENDING) stage_ = SyncStage::IDLE;
     if (stage_ == SyncStage::GAVE_UP && wanted_) {
         stage_ = SyncStage::UPDATE_PENDING;

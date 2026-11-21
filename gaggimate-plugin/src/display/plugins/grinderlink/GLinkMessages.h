@@ -31,10 +31,15 @@ struct ProfileUpdate {
     bool has_unit = false;
     bool unit_null = false;
     char unit[GLINK_GRIND_UNIT_MAX_LEN + 1] = {};
+    bool has_rpm = false;     // 1.2: only for a grinder with BaseInfo::rpm_supported()
+    bool rpm_null = false;    // true clears the rpm
+    int32_t rpm = 0;          // 0 to GLINK_RPM_MAX
 };
 
 // True for a dose in tenths inside 5.0 to 60.0 g.
 bool dose_ok(int32_t tenths);
+// True for an rpm of 0 to GLINK_RPM_MAX (a whole number, not tenths).
+bool rpm_ok(int32_t rpm);
 // True for a unit of at most 6 characters of A-Z a-z 0-9 space . / % - _ (no trimming here: leading and trailing
 // spaces are refused so what is sent equals what is stored).
 bool unit_ok(const char* unit);
@@ -57,11 +62,15 @@ struct BaseInfo {
     char sn_code[STR] = {};
     char device[STR] = {};
     int32_t proto = 0;
+    int32_t proto_minor = 0;  // 0 = absent (revision 1.1 or older)
     char fw_version[STR] = {};
     char board[STR] = {};
     int32_t dose_min_tenths = 0;
     int32_t dose_max_tenths = 0;
     int32_t max_request_bytes = 0;
+
+    // The grinder takes `rpm` in a profile update (spec 1.2). An older one refuses the whole update for the unknown key.
+    bool rpm_supported() const { return proto_minor >= 2; }
 };
 
 struct PeriodInfo {
@@ -101,6 +110,8 @@ struct ProfileEntry {
     bool has_grind_size = false;
     int32_t grind_size_tenths = 0;
     char grind_unit[STR] = {};  // "" = none
+    bool has_rpm = false;       // `rpm` is present only when set
+    int32_t rpm = 0;
     bool writable = false;
 };
 

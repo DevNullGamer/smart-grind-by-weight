@@ -140,6 +140,10 @@ def test_client_limits_match_the_protocol_constants():
     hi = round(limits["GLINK_DOSE_MAX_G"] * 10)
     assert f"tenths >= {lo} && tenths <= {hi}" in messages
     assert f"u.size_tenths > {round(limits['GLINK_GRIND_SIZE_MAX'] * 10)}" in messages
+    # chg026: the rpm range comes from the same constant (0 .. GLINK_RPM_MAX, a whole number, not tenths)
+    assert "rpm >= 0 && rpm <= GLINK_RPM_MAX" in messages  # written against the shared constant, not a literal copy
+    header = read_text(GLINK / "config" / "bluetooth.h")
+    assert re.search(rf"#define GLINK_RPM_MAX {limits['GLINK_RPM_MAX']}\b", header)
     client = read_text(GLINK / "GLinkClient.h")
     assert f"RESPONSE_TIMEOUT_MS = 5000" in client
     assert "READY_TIMEOUT_MS = 5000" in client
@@ -302,6 +306,17 @@ PLUGIN_H = GLINK / "GLinkPlugin.h"
 def test_no_client_start_or_stop_call_in_the_driver_files(path):
     for n, line in enumerate(code_of(path).splitlines(), 1):
         assert not re.search(r"\b(start|stop)\s*\(", line), f"{path.name}:{n}: {line.strip()}"
+
+
+def test_feed_rpm_is_never_sent_by_the_driver():
+    # chg026: the grinder has no feed motor; GaggiMate's feedRpm is ignored. No code (comments excluded) in the driver, the
+    # core, the sync or the message builders mentions it, and the only rpm member on the wire is the grinder's `rpm`.
+    for name in ["GLinkGrinder.cpp", "GLinkGrinder.h", "GLinkGrinderCore.cpp", "GLinkGrinderCore.h", "GLinkSettingsSync.cpp",
+                 "GLinkMessages.cpp", "GLinkMessages.h"]:
+        assert not re.search(r"feed[_]?rpm", code_of(GLINK / name), re.I), name
+    grinder = code_of(GRINDER_CPP)
+    assert "settings.rpm" in grinder and "settings.hasRpm()" in grinder
+    assert not re.search(r'"feed\w*"', read_text(GLINK / "GLinkMessages.cpp"), re.I)
 
 
 def test_driver_does_not_override_shutdown():

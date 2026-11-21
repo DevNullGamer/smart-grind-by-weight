@@ -287,20 +287,23 @@ void GLinkGrinder::dropLink(const char *reason) {
 // Settings
 //------------------------------------------------------------------------------
 
-// Dose and grind size of the profile GaggiMate selected, as the wanted Profile Dose (queued, like the Motto driver).
+// Dose, grind size and rpm of the profile GaggiMate selected, as the wanted Profile Dose (queued, like the Motto driver).
+// feedRpm is ignored: the grinder has no feed motor.
 bool GLinkGrinder::applySettings(const GrinderSettings &settings) {
     haveWanted_ = true;
     wantedHasDose_ = std::isfinite(settings.dose) && settings.dose > 0.0f;
     wantedDoseTenths_ = wantedHasDose_ ? tenthsOf(settings.dose) : 0;
     wantedHasSize_ = std::isfinite(settings.grindSize) && settings.hasGrindSize();
     wantedSizeTenths_ = wantedHasSize_ ? tenthsOf(settings.grindSize) : 0;
+    wantedHasRpm_ = settings.hasRpm();
+    wantedRpm_ = wantedHasRpm_ ? settings.rpm : 0;
     pushWanted();
     return isConnected();
 }
 
 void GLinkGrinder::pushWanted() {
     if (core_ != nullptr && haveWanted_) {
-        core_->set_wanted(wantedHasDose_, wantedDoseTenths_, wantedHasSize_, wantedSizeTenths_);
+        core_->set_wanted(wantedHasDose_, wantedDoseTenths_, wantedHasSize_, wantedSizeTenths_, wantedHasRpm_, wantedRpm_);
     }
 }
 
@@ -370,6 +373,10 @@ void GLinkGrinder::publishToFramework() {
     if (core_->selected_profile_size(&tenths)) {
         reported.grindSize = static_cast<float>(tenths) / 10.0f;
     }
+    int32_t rpm = 0;
+    if (core_->selected_profile_rpm(&rpm)) {
+        reported.rpm = rpm;
+    }
     setReportedSettings(reported);
     if (core_->take_finished(&tenths)) {
         log("Grind finished, %d.%d g\n", static_cast<int>(tenths / 10), static_cast<int>(tenths % 10));
@@ -392,8 +399,19 @@ void GLinkGrinder::logProgress(uint32_t now) {
                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
         }
     }
-    if (core_->wanted_note() == glinkc::SyncNote::OUT_OF_RANGE_DOSE) {
+    switch (core_->wanted_note()) {
+    case glinkc::SyncNote::OUT_OF_RANGE_DOSE:
         log("Profile dose outside 5.0 to 60.0 g, not sent to the grinder\n");
+        break;
+    case glinkc::SyncNote::RPM_NOT_SUPPORTED:
+        log("rpm not supported by this grinder firmware, not sent\n");
+        break;
+    case glinkc::SyncNote::RPM_OUT_OF_RANGE:
+        log("rpm above %d, not sent\n", GLINK_RPM_MAX);
+        break;
+    case glinkc::SyncNote::NONE:
+    default:
+        break;
     }
     const glinkc::SyncStage stage = core_->sync_stage();
     if (stage != lastStage_) {

@@ -23,8 +23,11 @@ bool unit_ok(const char* unit) {
     return true;
 }
 
+bool rpm_ok(int32_t rpm) { return rpm >= 0 && rpm <= GLINK_RPM_MAX; }
+
 bool update_ok(const ProfileUpdate& u) {
-    if (!u.has_dose && !u.has_size && !u.has_unit) return false;
+    if (!u.has_dose && !u.has_size && !u.has_unit && !u.has_rpm) return false;
+    if (u.has_rpm && !u.rpm_null && !rpm_ok(u.rpm)) return false;
     if (u.has_dose && !dose_ok(u.dose_tenths)) return false;
     if (u.has_size && !u.size_null && (u.size_tenths < 0 || u.size_tenths > 9999)) return false;
     if (u.has_unit && !u.unit_null && !unit_ok(u.unit)) return false;
@@ -88,6 +91,10 @@ size_t build_profile_update(char* out, size_t cap, int index, const ProfileUpdat
     if (u.has_unit) {
         w.key("grindUnit");
         if (u.unit_null) w.null(); else w.string(u.unit);
+    }
+    if (u.has_rpm) {
+        w.key("rpm");
+        if (u.rpm_null) w.null(); else w.integer(u.rpm);
     }
     return close_request(w, out, cap);
 }
@@ -170,6 +177,7 @@ void parse_base(const GlinkJsonDoc& d, int obj, BaseInfo& b) {
     get_string(d, obj, "device", b.device, sizeof(b.device));
     int64_t v = 0;
     if (get_int(d, obj, "proto", &v)) b.proto = static_cast<int32_t>(v);
+    if (get_int(d, obj, "protoMinor", &v) && v >= 0 && v <= 0x7FFFFFFF) b.proto_minor = static_cast<int32_t>(v);
     get_string(d, obj, "fwVersion", b.fw_version, sizeof(b.fw_version));
     get_string(d, obj, "board", b.board, sizeof(b.board));
     get_tenths(d, obj, "doseMin", &b.dose_min_tenths);
@@ -216,6 +224,11 @@ bool parse_entry(const GlinkJsonDoc& d, int obj, ProfileEntry& e) {
     if (!get_tenths(d, obj, "dose", &e.dose_tenths)) return false;
     e.has_grind_size = get_tenths(d, obj, "grindSize", &e.grind_size_tenths);
     get_string(d, obj, "grindUnit", e.grind_unit, sizeof(e.grind_unit));  // null stays ""
+    int64_t rpm = 0;
+    if (get_int(d, obj, "rpm", &rpm) && rpm >= 0 && rpm <= GLINK_RPM_MAX) {
+        e.has_rpm = true;
+        e.rpm = static_cast<int32_t>(rpm);
+    }
     get_bool(d, obj, "writable", &e.writable);
     return true;
 }

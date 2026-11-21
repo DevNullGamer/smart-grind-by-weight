@@ -41,10 +41,13 @@ class GLinkGrinder : public BluetoothGrinder, private glinkc::Sink {
     bool isConnected() override;
     void update() override;
 
-    // Queued as the wanted Profile Dose settings (dose and size only); pushed from update() once the link is ready.
+    // Queued as the wanted Profile Dose settings (dose, size and rpm; feedRpm is ignored); pushed from update() once the
+    // link is ready.
     bool applySettings(const GrinderSettings &settings) override;
     bool supportsGrindSize() const override { return true; }
     bool supportsDose() const override { return true; }
+    // True only on a ready link to a grinder that advertises protoMinor 2 or more (older firmware refuses an rpm).
+    bool supportsRpm() const override { return core_ != nullptr && core_->rpm_supported(); }
 
   private:
     static constexpr size_t RX_RING_BYTES = 8192; // about 370 packets of 20 bytes (spec 3.7)
@@ -85,6 +88,8 @@ class GLinkGrinder : public BluetoothGrinder, private glinkc::Sink {
     int32_t wantedDoseTenths_ = 0;
     bool wantedHasSize_ = false;
     int32_t wantedSizeTenths_ = 0;
+    bool wantedHasRpm_ = false;
+    int32_t wantedRpm_ = 0;
 };
 
 #endif // GAGGIMATE_SIM

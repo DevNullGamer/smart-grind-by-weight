@@ -76,24 +76,32 @@ SyncView GrinderCore::make_view() const {
         v.entry_dose_tenths = e->dose_tenths;
         v.entry_has_size = e->has_grind_size;
         v.entry_size_tenths = e->grind_size_tenths;
+        v.entry_has_rpm = e->has_rpm;
+        v.entry_rpm = e->rpm;
     }
+    v.rpm_supported = client_.has_base() && client_.base().rpm_supported();
     return v;
 }
 
-void GrinderCore::set_wanted(bool has_dose, int32_t dose_tenths, bool has_size, int32_t size_tenths) {
+void GrinderCore::set_wanted(bool has_dose, int32_t dose_tenths, bool has_size, int32_t size_tenths, bool has_rpm,
+                             int32_t rpm) {
     if (!has_dose) {
         wanted_ = false;
         sync_.clear_wanted();
         return;
     }
     const int32_t size = has_size ? size_tenths : 0;
-    const bool same = wanted_ && wanted_dose_ == dose_tenths && wanted_has_size_ == has_size && wanted_size_ == size;
+    const int32_t rpm_value = has_rpm ? rpm : 0;
+    const bool same = wanted_ && wanted_dose_ == dose_tenths && wanted_has_size_ == has_size && wanted_size_ == size &&
+                      wanted_has_rpm_ == has_rpm && wanted_rpm_ == rpm_value;
     if (same) return;
     wanted_ = true;
     wanted_dose_ = dose_tenths;
     wanted_has_size_ = has_size;
     wanted_size_ = size;
-    sync_.set_wanted(wanted_dose_, wanted_has_size_, wanted_size_);
+    wanted_has_rpm_ = has_rpm;
+    wanted_rpm_ = rpm_value;
+    sync_.set_wanted(wanted_dose_, wanted_has_size_, wanted_size_, wanted_has_rpm_, wanted_rpm_);
 }
 
 DevClass GrinderCore::dev_class() const {
@@ -116,6 +124,14 @@ bool GrinderCore::selected_profile_size(int32_t* tenths) const {
     return true;
 }
 
+bool GrinderCore::selected_profile_rpm(int32_t* rpm) const {
+    if (disconnect_ || !client_.has_period()) return false;
+    const ProfileEntry* e = find_entry(client_.period().select_profile);
+    if (!e || !e->has_rpm) return false;
+    if (rpm) *rpm = e->rpm;
+    return true;
+}
+
 bool GrinderCore::take_finished(int32_t* tenths) {
     if (disconnect_ || !finished_) return false;
     finished_ = false;
@@ -134,7 +150,7 @@ void GrinderCore::on_ready() {
     gate_.on_ready(client_.period().result_seq);
     // on_link_down does not re-queue a satisfied value: hand the wanted value over again (an unchanged one that is
     // still pending is ignored by SettingsSync).
-    if (wanted_) sync_.set_wanted(wanted_dose_, wanted_has_size_, wanted_size_);
+    if (wanted_) sync_.set_wanted(wanted_dose_, wanted_has_size_, wanted_size_, wanted_has_rpm_, wanted_rpm_);
 }
 
 void GrinderCore::on_result(const ResultInfo& r) {

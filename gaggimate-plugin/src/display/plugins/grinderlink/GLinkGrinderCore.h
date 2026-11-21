@@ -42,7 +42,9 @@ public:
     // The wanted Profile Dose settings (tenths). has_dose false clears the wanted value. A dose outside 5.0 to 60.0 g
     // queues nothing (wanted_note() then says OUT_OF_RANGE_DOSE once). Passed to SettingsSync only when the value
     // changed (a re-queue resets its attempt cap) and again at every ready (a link drop does not re-queue a satisfied value).
-    void set_wanted(bool has_dose, int32_t dose_tenths, bool has_size, int32_t size_tenths);
+    // The rpm (whole number, 1.2) is sent only to a grinder that advertises it; SettingsSync raises the notes for an
+    // unsupported or out-of-range one. An absent size or rpm clears a stale value on the grinder (mirror, chg026).
+    void set_wanted(bool has_dose, int32_t dose_tenths, bool has_size, int32_t size_tenths, bool has_rpm, int32_t rpm);
     SyncNote wanted_note() { return sync_.take_note(); }
     SyncStage sync_stage() const { return sync_.stage(); }
     const char* sync_gave_up_code() const { return sync_.gave_up_code(); }
@@ -56,6 +58,9 @@ public:
     // or, for the size, none defined).
     bool selected_profile_dose(int32_t* tenths) const;
     bool selected_profile_size(int32_t* tenths) const;
+    bool selected_profile_rpm(int32_t* rpm) const;  // false: none set
+    // The grinder advertised protoMinor >= 2 (false before ready).
+    bool rpm_supported() const { return ready() && client_.has_base() && client_.base().rpm_supported(); }
     // The weight (tenths) of a finished, settled grind, once. One slot, latest wins; survives a link drop until taken.
     bool take_finished(int32_t* tenths);
     // true once the session cannot continue; *reason is a fixed text. Latched until the next on_connected().
@@ -84,6 +89,8 @@ private:
     int32_t wanted_dose_ = 0;
     bool wanted_has_size_ = false;
     int32_t wanted_size_ = 0;
+    bool wanted_has_rpm_ = false;
+    int32_t wanted_rpm_ = 0;
 
     bool finished_ = false;
     int32_t finished_tenths_ = 0;

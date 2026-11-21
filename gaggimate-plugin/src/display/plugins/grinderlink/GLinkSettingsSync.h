@@ -13,7 +13,13 @@
 //    OUT_OF_RANGE_DOSE. The size is sent only when 0 to 999.9 (tenths 0 to 9999); otherwise the update carries the dose
 //    only. No grindUnit, ever. Latest wins and resets the attempts; the same value again while still pending is ignored;
 //    the same value after satisfied or given up is queued again (compare-first then decides).
-//  * Compare-first: cached entry 3 exists with the same dose and (no size wanted, or the same size) -> no request, satisfied.
+//  * rpm (chg026, spec 1.2): wanted 0 to 9999, else note RPM_OUT_OF_RANGE and it counts as absent. It is sent only when the
+//    grinder advertises it (SyncView::rpm_supported); otherwise it is dropped and note RPM_NOT_SUPPORTED is raised once.
+//  * Mirror (chg026): no size wanted and the cached entry 3 has one -> the update carries grindSize null; no rpm wanted
+//    (or dropped as out of range) and the entry has one and rpm is supported -> rpm null. No cached entry 3: nothing is
+//    cleared (the create carries what is wanted only).
+//  * Compare-first: cached entry 3 exists with the same dose, size and rpm after the mirror rule (nothing to send, nothing
+//    to clear) -> no request, satisfied.
 //  * Writes happen only when ready, the client is idle and accepts_profile_writes(devState) holds.
 //  * Responses: success -> select pending when the update changed something, else satisfied; select success -> satisfied.
 //    RATE_LIMITED -> retry no earlier than 1.1 s later. NOT_READY, EDIT_IN_PROGRESS, COMMAND_IN_FLIGHT, UPDATING, UI_BUSY,
@@ -35,7 +41,7 @@ struct SyncLimits {
 // What the owner should do next.
 enum class SyncAction : uint8_t { NONE, UPDATE, SELECT };
 enum class SyncStage : uint8_t { IDLE, UPDATE_PENDING, SELECT_PENDING, GAVE_UP };  // IDLE = nothing wanted or satisfied
-enum class SyncNote : uint8_t { NONE, OUT_OF_RANGE_DOSE };
+enum class SyncNote : uint8_t { NONE, OUT_OF_RANGE_DOSE, RPM_NOT_SUPPORTED, RPM_OUT_OF_RANGE };
 
 // Snapshot of the session the owner passes to next().
 struct SyncView {
@@ -46,16 +52,19 @@ struct SyncView {
     int32_t entry_dose_tenths = 0;
     bool entry_has_size = false;
     int32_t entry_size_tenths = 0;
+    bool entry_has_rpm = false;
+    int32_t entry_rpm = 0;
+    bool rpm_supported = false;  // baseInfo.protoMinor >= 2
 };
 
 class SettingsSync {
 public:
     SettingsSync() = default;
 
-    void set_wanted(int32_t dose_tenths, bool has_size, int32_t size_tenths);
+    void set_wanted(int32_t dose_tenths, bool has_size, int32_t size_tenths, bool has_rpm, int32_t rpm);
     void clear_wanted();
 
-    // UPDATE: *out is filled (dose, optional size, no unit) for Client::profile_update(3, ...). SELECT: send
+    // UPDATE: *out is filled (dose, size or its clearing, rpm or its clearing, no unit) for Client::profile_update(3, ...). SELECT: send
     // Client::profile_select(3). NONE: nothing now. Call on_sent() only when the Client accepted the request.
     SyncAction next(const SyncView& view, uint32_t now, ProfileUpdate* out);
     void on_sent(uint32_t now);
@@ -80,6 +89,9 @@ private:
     int32_t dose_ = 0;
     bool has_size_ = false;
     int32_t size_ = 0;
+    bool has_rpm_ = false;  // a valid rpm (0 to 9999) is wanted
+    int32_t rpm_ = 0;
+    bool rpm_noted_ = false;  // RPM_NOT_SUPPORTED already raised for this wanted rpm
 
     SyncStage stage_ = SyncStage::IDLE;
     Inflight inflight_ = Inflight::NONE;
