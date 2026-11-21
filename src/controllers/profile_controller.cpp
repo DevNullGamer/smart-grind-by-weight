@@ -53,6 +53,8 @@ void ProfileController::load_profiles() {
     // Grind sizes live in the same namespace, through the shared handle (attached before the profiles are initialised)
     grind_sizes_.attach(&nvs_settings_store);
     grind_sizes_.load();
+    grind_rpms_.attach(&nvs_settings_store);
+    grind_rpms_.load();
 
     // Load grind mode (default to WEIGHT if not set)
     int stored_mode = preferences->getInt("grind_mode", static_cast<int>(GrindMode::WEIGHT));
@@ -145,6 +147,7 @@ bool ProfileController::store_profile_weight(int index, float weight) {
 
     // A size left over from an earlier dose must not reappear with the new one
     if (!grind_sizes_.clear(USER_DOSE_PROFILE_INDEX)) return false;
+    if (!grind_rpms_.clear(USER_DOSE_PROFILE_INDEX)) return false;
 
     // First dose: the time goes first and the weight (the marker that the profile exists) last, so a failure part-way
     // leaves a profile that still does not exist
@@ -162,6 +165,7 @@ bool ProfileController::remove_dose_profile() {
     // The weight is the marker: once it is gone the profile is gone, whatever fails afterwards
     const char* weight_key = ui_settings_keys::kProfileWeight[USER_DOSE_PROFILE_INDEX];
     const char* time_key = ui_settings_keys::kProfileTime[USER_DOSE_PROFILE_INDEX];
+    grind_rpms_.clear(USER_DOSE_PROFILE_INDEX);
     grind_sizes_.clear(USER_DOSE_PROFILE_INDEX);  // first, so a failed marker removal below cannot leave it behind unnoticed
     if (preferences->isKey(weight_key) && !preferences->remove(weight_key)) return false;
     dose_present_ = false;
@@ -180,6 +184,11 @@ bool ProfileController::remove_dose_profile() {
 bool ProfileController::store_grind_size(int index, const GrindSize& size) {
     if (!profile_exists(index)) return false;
     return grind_sizes_.store(index, size) != GrindSizeStoreResult::FAILED;
+}
+
+bool ProfileController::store_grind_rpm(int index, const GrindRpm& rpm) {
+    if (!profile_exists(index)) return false;
+    return grind_rpms_.store(index, rpm) != GrindRpmStoreResult::FAILED;
 }
 
 bool ProfileController::is_weight_valid(float weight) const {

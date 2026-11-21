@@ -7,7 +7,7 @@
 #include "../logging/grind_logging.h"
 #include "../system/nvs_settings_store.h"
 #include "../controllers/grind_mode_traits.h"
-#include "../controllers/grind_size.h"
+#include "../controllers/grind_rpm.h"
 #include "menu_walk_debug.h"
 #include <utility>
 // Static instance pointer for grind event callbacks
@@ -251,8 +251,9 @@ void UIManager::switch_to_state(UIState new_state) {
             edit_screen.update_target(edit_target);
             {
                 char grind_text[GRIND_SIZE_TEXT_BUF];
-                grind_size_format(grind_text, sizeof(grind_text),
-                                  profile_controller->get_grind_size(profile_controller->get_current_profile()));
+                const int profile = profile_controller->get_current_profile();
+                grind_info_format(grind_text, sizeof(grind_text), profile_controller->get_grind_size(profile),
+                                  profile_controller->get_grind_rpm(profile));
                 edit_screen.update_grind_size_text(grind_text);
             }
             break;

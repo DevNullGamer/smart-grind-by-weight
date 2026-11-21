@@ -33,7 +33,8 @@ constexpr int kDoseIndex = GLINK_PROFILE_WRITABLE_INDEX;
 
 bool same_entry(const GlinkProfileEntry& a, const GlinkProfileEntry& b) {
     return a.dose_tenths == b.dose_tenths && a.has_grind_size == b.has_grind_size &&
-           a.grind_size_tenths == b.grind_size_tenths && strcmp(a.grind_unit, b.grind_unit) == 0;
+           a.grind_size_tenths == b.grind_size_tenths && strcmp(a.grind_unit, b.grind_unit) == 0 && a.has_rpm == b.has_rpm &&
+           a.rpm == b.rpm;
 }
 
 GlinkMailboxResult failure_result(GlinkError code, const char* message, const char* field = "") {
@@ -125,6 +126,9 @@ GlinkProfileState GlinkUIController::dose_profile_state() const {
     state.has_grind_size = size.present;
     state.grind_size_tenths = size.present ? size.tenths : 0;
     if (size.present) strncpy(state.grind_unit, size.unit, sizeof(state.grind_unit) - 1);
+    const GrindRpm& rpm = profiles->get_grind_rpm(kDoseIndex);
+    state.has_rpm = rpm.present;
+    state.rpm = rpm.present ? rpm.value : 0;
     return state;
 }
 
@@ -143,6 +147,11 @@ void GlinkUIController::fill_profiles(GlinkSnapshot* out) const {
             entry.has_grind_size = true;
             entry.grind_size_tenths = size.tenths;
             strncpy(entry.grind_unit, size.unit, sizeof(entry.grind_unit) - 1);
+        }
+        const GrindRpm& rpm = profiles->get_grind_rpm(i);
+        if (rpm.present) {
+            entry.has_rpm = true;
+            entry.rpm = rpm.value;
         }
     }
 }
@@ -217,7 +226,7 @@ void GlinkUIController::handle_request(const GlinkRequest& request) {
     glink_command_gate.complete(result);
 }
 
-// Writes the Profile Dose so that a failure part-way leaves what was there before (best effort for the grind size)
+// Writes the Profile Dose so that a failure part-way leaves what was there before (best effort for the grind size and rpm)
 bool GlinkUIController::store_dose_profile(const GlinkProfileEntry& wanted, const GlinkProfileState& before) {
     auto* profiles = ui_manager_->profile_controller;
     const float dose = static_cast<float>(wanted.dose_tenths) / 10.0f;
@@ -227,11 +236,15 @@ bool GlinkUIController::store_dose_profile(const GlinkProfileEntry& wanted, cons
         size.tenths = wanted.grind_size_tenths;
         strncpy(size.unit, wanted.grind_unit, sizeof(size.unit) - 1);
     }
+    GrindRpm rpm;
+    rpm.present = wanted.has_rpm;
+    rpm.value = wanted.has_rpm ? wanted.rpm : 0;
 
     if (!before.exists) {
-        // The first dose creates the profile (and clears any size left from an earlier one); the size follows
+        // The first dose creates the profile (and clears any size and rpm left from an earlier one); they follow
         if (!profiles->store_profile_weight(kDoseIndex, dose)) return false;
-        if (size.present && !profiles->store_grind_size(kDoseIndex, size)) {
+        if ((size.present && !profiles->store_grind_size(kDoseIndex, size)) ||
+            (rpm.present && !profiles->store_grind_rpm(kDoseIndex, rpm))) {
             profiles->remove_dose_profile();
             return false;
         }
@@ -239,11 +252,18 @@ bool GlinkUIController::store_dose_profile(const GlinkProfileEntry& wanted, cons
     }
 
     const GrindSize old_size = profiles->get_grind_size(kDoseIndex);
+    const GrindRpm old_rpm = profiles->get_grind_rpm(kDoseIndex);
     const bool size_changed = !grind_size_equal(old_size, size);
+    const bool rpm_changed = !grind_rpm_equal(old_rpm, rpm);
     const bool dose_changed = wanted.dose_tenths != before.dose_tenths;
     if (size_changed && !profiles->store_grind_size(kDoseIndex, size)) return false;
+    if (rpm_changed && !profiles->store_grind_rpm(kDoseIndex, rpm)) {
+        if (size_changed) profiles->store_grind_size(kDoseIndex, old_size);
+        return false;
+    }
     if (dose_changed && !profiles->store_profile_weight(kDoseIndex, dose)) {
         if (size_changed) profiles->store_grind_size(kDoseIndex, old_size);
+        if (rpm_changed) profiles->store_grind_rpm(kDoseIndex, old_rpm);
         return false;
     }
     return true;
