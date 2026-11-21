@@ -1,0 +1,31 @@
+diff --git a/lib/BluetoothDevices/src/BluetoothGrinder.h b/lib/BluetoothDevices/src/BluetoothGrinder.h
+index a3d4c278..5f310780 100644
+--- a/lib/BluetoothDevices/src/BluetoothGrinder.h
++++ b/lib/BluetoothDevices/src/BluetoothGrinder.h
+@@ -16,6 +16,8 @@ class BluetoothGrinder : public BluetoothDevice {
+     virtual bool supportsGrindSize() const { return false; }
+     virtual bool supportsRpm() const { return false; }
+     virtual bool supportsFeedRpm() const { return false; }
++    // The grinder takes a dose even when no grind setting is set.
++    virtual bool supportsDose() const { return false; }
+ 
+     // Last values reported by the grinder; fields it does not report stay unset.
+     const GrinderSettings &getReportedSettings() const { return reportedSettings; }
+diff --git a/src/display/plugins/BluetoothDevicesPlugin.cpp b/src/display/plugins/BluetoothDevicesPlugin.cpp
+index 5d678433..1c1d1361 100644
+--- a/src/display/plugins/BluetoothDevicesPlugin.cpp
++++ b/src/display/plugins/BluetoothDevicesPlugin.cpp
+@@ -389,7 +389,12 @@ void BluetoothDevicesPlugin::syncGrinderProfile(bool force) {
+     settings.feedRpm = profile.grinder.feedRpm;
+     settings.dose = profile.dose > 0.0f ? profile.dose : -1.0f;
+     settings.label = profile.label.c_str();
+-    if (settings.isEmpty() || (!force && settings == lastGrinderSettings)) {
++    const bool takesDoseOnly = connectedGrinder->supportsDose() && settings.dose > 0.0f;
++    if (settings.isEmpty() && !takesDoseOnly) {
++        ESP_LOGI(TAG, "Profile %s has nothing the connected grinder can take, not sent", profile.label.c_str());
++        return;
++    }
++    if (!force && settings == lastGrinderSettings) {
+         return;
+     }
+     ESP_LOGI(TAG, "Sending grinder settings of profile %s", profile.label.c_str());

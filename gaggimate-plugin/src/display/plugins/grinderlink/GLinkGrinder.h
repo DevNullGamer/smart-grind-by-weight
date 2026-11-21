@@ -44,6 +44,7 @@ class GLinkGrinder : public BluetoothGrinder, private glinkc::Sink {
     // Queued as the wanted Profile Dose settings (dose and size only); pushed from update() once the link is ready.
     bool applySettings(const GrinderSettings &settings) override;
     bool supportsGrindSize() const override { return true; }
+    bool supportsDose() const override { return true; }
 
   private:
     static constexpr size_t RX_RING_BYTES = 8192; // about 370 packets of 20 bytes (spec 3.7)

@@ -15,7 +15,7 @@ Start and stop are not part of the driver (the framework has no interface for th
 
 This folder is a prototype kept in the grinder repository. It is to be contributed upstream by the user under GaggiMate's
 terms; it carries no licence or CLA text. The base is an unmerged branch of GaggiMate: the driver is pinned by SHA and
-three small patches are carried (table below). The earlier own plugin (own scan, card and WebSocket requests, chg024,
+four small patches are carried (table below). The earlier own plugin (own scan, card and WebSocket requests, chg024,
 pinned at b564759) is retired; it lives only in the grinder repository's history and in the snapshot branch
 `keep/own-glink-plugin-chg024`.
 
@@ -48,7 +48,7 @@ gaggimate-plugin/
   test/test_grinderlink/glink_sources.cpp  compiles the pure sources into one unit for `pio test -e native` only
   test/host/unity.h                      tiny Unity stand-in for the g++ run
   tools/tests/glink_vectors.json         copy of the shared conformance vectors
-  patches/                               unified diffs against GaggiMate 2e64abd (three, below)
+  patches/                               unified diffs against GaggiMate 2e64abd (four, below)
   scripts/run_host_tests.sh              builds and runs the host tests with g++ (globs the test and pure sources)
   scripts/check_patches.sh               read-only `git apply --check` of the patches against a checkout
   scripts/check_against_gaggimate.sh     clone 2e64abd into a NEW directory, apply, stage, `pio test`, `pio run`
@@ -122,6 +122,7 @@ against Smart Dose. It is always on: no setting, no web endpoint. `GLinkPlugin.h
 | `0001-grinder-finished-event.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.{h,cpp}` | `reportGrindFinished` / `takeGrindFinished` on `BluetoothGrinder`; `pollGrinderEvents` fires `grinder:grind:finished` (`value` = grams). No effect without a grinder. Proposed upstream. |
 | `0002-controller-register-glink-plugin.patch` | `src/display/core/Controller.cpp` | `#ifndef GAGGIMATE_SIM`: includes `GLinkPlugin.h` and registers `new GLinkPlugin()` after `&BLEDevices`, unconditionally (no setting). Goes away if the driver becomes a built-in. |
 | `0003-web-glink-model-name.patch` | `web/src/utils/bluetoothDevices.js` | `[/^GrindByWeight/i, 'Smart Grind By Weight']` in `GRINDER_MODELS`, so the Bluetooth tab shows the model name instead of the raw name. Not a translated string: no locale change. |
+| `0004-grinder-supports-dose.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.cpp` | `virtual bool supportsDose() const { return false; }` on `BluetoothGrinder`; `syncGrinderProfile()` also proceeds when the connected grinder `supportsDose()` and the profile dose is above 0 (before, a profile with a dose and no grind size was skipped), and logs one line for a real skip. Other drivers (Motto) are unchanged: the default is false. Added in chg026; can still be offered upstream. |
 
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion. Without patch 0003
 the tab shows the raw name `GrindByWeight`.
@@ -143,10 +144,9 @@ and WiFi updates of the grinder are blocked until Forget, standby, or "GaggiMate
 
 Known limitations and things that do not map exactly:
 
-- **G1: a GaggiMate profile with a dose but no grind size is not pushed.** GaggiMate skips a profile whose grinder
-  settings are empty, and its `isEmpty()` looks only at grind size, rpm and feed rpm. The workaround is to set a grind size in
-  the profile. Confirmed on the bench (round 2): not pushed, no crash, and no log line is written. Fixing it needs a small change in GaggiMate (a `supportsDose()` on `BluetoothGrinder`); it is left to the
-  GaggiMate maintainer and not carried here.
+- **G1 (a profile with a dose but no grind size was not pushed): fixed by patch 0004 (chg026).** The driver reports
+  `supportsDose()`, so such a profile is pushed; a profile with nothing the grinder can take is skipped with one log line.
+  Not yet re-checked on the bench.
 - Signal strength and TX power are in the serial log only; the tab does not render RSSI. The old "last saved dose" line is
   gone: the new dose is the profile dose on the GaggiMate display and one serial log line.
 - A connect that is refused or fails during a shot raises GaggiMate's generic "found, but connection failed" banner on each retry.
@@ -194,7 +194,7 @@ CALIBRATION/MENU screens after a reset and reached READY by itself (no tap).
   in sync. An unchanged re-select sends nothing. 19.0 gave one update and one select. Two saves 220 ms apart were COALESCED
   into one update (the later value wins; which value was stored was not read back), not sent 1 s apart. 4.0 and 70.0 were
   skipped with `Profile dose outside 5.0 to 60.0 g, not sent to the grinder`.
-- G1 (dose without grind size): not pushed and no crash, but no log line is written (see "Known limitations").
+- G1 (dose without grind size), before patch 0004: not pushed and no crash, no log line. Patch 0004 is not bench-tested yet.
 - Disconnect reason line for a local close: `reason 0x16 (local host terminated)`.
 - Forget while linked closes the link (reason 0x16), the grinder's link slot is free within 1 s, and no reconnect follows.
 - B5 standby and wake through the API (`change-mode` 0, then 1): the link closes with 0x16, the grinder is back in
@@ -251,7 +251,7 @@ the bench. This could not be reverted with the available tooling.
 1. The controller is at protocol 16 now. Run the rest of the bench (see "Not verified": a grind for B3 and B10, a shot for B4,
    grinder-side link tests, a scale for B8, a BLE-capable PC for B5 and B9) and move what passes to "Verified".
 2. Decide upstream: the grind-finished event (patch 0001), the model name (patch 0003), and `supportsDose()` for dose-only
-   profiles (G1), which the maintainer would have to take.
+   profiles (patch 0004, G1), which the maintainer would have to take.
 3. Optional follow-ups, not built: a quiet "busy" reason instead of `connect_failed` in GaggiMate's connect path, start and
    stop on `BluetoothGrinder` (the maintainer's interface), and moving the driver into `lib/BluetoothDevices`.
 

@@ -380,6 +380,43 @@ def test_patch_0002_registers_the_plugin_and_touches_only_controller_cpp():
     assert "Settings" not in added and "settings" not in added
 
 
+def added_lines(patch: Path) -> str:
+    return "\n".join(l[1:] for l in patch.read_bytes().decode("utf-8").splitlines()
+                     if l.startswith("+") and not l.startswith("+++"))
+
+
+def test_patches_0001_to_0004_exist_consecutively_and_are_in_the_readme():
+    assert [p.name[:4] for p in PATCHES][:4] == ["0001", "0002", "0003", "0004"]
+    readme = read_text(PLUGIN / "README.md")
+    for p in PATCHES[:4]:
+        assert p.name in readme, p.name
+
+
+def test_patch_0004_adds_supports_dose_default_false_and_the_dose_condition():
+    patch = next(p for p in PATCHES if p.name.startswith("0004-"))
+    assert sorted(a for a, _ in patch_files(patch)) == [
+        "lib/BluetoothDevices/src/BluetoothGrinder.h", "src/display/plugins/BluetoothDevicesPlugin.cpp"]
+    added = added_lines(patch)
+    assert re.search(r"virtual\s+bool\s+supportsDose\(\)\s+const\s*\{\s*return\s+false;\s*\}", added)
+    assert "supportsDose()" in added and "settings.dose > 0.0f" in added
+    assert not re.search(r"(?i)password|token|secret", added)
+    assert "BookooMotto" not in patch.read_bytes().decode("utf-8")
+
+
+def test_glink_grinder_overrides_supports_dose_true_inside_the_sim_guard():
+    text = read_text(GRINDER_H)
+    assert re.search(r"bool\s+supportsDose\(\)\s+const\s+override\s*\{\s*return\s+true;\s*\}", code_of(GRINDER_H))
+    assert text.lstrip().startswith("#ifndef GAGGIMATE_SIM")
+    assert text.index("supportsDose") > text.index("#ifndef GAGGIMATE_SIM")
+    assert text.rstrip().endswith("#endif") or "#endif" in text[text.index("supportsDose"):]
+
+
+def test_readme_no_longer_lists_g1_as_open():
+    for line in read_text(PLUGIN / "README.md").splitlines():
+        if re.search(r"\bG1\b", line):
+            assert re.search(r"0004|chg026|fixed", line), f"G1 still open? {line.strip()[:160]}"
+
+
 def test_host_script_keeps_the_single_translation_unit_check():
     script = read_text(PLUGIN / "scripts" / "run_host_tests.sh")
     assert re.search(r"-fsyntax-only\s+test/test_grinderlink/glink_sources\.cpp", script)
