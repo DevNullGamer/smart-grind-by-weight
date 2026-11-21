@@ -23,7 +23,8 @@ pinned at b564759) is retired; it lives only in the grinder repository's history
 
 **Status: built and host-tested; bench round 2 (2026-11-21) ran the real build with no bench variant. The link, the handshake,
 the dose push and the select work on the bench; grind-dependent checks and the grinder-side link tests are still open.
-chg026 (rpm, dose-only push, clearing) is host-tested only; its bench items are open.** See "Verified" and "Not verified".
+chg026 (rpm, dose-only push, clearing) is host-tested, and bench round 3 (2026-11-21) ran its GaggiMate side and the link. The
+grinder stayed on its CALIBRATION screen and accepted no data, so its grinder-side items are open.** See "Verified" and "Not verified".
 
 ## Layout
 
@@ -154,7 +155,7 @@ Known limitations and things that do not map exactly:
 
 - **G1 (a profile with a dose but no grind size was not pushed): fixed by patch 0004 (chg026).** The driver reports
   `supportsDose()`, so such a profile is pushed; a profile with nothing the grinder can take is skipped with one log line.
-  Not yet re-checked on the bench.
+  Bench round 3: the dose-only profile is pushed (queued); the grinder never confirmed it (it sat on CALIBRATION).
 - **rpm needs a grinder with `protoMinor` 2.** With an older grinder (chg025 image) the rpm is not sent and the dose and
   size still arrive; one note says so. A chg025 build of this plugin never sends an rpm and never clears one, so an rpm
   stored by a chg026 build stays on the grinder until the profile is removed there (Menu → Bluetooth → Remove GaggiMate
@@ -242,6 +243,20 @@ the bench. This could not be reverted with the available tooling.
   `pio run -e display-headless` RAM 25.5 %, flash 47.8 %. Without the web UI (chg026 steps 1 and 4 builds): display flash
   49.5 %, headless flash 35.7 %.
 
+Bench round 3 (chg026, 2026-11-21, unattended, no touch). The grinder (COM15) was flashed with build 731 (rpm store and GLink 1.2),
+then the unmodified chg025 image (commit `85d1ff4`) for the compatibility check, then the final HEAD image, build 732. GaggiMate
+(COM16) runs the staged clone (2e64abd, patches 0001 to 0004, HEAD plugin), protocol 16. The grinder stayed on CALIBRATION for the
+whole run, which is `OTHER` in spec 7.1: `update` and `select` were NOT_READY, so no grinder-side result exists.
+
+- Dose-0 profile with no grinder settings: skipped with `has nothing the connected grinder can take, not sent`; no crash, link up.
+- Dose-only profile (dose 18): pushed, `Profile dose push queued` (chg025 sent nothing). Queued only; not confirmed by the grinder.
+- Dose 18, size 15, rpm 600: sent, no `rpm not supported` note on build 731 (GaggiMate side only).
+- rpm 10000: not sent, `rpm above 9999, not sent`; size and dose still handled.
+- New plugin with the chg025 grinder image: `rpm not supported by this grinder firmware, not sent` logged. Whether the dose arrived was not observable.
+- Connect to builds 731 and 732: `Linked, packet size 244, hello sent`, `Data channel ready` in a few seconds, grinder `link_linked`.
+- Standby (900 s timeout) closes the link with `reason 0x16`; wake through the API reconnects within 3 s.
+- GaggiMate settings JSON byte-identical before and after; bench profile deleted.
+
 ## Not verified
 
 - B2 remainder: the rate-limited retry path (`RATE_LIMITED`, 1.1 s) was not seen, because the two quick saves coalesced;
@@ -258,11 +273,12 @@ the bench. This could not be reverted with the available tooling.
 - A refused connect during a shot (log lines, banner noise) and the cost of a blocking connect to the scale heartbeat.
 - That the revert of the dose after a profile reselect works as inferred from Smart Dose.
 - That a grinder in its menu (SETTING) holds a push until READY.
-- chg026 on hardware (step 6): the rpm line on READY and EDIT (layout, no clipping, nothing over the buttons); rpm reaching
-  the grinder and surviving a reboot; a rpm-only change (one update, the PROFILE page follows); `rpm:null` removing the
-  line; rpm 10000 not sent and the grinder's value cleared; a removed Profile Dose leaving no stale rpm; the old and new
-  combinations of the compatibility table (new plugin with the chg025 grinder image, old plugin with the new grinder); a
-  dose-only profile after a profile with a size (the size line disappears).
+- chg026 on the grinder (bench round 3 was blocked by CALIBRATION): the rpm line on READY and EDIT (layout, no clipping,
+  nothing over the buttons); rpm reaching the grinder and surviving a reboot; `update ok` / `select ok` for the new values;
+  a rpm-only change (one update, the PROFILE page follows); `rpm:null` removing the line; the grinder's value cleared for
+  rpm 10000; a removed Profile Dose leaving no stale rpm; the old plugin with the new grinder; a dose-only profile after a
+  profile with a size (the size line disappears). The new plugin with the chg025 grinder image was checked only for the log line.
+- The grinder's stored Profile Dose was not observed or changed in round 3; the board may still hold the round 2 value.
 - That the coalesced save stores the later value: the stored value was not read back.
 - The Motto 80 path is untouched by the patches; it was not run on a device.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the driver and plugin are empty

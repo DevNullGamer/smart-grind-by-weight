@@ -1508,16 +1508,38 @@ The chg025 rows are the old plugin, which never sends `rpm` and does not clear a
 ### Verification
 
 - Host, this step: `tools/tests` pytest 1956 passed, 2 skipped; `pio test -c platformio-native.ini -e native-test` 921 passed; plugin host tests (`sh gaggimate-plugin/scripts/run_host_tests.sh`) 176 passed, 0 failed.
-- Grinder firmware build #730 compiles (RAM 23.5 %, flash 81.1 %). It is not flashed.
+- Grinder firmware build #730 compiles (RAM 23.5 %, flash 81.1 %). It was not flashed in this step; the bench flashed later builds (731, 732; see Bench below).
 - Staged clone of 2e64abd with plugin patches 0001 to 0004 and `WEB_BUILD=1` (`gaggimate-plugin/README.md`, "Verified"): `pio test -e native -f test_grinderlink` 176 of 176; `pio run -e display` RAM 29.7 %, flash 61.6 % (web UI embedded); `pio run -e display-headless` RAM 25.5 %, flash 47.8 %. Without the web UI: display flash 49.5 %, headless flash 35.7 %.
 
 **Verified (host only):** the spec vectors and the Python client and codec (1.1 and 1.2 cases); the protocol parser and builder (`glink_messages`, `glink_decide`); the grind rpm store (load, store, clear, compare-first, the 9999 bound) and the label format; the plugin's sync (compare-first, the mirror rule, the two notes, rate limit and retry), the core and the protocol gate; the shared files stay byte-identical.
 
-**Not verified:**
+**Bench (2026-11-21, round 3, unattended, no touch).** Full log in the workspace (`chgreq/smart-grind-by-weight/chg026/bench-results.md`, not in the repo). The grinder (COM15) was flashed three times: build 731 (rpm store and GLink 1.2), the unmodified chg025 image (commit `85d1ff4`, built from a git worktree; it reports build 1) for the compatibility check, then the final HEAD image, build 732. GaggiMate (COM16) runs the staged clone (2e64abd, patches 0001 to 0004, HEAD plugin), protocol 16. The grinder stayed on the CALIBRATION screen for the whole run (no tap, no load cell). CALIBRATION is `OTHER` in spec 7.1, so the grinder answered `update` and `select` with NOT_READY and never applied or reported profile data. The results below are GaggiMate-side results and the link.
 
-- Nothing has run on hardware in this step: no flash, no bench. The bench items (B1 to B4) are in `chg026/plan.md`, Step 6.
-- The two-line label on READY and EDIT: the layout was checked by arithmetic (line height against the label box), not on a screen. No clipping and no overlap with the buttons is unproven.
-- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled only. The device glue is not run; the core and the sync behind it are host-tested.
-- The compatibility table is from the spec and host tests, not from a bench run with the two firmware versions.
-- The staged PlatformIO build of the plugin with rpm is recorded under Verification above (host and build numbers only; nothing run on a device).
+**Verified (bench, GaggiMate side and link):**
+
+- A dose-0 profile with no grinder settings is skipped with `has nothing the connected grinder can take, not sent`; no crash, the link stays up.
+- A dose-only profile (dose 18, no size, no rpm) is pushed: `Profile dose push queued` (patch 0004; chg025 sent nothing). The push was only queued; the grinder never confirmed it.
+- Dose 18, size 15, rpm 600 is sent with no `rpm not supported` note on the build 731 grinder (GaggiMate side only).
+- rpm 10000 is not sent: `rpm above 9999, not sent`; the size and the dose are still handled.
+- With the chg025 grinder image the new plugin logs `rpm not supported by this grinder firmware, not sent`. Whether the dose reached that grinder was not observable.
+- Connect to builds 731 and 732: `Linked, packet size 244, hello sent`, `Data channel ready` within a few seconds; the grinder reports `link_linked`.
+- Standby (900 s timeout) closes the link with `reason 0x16`; wake through the API (`change-mode` 1) reconnects within 3 s.
+- Restore: GaggiMate's settings JSON is byte-identical before and after the run; the bench profile was deleted.
+
+**Not verified (bench):**
+
+- Every grinder-side write result: `update ok` and `select ok` for dose, size and rpm, and the grinder's stored values (the grinder was on CALIBRATION).
+- rpm stored, reported under the size and in the Bluetooth tab, kept across a reboot; an rpm-only change; `rpm:null` removing the size or rpm line; no stale rpm after the Profile Dose is removed; the size line disappearing after a dose-only profile; the PROFILE page on the grinder.
+- The two-line label on READY and EDIT: the layout, clipping and the buttons were not seen on a screen.
+- The old plugin with the new grinder image (needs a rebuilt old plugin; not run).
+- A reconnect after a grinder reset: not observed on its own; the link came back only after the standby wake.
+- The grinder's stored Profile Dose: not observed or changed. The board may still hold the round 2 value (about 21.0 g, grind size 15).
+- A finished grind to dose: no grind was run.
+- Real screen standby (touch) and grinder-side "GaggiMate link" off and on: not run.
+
+**Not verified (host-side):**
+
+- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled on the host only. On the bench the rpm send path showed only as the GaggiMate-side log lines (sent or not sent).
+- The compatibility table is from the spec and host tests; the bench confirmed no grinder-side row.
+- The staged PlatformIO build of the plugin with rpm is recorded under Verification above (host and build numbers only).
 
