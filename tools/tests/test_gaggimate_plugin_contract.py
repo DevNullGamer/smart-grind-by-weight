@@ -383,3 +383,46 @@ def test_patch_0002_registers_the_plugin_and_touches_only_controller_cpp():
 def test_host_script_keeps_the_single_translation_unit_check():
     script = read_text(PLUGIN / "scripts" / "run_host_tests.sh")
     assert re.search(r"-fsyntax-only\s+test/test_grinderlink/glink_sources\.cpp", script)
+
+
+# ---- documentation guards (chg025 step 7) ------------------------------------------------------------------------
+
+DOC_FILES = [PLUGIN / "README.md", ROOT / "docs" / "DOC.md", ROOT / "docs" / "DEVELOPMENT.md", ROOT / "CLAUDE.md"]
+RETIRED_NOTE = re.compile(r"(?i)retired|history|snapshot|old NVS|no disconnect button|no button of ours|not .{0,20}disconnect button")
+
+
+def paragraphs(path: Path):
+    return [p for p in read_text(path).split("\n\n") if p.strip()]
+
+
+@pytest.mark.parametrize("path", DOC_FILES, ids=lambda p: p.name)
+def test_docs_have_no_live_claim_about_the_retired_plugin(path):
+    stale = re.compile(r"GrinderLinkCard|req:grinderlink|evt:grinderlink|b564759|Disconnect button|Disconnect on the (GaggiMate )?card")
+    for para in paragraphs(path):
+        if stale.search(para):
+            assert RETIRED_NOTE.search(para), f"{path.name}: unretired mention: {para.strip()[:160]}"
+
+
+@pytest.mark.parametrize("path", DOC_FILES, ids=lambda p: p.name)
+def test_docs_name_gl_settings_keys_only_in_the_retired_keys_note(path):
+    for para in paragraphs(path):
+        if re.search(r"(?<![A-Za-z0-9_])gl_[a-z]{1,3}\b", para):
+            assert re.search(r"(?i)retired|old NVS", para), f"{path.name}: gl_ key outside the retired note: {para.strip()[:160]}"
+
+
+def test_readme_mentions_every_shared_file_and_every_patch():
+    readme = read_text(PLUGIN / "README.md")
+    for f in SHARED:
+        assert f.name in readme, f"README does not mention {f.name}"
+    for p in PATCHES:
+        assert p.name in readme, f"README does not list {p.name}"
+
+
+def test_no_machine_paths_in_the_docs():
+    for path in DOC_FILES + [ROOT / "docs" / "DESIGN-NOTES.md"]:
+        text = read_text(path)
+        assert ":" + chr(92) + "Users" not in text and "/Users/" not in text and "/home/" not in text, path.name
+
+
+def test_claude_md_stays_under_15_kb():
+    assert (ROOT / "CLAUDE.md").stat().st_size < 15 * 1024

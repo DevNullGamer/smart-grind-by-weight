@@ -4,7 +4,7 @@
 // GLink dose save policy (chg024 part B, trimmed in chg025): the consumer half. Decides which finished-grind weights may be
 // written to the selected GaggiMate profile as its dose. The per-link half (baseline, floor, settled test) is GLinkResultGate.
 // Pure: no Arduino/ESP/NimBLE dependencies, no heap; the clock is injected (milliseconds, wrap-safe via the unsigned
-// difference). The glue (GLinkPlugin) reports events and applies a taken value under its own locks.
+// difference). The consumer (GLinkPlugin) reports events and applies a taken value under its own locks.
 //
 // Rules:
 //  1. on_finished(): a weight outside DOSE_MIN..DOSE_MAX is skipped (reason kept, an older pending value is kept, never

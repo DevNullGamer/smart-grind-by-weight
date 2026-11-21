@@ -1323,6 +1323,8 @@ CLAUDE.md was cut from 16.5 KB to about 12.8 KB (chg022 A3). The binding rules s
 
 ## Auto-reconnect and link diagnostics (chg023)
 
+Superseded by chg025 (GaggiMate grinder driver); the card, Disconnect button and req:grinderlink described here are retired.
+
 ### Auto-reconnect (GaggiMate plugin)
 
 - Policy is pure (`gaggimate-plugin/.../grinderlink/GLinkReconnect.{h,cpp}`, no Arduino/NimBLE/heap, injected clock, wrap-safe); `GLinkPlugin` calls it from `loop()` and does the connect.
@@ -1361,6 +1363,8 @@ The link broke with reason 0x08 (supervision timeout) on both sides, once about 
 6. The card text and the new locale strings (hand-written, web UI not rendered).
 
 ## GaggiMate re-pin and dose save (chg024)
+
+Superseded by chg025 (GaggiMate grinder driver); the card, Disconnect button and req:grinderlink described here are retired.
 
 ### Re-pin (plugin base b78beee to b564759)
 
@@ -1401,3 +1405,45 @@ The link broke with reason 0x08 (supervision timeout) on both sides, once about 
 - Nothing has run on a GaggiMate display or with a grinder for the dose save: the first result after link-up, the hold during a shot, the expiry and the range rule are covered by host tests of the policy and by text guards only. The revert after a profile reselect is inferred from how Smart Dose behaves in GaggiMate; no test covers it.
 - The translations of the new msgids (hand-written, not reviewed) are unreviewed.
 - Staged integration (B4, fresh clone at `b5647591`, `WEB_BUILD=1`): five patches apply, web build and embed OK, plugin native tests 99/99, `pio run -e display` (flash 62.3 %, RAM 29.6 %) and `-e display-headless` (flash 48.6 %) build, no warnings from the plugin files; full tools pytest 1796 passed / 2 skipped, host tests 99/0, ruff and compileall clean. Not flashed, not run on a device.
+
+## GaggiMate grinder driver (chg025)
+
+The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy, card, `gl_*` settings, eleven WebSocket requests) is replaced by a driver for the BluetoothDevices grinder framework of GaggiMate's branch `feature/bluetooth-devices-grinder` (head `2e64abd`, full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`) and a small consumer plugin. The grinder firmware, `src/` and `docs/GLINK-PROTOCOL.md` do not change. Files, flow and verification state: `gaggimate-plugin/README.md`.
+
+### Decisions
+
+- GaggiMate's `BluetoothDevicesPlugin` owns scan, the saved device, connect on sight, standby disconnect, Forget and the tab. `GLinkGrinder` (device glue) wraps the pure `GLinkGrinderCore`, which uses the unchanged `GLinkClient` and the new pure policies `GLinkDevState`, `GLinkSettingsSync`, `GLinkResultGate` and the trimmed `GLinkDoseSave`.
+- Drain the notification ring before the tick in every `update()` (called about once a second): a stalled loop, for example another device's 5 s connect, must not fire the 5 s timeouts while the answer already sits in the ring. The 8 KB ring, the core and the scratch packet are allocated with `new (std::nothrow)` only in `connect()`.
+- `connect()` refuses before any radio use when GaggiMate is busy, when NimBLE has no free connection, or within 10 s of a drop the driver caused. The framework retries on sight.
+- `shutdown()` is not overridden: standby never powers the grinder off. No `start()`/`stop()`: the framework has no interface; `Client::start/stop` stay unused (contract-test guard).
+- Dose push: compare-first, 5.0 to 60.0 g, size 0.0 to 999.9 or none, never a `grindUnit`. After a stored change `grindProfile select 3` follows once (at least 1.1 s later, same state rule and retry rules as the update) so the grinder shows its PROFILE page; never after an equal re-push.
+- Finished grind: `GLinkResultGate` baselines `resultSeq` per link and reports only settled results (OK, OVERSHOOT, MAX_PULSES) once; `GLinkDoseSave` keeps 5.0 to 40.0 g and holds up to 5 min. The event handler only records; `GLinkPlugin::applyPendingDose()` is the only writer of `profile.dose`, on the loop task, under `getProcessLock()`, memory only. Always on, no setting.
+- `getReportedSettings()` returns the dose and size of the profile selected on the grinder.
+- Registration is unconditional (patch 0002). `GLinkPlugin.h` includes no GLink header because `config/bluetooth.h` defines `BLE_*` macros.
+
+### Flag outcomes (change plan F1 to F12)
+
+- F1 dose save: the maintainer asked for a grind-finished event whose weight temporarily changes the loaded profile's dose; implemented as patch 0001 plus our consumer. F2 no toggle (always on).
+- F3 start/stop: left to the maintainer, nothing built. F4 live data: parsed and held, not surfaced.
+- F5 diagnostics: serial log only (reason by GAP listener, TX power, RSSI every 5 s). F6 no sticky Disconnect: Forget replaces it.
+- F7 blocking connect and a 1 Hz drain accepted; refusal while a shot runs. F8 own card and endpoints retired. F9 push like GaggiMate does, with the 5.0 to 60.0 g guard and compare-first.
+- F10/F11 one grinder slot (a Motto 80 and this grinder exclude each other), connection budget 3. F12 contract tests, vectors, shared files and staging scripts stay, pin moved to `2e64abd`.
+
+### Patches and upstream proposals
+
+- Carried: `0001-grinder-finished-event.patch` (U1, proposed upstream), `0002-controller-register-glink-plugin.patch` (ours), `0003-web-glink-model-name.patch` (U3, only if the driver goes upstream).
+- Not built: U4 a quiet "busy" reason instead of `connect_failed`; U5 start/stop on `BluetoothGrinder` (the maintainer's side). The write-up for the maintainer, including `supportsDose()`, is kept outside the repository; submitting anything is the user's decision.
+- The driver may later move into `lib/BluetoothDevices`; that needs a trimmed shared `config/bluetooth.h`.
+
+### Known limitation G1 and other gaps
+
+- G1: GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. A `supportsDose()` patch was dropped by decision; the maintainer may take it.
+- N1 RSSI and TX power are in the serial log only. N2 no "last saved dose" line: one log line per applied or skipped result. N3 a refused connect during a shot raises the generic "connection failed" banner. N4 the tab shows the raw name unless patch 0003 is applied. N5 the saved grinder is one string; the scan hit's `NimBLEAddress` carries the address type (read from source, bench B1 confirms). N6 the old keys `gl_a`, `gl_ad`, `gl_n`, `gl_sd` stay in flash on development units, unused; the user pairs again. N7 dose drift: saving a profile after a grind pushes the measured weight as the new target. N8 one grinder slot. N9 `WARNING` and `STARTING` have no framework state: IDLE to IDLE, GRINDING to GRINDING, every other known devState to BUSY, an unknown text to UNKNOWN.
+
+### Build and test facts
+
+- Host tests: 145. Baseline staged build at `2e64abd` with no patches: `-e display` RAM 29.7 %, flash 49.1 % (3217989 B); with patch 0001 only, flash 3218661 B. No unpatched `display-headless` baseline was recorded. Step 5 build with the driver and patches 0001+0002: `-e display` RAM 29.7 % (97360 B), flash 49.5 % (3241649 B, +22988 B vs the 0001 build); `-e display-headless` RAM 25.5 % (83436 B), flash 35.7 % (2340461 B). `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` is 3 (NimBLE default, not overridden).
+
+### Bench results
+
+To be added after the hardware bench (chg025 step 8). Until then everything on a device is "Not verified" in the README.
