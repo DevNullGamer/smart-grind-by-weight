@@ -1,0 +1,78 @@
+diff --git a/lib/BluetoothDevices/src/BluetoothGrinder.h b/lib/BluetoothDevices/src/BluetoothGrinder.h
+index f1296253..a3d4c278 100644
+--- a/lib/BluetoothDevices/src/BluetoothGrinder.h
++++ b/lib/BluetoothDevices/src/BluetoothGrinder.h
+@@ -21,13 +21,30 @@ class BluetoothGrinder : public BluetoothDevice {
+     const GrinderSettings &getReportedSettings() const { return reportedSettings; }
+     GrinderState getState() const { return state; }
+ 
++    // Hands out the weight (grams) of a finished grind once; false when none is pending.
++    bool takeGrindFinished(float &grams) {
++        if (!grindFinishedPending) {
++            return false;
++        }
++        grams = grindFinishedGrams;
++        grindFinishedPending = false;
++        return true;
++    }
++
+   protected:
+     explicit BluetoothGrinder(const DiscoveredDevice &device) : BluetoothDevice(device, TYPE) {}
+ 
+     void setReportedSettings(const GrinderSettings &settings) { reportedSettings = settings; }
+     void setState(GrinderState newState) { state = newState; }
++    // Drivers call this from update() when a grind has finished; one slot, the latest report wins.
++    void reportGrindFinished(float grams) {
++        grindFinishedGrams = grams;
++        grindFinishedPending = true;
++    }
+ 
+   private:
+     GrinderSettings reportedSettings;
+     GrinderState state = GrinderState::UNKNOWN;
++    float grindFinishedGrams = 0.0f;
++    bool grindFinishedPending = false;
+ };
+diff --git a/src/display/plugins/BluetoothDevicesPlugin.cpp b/src/display/plugins/BluetoothDevicesPlugin.cpp
+index d3bdb27b..5d678433 100644
+--- a/src/display/plugins/BluetoothDevicesPlugin.cpp
++++ b/src/display/plugins/BluetoothDevicesPlugin.cpp
+@@ -171,6 +171,7 @@ void BluetoothDevicesPlugin::update() {
+         }
+         device->update();
+         pollDeviceMetadata(type);
++        pollGrinderEvents(type);
+     }
+     if (connectionLost) {
+         // A stopped scanner still lists the lost device; starting it clears the list so it is not "found" right away.
+@@ -361,6 +362,18 @@ void BluetoothDevicesPlugin::pollDeviceMetadata(BluetoothDeviceType type) {
+     }
+ }
+ 
++void BluetoothDevicesPlugin::pollGrinderEvents(BluetoothDeviceType type) {
++    DeviceSlot &deviceSlot = slot(type);
++    if (deviceSlot.device == nullptr || pluginManager == nullptr) {
++        return;
++    }
++    BluetoothGrinder *connectedGrinder = deviceSlot.device->asGrinder();
++    float grams = 0.0f;
++    if (connectedGrinder != nullptr && connectedGrinder->takeGrindFinished(grams)) {
++        pluginManager->trigger("grinder:grind:finished", "value", grams);
++    }
++}
++
+ void BluetoothDevicesPlugin::tare() const { onProcessStart(); }
+ 
+ // Hands the selected profile's grinder settings to the grinder; unchanged settings are only resent when forced.
+diff --git a/src/display/plugins/BluetoothDevicesPlugin.h b/src/display/plugins/BluetoothDevicesPlugin.h
+index 06eb3a8e..497c59aa 100644
+--- a/src/display/plugins/BluetoothDevicesPlugin.h
++++ b/src/display/plugins/BluetoothDevicesPlugin.h
+@@ -96,6 +96,7 @@ class BluetoothDevicesPlugin : public Plugin {
+     void update();
+     void onProcessStart() const;
+     void pollDeviceMetadata(BluetoothDeviceType type);
++    void pollGrinderEvents(BluetoothDeviceType type);
+     void syncGrinderProfile(bool force);
+ 
+     void requestScan(bool userRequested);

@@ -174,8 +174,14 @@ grinder for this feature (see "Not verified").
 
 ## Patches (against GaggiMate 2e64abd, full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`)
 
-None in step 1: `patches/` is empty. The b564759 patches (settings, card, locales) are retired with the old glue. The
-chg025 set (grinder-finished event, controller registration, web model name) is in the chg025 plan, section 3.6.
+The b564759 patches (settings, card, locales) are retired with the old glue. The chg025 set is in the chg025 plan,
+section 3.6; so far:
+
+| Patch | Files | What |
+|---|---|---|
+| `0001-grinder-finished-event.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.{h,cpp}` | `reportGrindFinished` / `takeGrindFinished` on `BluetoothGrinder`; `pollGrinderEvents` fires `grinder:grind:finished` (`value` = grams). No effect without a grinder. |
+
+Still to come: controller registration, web model name.
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion.
 
 ## Verified

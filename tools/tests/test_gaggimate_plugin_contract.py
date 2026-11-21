@@ -173,6 +173,25 @@ def test_patches_do_not_expose_a_secret_or_a_token():
         assert not re.search(r"(?i)password|token|secret", added), p.name
 
 
+def test_take_grind_finished_has_a_single_trigger_site():
+    # chg025 step 4: the patched BluetoothDevicesPlugin.cpp calls takeGrindFinished exactly once (the event trigger);
+    # the only other mention is the definition in BluetoothGrinder.h
+    calls, definitions = [], []
+    for p in PATCHES:
+        current = None
+        for line in p.read_bytes().decode("utf-8").splitlines():
+            m = re.match(r"^diff --git a/(\S+) b/", line)
+            if m:
+                current = m.group(1)
+            elif line.startswith("+") and not line.startswith("+++") and "takeGrindFinished" in line:
+                (definitions if re.search(r"\bbool\s+takeGrindFinished\s*\(", line) else calls).append((current, line))
+    assert len(calls) == 1, calls
+    assert calls[0][0] == "src/display/plugins/BluetoothDevicesPlugin.cpp", calls
+    assert 'trigger("grinder:grind:finished"' in "\n".join(
+        l for p in PATCHES for l in p.read_bytes().decode("utf-8").splitlines() if l.startswith("+"))
+    assert [d[0] for d in definitions] == ["lib/BluetoothDevices/src/BluetoothGrinder.h"], definitions
+
+
 def test_patch_script_blocks_without_a_checkout():
     sh = shutil.which("sh")
     if sh is None:
