@@ -1437,7 +1437,7 @@ The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy,
 
 ### Known limitation G1 and other gaps
 
-- G1: GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. A `supportsDose()` patch was dropped by decision; the maintainer may take it.
+- G1: GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. Bench round 2 confirmed it on the real build: not pushed, no crash, and no log line is written. A `supportsDose()` patch was dropped by decision; the maintainer may take it.
 - N1 RSSI and TX power are in the serial log only. N2 no "last saved dose" line: one log line per applied or skipped result. N3 a refused connect during a shot raises the generic "connection failed" banner. N4 the tab shows the raw name unless patch 0003 is applied. N5 the saved grinder is one string; the scan hit's `NimBLEAddress` carries the address type (read from source, bench B1 confirms). N6 the old keys `gl_a`, `gl_ad`, `gl_n`, `gl_sd` stay in flash on development units, unused; the user pairs again. N7 dose drift: saving a profile after a grind pushes the measured weight as the new target. N8 one grinder slot. N9 `WARNING` and `STARTING` have no framework state: IDLE to IDLE, GRINDING to GRINDING, every other known devState to BUSY, an unknown text to UNKNOWN.
 
 ### Build and test facts
@@ -1446,23 +1446,27 @@ The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy,
 
 ### Bench results
 
-Bench of 2026-11-21 (chg025 step 8, unattended, no touch). Controller at protocol 8, display at 16: GaggiMate state `mismatch`, so the real build refuses connects while busy. B1 ran with a bench-only variant of the staged clone that also accepts that state (not in the repo). Details: `gaggimate-plugin/README.md`.
+Round 1 (chg025 step 8, unattended, no touch): the controller ran protocol 8 against the display's 16, so GaggiMate was `mismatch` and the real build refused connects. B1 then ran with a bench-only variant of the clone (`gaggimateBusy()` also accepted the mismatch state, not in the repo). Most rows stayed NOT RUN.
 
-| Item | Result | Reason |
+Round 2 (2026-11-21, unattended, no touch): real chg025 build, no bench variant. Controller reflashed to `v1.10.0-7-g2e64abd7-dir` (protocol 16), display at protocol 16, no mismatch. Details: `gaggimate-plugin/README.md`.
+
+| Item | Result | Round 2 evidence |
 |---|---|---|
-| B1 scan, connect, handshake, data channel | PASS (bench variant only) | Real build refused the connect (busy). Link up, hello sent, data channel ready in 2-3 s, packet size 244, TX +9 dBm. |
-| B2 profile push, select, rate limit, clamps, G1 | NOT RUN | Grinder on CALIBRATION (no touch): push queued on connect, nothing applied. |
-| B3 finished grind to dose | NOT RUN | Needs a real grind; no load cell or motor on the bench. |
-| B4 connect refusal during a shot | NOT RUN | No shot possible with control inhibited; the busy refusal itself was seen. |
-| B5 standby and wake | PARTIAL | Controller drop forced standby and link close (0x16 local, 0x13 on the grinder). Real standby/wake and `grinder.py scan`/`info` not run. |
-| B6 Forget | PARTIAL | Closes the link, no reconnect, slot free within 1 s. Grinder-side link off/on not run. |
-| B7 link loss | NOT RUN | Needs carrying the screen away or powering the grinder off; supervision-timeout reason (0x08) not seen. |
-| B8 three connections, 30 min | NOT RUN | Controller drops about 21 s after each connect; no 30 min link possible. |
-| B9 coexistence | PARTIAL | Grinder diagnostics follow the link states. `grinder.py` blocking and Motto 80 path not run. |
-| B10 Smart Dose race | NOT RUN | Needs a grind. |
+| B1 scan, connect, handshake, data channel | PASS (real build) | Scan lists `GrindByWeight` (raw name). Link up, TX +9 dBm, packet size 244, hello sent, data channel ready 2-3 s after connect, loop stack at least 4520 B free. Five links, no downward heap trend. Random address connect (N5) worked. |
+| B2 profile push, select, rate limit, clamps | PARTIAL PASS | Dose 18 + size 15 pushed (update ok, select ok, GaggiMate reports in sync). Unchanged re-select sends nothing. 19.0: one update and one select. 4.0 and 70.0 skipped with the log line. Two saves 220 ms apart COALESCED into one update (not a second update 1 s later); the later value wins, the stored value was not read back. Select-3 `select ok` seen on the wire; the PROFILE page itself not seen. |
+| B2 G1 (dose without grind size) | Limitation confirmed | Not pushed, no crash. No log line is written (there is no skip line for this case). |
+| B3 finished grind to dose, B10 Smart Dose race | NOT RUN | Needs a real grind; no load cell or motor on the bench. |
+| B4 connect refusal during a shot | NOT RUN | Needs a GaggiMate shot with a machine; not attempted. |
+| B5 standby and wake | PASS (API standby/wake) | `change-mode` 0: `Link lost, reason 0x16`, grinder back to `link_listening` within 6 s. Mode 1: resumes scanning, links 3-4 s after wake. Grinder never powered off. Real screen standby and `grinder.py scan`/`info` not run (the PC sees no BLE devices). |
+| B6 Forget | PASS (GaggiMate side) | Link lost 0x16, saved grinder cleared, listed again as discovered, no auto connect. Grinder-side "GaggiMate link" off/on needs touch: not run. |
+| B7 link loss | PASS for a grinder reset | COM15 reset: supervision timeout (0x08), one reconnect on sight 1 s after the grinder was seen again, no storm. Carrying the screen away not run. |
+| B8 three connections, 30 min | PASS with caveats (two connections) | 31.6 min link, no `Link lost`, 372 RSSI lines, grinder polls `link_linked` 325 of 328. Only controller and grinder connected, no scale: NOT the three-connection case. Screen standby at the default 900 s closed the link; the rerun used 3600 s. |
+| B9 coexistence | PARTIAL | Grinder diagnostics follow `link_listening` -> `link_connected` -> `link_linked`. `grinder.py` blocked/unblocked NOT proven (no BLE on the PC). Motto 80 not run. |
 
-Deviations:
+Round 1 note: it said the grinder "needs a tap" after a reset. Round 2 showed the grinder progressed CALIBRATION -> MENU -> READY by itself on this unit.
 
-- Bench-only edit in the staged clone (`gaggimateBusy()` also accepts `SYSTEM_PROTOCOL_MISMATCH`, +8 B flash). The clone's display build still carries it; the repo does not.
-- GaggiMate settings: `startupMode` set to `brew` to get a scan, reverted to `standby` (settings JSON identical before and after). A bench profile was created and deleted; `Default` selected again.
-- The grinder was reset once with esptool to read the boot log. It came back on its CALIBRATION screen (the MENU state, where `update` would be accepted, was lost) and needs a tap.
+Deviations (round 2):
+
+- The grinder dev board (COM15) now holds a stored Profile Dose (index 3, about 21.0 g, grind size 15) and has profile 3 selected from the bench. It could not be reverted with the available tooling.
+- GaggiMate `standbyTimeout` was set to 3600 for the B8 rerun and restored to 900; the settings JSON is identical to the start of the bench. The bench profile was deleted and `Default` is selected.
+- The grinder was reset by RTS for B7 and reconnected on sight. The display had one unexplained silent boot (weak lab WiFi, recovered by an RTS reset).
