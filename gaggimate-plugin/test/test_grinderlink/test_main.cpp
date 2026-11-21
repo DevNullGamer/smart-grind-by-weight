@@ -7,6 +7,7 @@ void run_glink_plugin_dosesave_tests();
 void run_glink_plugin_devstate_tests();
 void run_glink_plugin_settingssync_tests();
 void run_glink_plugin_resultgate_tests();
+void run_glink_plugin_core_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -20,5 +21,6 @@ int main() {
     run_glink_plugin_devstate_tests();
     run_glink_plugin_settingssync_tests();
     run_glink_plugin_resultgate_tests();
+    run_glink_plugin_core_tests();
     return UNITY_END();
 }

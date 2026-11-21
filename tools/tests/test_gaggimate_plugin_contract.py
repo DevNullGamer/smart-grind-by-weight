@@ -47,6 +47,8 @@ PURE = [
     GLINK / "GLinkSettingsSync.cpp",
     GLINK / "GLinkResultGate.h",
     GLINK / "GLinkResultGate.cpp",
+    GLINK / "GLinkGrinderCore.h",
+    GLINK / "GLinkGrinderCore.cpp",
     GLINK / "RxRing.h",
     GLINK / "bluetooth" / "glink_frame.h",
     GLINK / "bluetooth" / "glink_frame.cpp",
@@ -81,7 +83,7 @@ def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
     own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkDoseSave.h", "GLinkDoseSave.cpp", "RxRing.h",
            "GLinkDevState.h", "GLinkDevState.cpp", "GLinkSettingsSync.h", "GLinkSettingsSync.cpp",
-           "GLinkResultGate.h", "GLinkResultGate.cpp"}
+           "GLinkResultGate.h", "GLinkResultGate.cpp", "GLinkGrinderCore.h", "GLinkGrinderCore.cpp"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"
@@ -102,8 +104,16 @@ FORBIDDEN = re.compile(
 @pytest.mark.parametrize("path", PURE, ids=lambda p: p.name)
 def test_pure_files_have_no_platform_or_heap_dependency(path):
     for n, line in enumerate(read_text(path).splitlines(), 1):
-        code = line.split("//")[0]
+        code = re.sub(r"=\s*delete\s*;", "", line.split("//")[0])  # a deleted special member is not a heap delete
         assert not FORBIDDEN.search(code), f"{path.name}:{n}: {line.strip()}"
+
+
+@pytest.mark.parametrize("name", ["GLinkGrinderCore.h", "GLinkGrinderCore.cpp"])
+def test_grinder_core_never_calls_client_start_or_stop(name):
+    # chg025: the driver has no start/stop; the Client keeps them, the core must not use them
+    for n, line in enumerate(read_text(GLINK / name).splitlines(), 1):
+        code = line.split("//")[0]
+        assert not re.search(r"\b(start|stop)\s*\(", code), f"{name}:{n}: {line.strip()}"
 
 
 def test_client_limits_match_the_protocol_constants():
