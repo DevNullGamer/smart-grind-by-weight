@@ -1446,4 +1446,23 @@ The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy,
 
 ### Bench results
 
-To be added after the hardware bench (chg025 step 8). Until then everything on a device is "Not verified" in the README.
+Bench of 2026-11-21 (chg025 step 8, unattended, no touch). Controller at protocol 8, display at 16: GaggiMate state `mismatch`, so the real build refuses connects while busy. B1 ran with a bench-only variant of the staged clone that also accepts that state (not in the repo). Details: `gaggimate-plugin/README.md`.
+
+| Item | Result | Reason |
+|---|---|---|
+| B1 scan, connect, handshake, data channel | PASS (bench variant only) | Real build refused the connect (busy). Link up, hello sent, data channel ready in 2-3 s, packet size 244, TX +9 dBm. |
+| B2 profile push, select, rate limit, clamps, G1 | NOT RUN | Grinder on CALIBRATION (no touch): push queued on connect, nothing applied. |
+| B3 finished grind to dose | NOT RUN | Needs a real grind; no load cell or motor on the bench. |
+| B4 connect refusal during a shot | NOT RUN | No shot possible with control inhibited; the busy refusal itself was seen. |
+| B5 standby and wake | PARTIAL | Controller drop forced standby and link close (0x16 local, 0x13 on the grinder). Real standby/wake and `grinder.py scan`/`info` not run. |
+| B6 Forget | PARTIAL | Closes the link, no reconnect, slot free within 1 s. Grinder-side link off/on not run. |
+| B7 link loss | NOT RUN | Needs carrying the screen away or powering the grinder off; supervision-timeout reason (0x08) not seen. |
+| B8 three connections, 30 min | NOT RUN | Controller drops about 21 s after each connect; no 30 min link possible. |
+| B9 coexistence | PARTIAL | Grinder diagnostics follow the link states. `grinder.py` blocking and Motto 80 path not run. |
+| B10 Smart Dose race | NOT RUN | Needs a grind. |
+
+Deviations:
+
+- Bench-only edit in the staged clone (`gaggimateBusy()` also accepts `SYSTEM_PROTOCOL_MISMATCH`, +8 B flash). The clone's display build still carries it; the repo does not.
+- GaggiMate settings: `startupMode` set to `brew` to get a scan, reverted to `standby` (settings JSON identical before and after). A bench profile was created and deleted; `Default` selected again.
+- The grinder was reset once with esptool to read the boot log. It came back on its CALIBRATION screen (the MENU state, where `update` would be accepted, was lost) and needs a tap.

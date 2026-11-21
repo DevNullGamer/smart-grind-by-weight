@@ -19,8 +19,8 @@ three small patches are carried (table below). The earlier own plugin (own scan,
 pinned at b564759) is retired; it lives only in the grinder repository's history and in the snapshot branch
 `keep/own-glink-plugin-chg024`.
 
-**Status: built and host-tested; nothing has run on a GaggiMate display against a grinder yet** (chg025 step 8, the bench).
-See "Verified" and "Not verified".
+**Status: built and host-tested; the first bench run (chg025 step 8) reached a link on a GaggiMate display, but only with a
+bench-only variant. The rest of the bench is open.** See "Verified" and "Not verified".
 
 ## Layout
 
@@ -180,23 +180,43 @@ Host side (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_
 - Patch 0003 applies on a fresh clone after 0001 and 0002, and `node --test web/test/bluetooth-devices.test.js` passes (7 of 7:
   the 6 cases of the pinned tree plus the case for the new name, which the patch carries), and the staged `WEB_BUILD=1` web build and embed passes.
 
+Bench (chg025 step 8, 2026-11-21, unattended, no touch), GaggiMate display built from the staged clone, grinder on the
+bench. The B1 connect ran with a bench-only variant: in the clone only, `gaggimateBusy()` also accepts
+`SYSTEM_PROTOCOL_MISMATCH` (the repo code is unchanged). The real build refuses to connect in that state (see "Not verified").
+
+- B1 scan and connect, with the bench variant: the Bluetooth tab scan lists `GrindByWeight`, the link comes up, the hello
+  is sent, the data channel is ready within about 2 to 3 s, packet size 244, TX power +9 dBm, loop task stack high-water
+  mark about 4.5 KB free (4476 to 4632 B over 4 runs). Internal heap cost per link was 4 to 4212 B over 5 runs (about 65 to
+  73 KB free before each connect). A connect to the grinder's random address worked (N5).
+- Disconnect reason line for a local close: `reason 0x16 (local host terminated)`.
+- Forget while linked closes the link (reason 0x16), the grinder's link slot is free within 1 s, and no reconnect follows.
+- Clean-clone build (`WEB_BUILD=1`, web UI embedded): `-e display` RAM 29.7 % (97360 B), flash 61.5 % (4033485 B);
+  `-e display-headless` RAM 25.5 % (83436 B), flash 47.8 % (3132309 B); `pio test -e native -f test_grinderlink` 145 of 145.
+  The web UI is embedded, so the flash numbers are not comparable with the earlier step 5 numbers (49.5 %, 35.7 %).
+
 ## Not verified
 
-- Nothing ran on a GaggiMate display or against a real grinder: scan and connect through the Bluetooth tab, service
-  discovery, subscribe, MTU read, notification flow, the hello within the grinder's time limit, the data channel being
-  ready within about 3 s, the push of dose and size, the select, the finished-grind to dose path, standby and wake,
-  Forget, link loss and the disconnect reason line, three connections together, free heap and the loop task's stack
-  headroom (`parse_message` needs about 3 KB of stack). All of these are bench items (chg025 step 8, B1 to B10).
-- The staged display and headless builds with the driver and patches 0001 and 0002 were run in step 5. With patch 0003 (web
-  model name) and a `WEB_BUILD=1` build (web UI embedded), they are for step 8.
-- The behaviour of a refused connect during a shot (log lines, banner noise) and the cost of a blocking connect to the scale
-  heartbeat.
+- Bench blockers: the controller on the bench runs protocol 8 and the display protocol 16. GaggiMate's state is therefore
+  `mismatch`, not READY, and the real build (correctly) refuses to connect while busy (`Not connecting: GaggiMate is busy`).
+  The bench variant accepted that state. The grinder was left on its CALIBRATION screen after a reset, so nothing could be
+  pushed. The controller link also drops about 21 s after each connect, so each GaggiMate boot gives one link window of
+  about 18 s.
+- B2 profile push (grinder on CALIBRATION, no touch): on connect the push was queued, but nothing was applied. Not run:
+  unchanged re-select, 19.0 change, 1 s rate limit, 4.0 / 70.0 skip, G1 (dose without size), select-3 jump.
+- B3 finished grind to dose and B10 Smart Dose race: need a real grind (no load cell or motor on the bench).
+- B4 connect refusal during a shot: no shot is possible with control inhibited. The busy refusal itself was seen.
+- B5 real standby and wake, and `grinder.py scan` / `info`: not run (no touch; bleak not installed). Controller drop
+  forced standby and the link close was seen.
+- B6 grinder-side "GaggiMate link" off and on: not run.
+- B7 link loss by carrying the screen away or powering the grinder off, and the supervision-timeout reason (0x08): not run.
+- B8 three connections together, 30 min: not possible while the controller drops after about 21 s.
+- B9 `grinder.py` upload and scan blocked while linked, and the Motto 80 path: not run. The grinder's diagnostics followed
+  the link states (`link_listening`, `link_connected`, `link_linked`).
+- Loop task stack and heap headroom under a real shot, and `parse_message` stack use with three connections.
+- A refused connect during a shot (log lines, banner noise) and the cost of a blocking connect to the scale heartbeat.
 - That the revert of the dose after a profile reselect works as inferred from Smart Dose.
-- That a grinder in its menu (SETTING) holds a push until READY, and the G1 limitation as a real run (dose 18 without a size:
-  not pushed, no crash).
+- That a grinder in its menu (SETTING) holds a push until READY, and the G1 limitation as a real run.
 - The Motto 80 path is untouched by the patches; it was not run on a device.
-- Disconnect reasons and TX power: the GAP listener (`ble_gap_event_listener_register`) and the `esp_ble_tx_power_get()`
-  decoding have not run on a device; a bench run must show the reason line.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the driver and plugin are empty
   there by `GAGGIMATE_SIM`).
 - `pio test -e native` for all suites: `test_ota_loadtest` does not compile on Windows (`arpa/inet.h`), unrelated to this
@@ -207,7 +227,8 @@ Host side (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_
 
 ## Still to do
 
-1. The hardware bench (chg025 step 8), then move what passes from "Not verified" to "Verified".
+1. Update the controller to firmware at protocol 16, then run the rest of the bench (B2 to B10, see "Not verified") and move
+   what passes to "Verified".
 2. Decide upstream: the grind-finished event (patch 0001), the model name (patch 0003), and `supportsDose()` for dose-only
    profiles (G1), which the maintainer would have to take.
 3. Optional follow-ups, not built: a quiet "busy" reason instead of `connect_failed` in GaggiMate's connect path, start and
