@@ -7,7 +7,7 @@ constexpr uint32_t SyncLimits::STORE_SPACING_MS;
 constexpr uint32_t SyncLimits::WAIT_FALLBACK_MS;
 constexpr int SyncLimits::MAX_ATTEMPTS;
 
-static bool same(const char* a, const char* b) {
+static bool sync_same(const char* a, const char* b) {
     if (!a || !b) return false;
     while (*a && *a == *b) {
         ++a;
@@ -20,8 +20,9 @@ static bool due(uint32_t now, uint32_t at) { return static_cast<int32_t>(now - a
 
 // Codes the spec says to retry once the grinder is back on its READY screen (or shortly).
 static bool is_wait_code(const char* code) {
-    return same(code, "NOT_READY") || same(code, "EDIT_IN_PROGRESS") || same(code, "COMMAND_IN_FLIGHT") ||
-           same(code, "UPDATING") || same(code, "UI_BUSY") || same(code, "BUSY") || same(code, "TIMEOUT");
+    return sync_same(code, "NOT_READY") || sync_same(code, "EDIT_IN_PROGRESS") || sync_same(code, "COMMAND_IN_FLIGHT") ||
+           sync_same(code, "UPDATING") || sync_same(code, "UI_BUSY") || sync_same(code, "BUSY") ||
+           sync_same(code, "TIMEOUT");
 }
 
 void SettingsSync::set_wanted(int32_t dose_tenths, bool has_size, int32_t size_tenths) {
@@ -141,7 +142,7 @@ void SettingsSync::on_timeout(uint32_t now) {
 }
 
 void SettingsSync::fail(const char* code, uint32_t now) {
-    if (same(code, "RATE_LIMITED")) {
+    if (sync_same(code, "RATE_LIMITED")) {
         retry_set_ = true;
         retry_at_ = now + SyncLimits::STORE_SPACING_MS;
     } else if (is_wait_code(code)) {
