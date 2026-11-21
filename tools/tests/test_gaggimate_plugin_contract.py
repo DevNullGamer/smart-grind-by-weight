@@ -83,7 +83,8 @@ def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
     own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkDoseSave.h", "GLinkDoseSave.cpp", "RxRing.h",
            "GLinkDevState.h", "GLinkDevState.cpp", "GLinkSettingsSync.h", "GLinkSettingsSync.cpp",
-           "GLinkResultGate.h", "GLinkResultGate.cpp", "GLinkGrinderCore.h", "GLinkGrinderCore.cpp"}
+           "GLinkResultGate.h", "GLinkResultGate.cpp", "GLinkGrinderCore.h", "GLinkGrinderCore.cpp",
+           "GLinkGrinder.h", "GLinkGrinder.cpp", "GLinkPlugin.h", "GLinkPlugin.cpp"}
     for folder in (GLINK / "bluetooth", GLINK / "config"):
         for f in folder.iterdir():
             assert f in SHARED, f"{f.relative_to(ROOT)} is neither shared nor listed"
@@ -255,3 +256,130 @@ def test_plugin_host_tests_pass(tmp_path):
     r = subprocess.run([sh, str(PLUGIN / "scripts" / "run_host_tests.sh")], capture_output=True, text=True, env=env, timeout=600)
     assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-3000:]
     assert re.search(r"\b\d+ tests, 0 failed", r.stdout), r.stdout[-500:]
+
+
+# ---- device glue guards (chg025 step 5; the glue cannot run on the host, so these are text-level) -----------------
+
+def code_of(path: Path) -> str:
+    """The file's text without // comments (string literals with // are not used in these files)."""
+    return "\n".join(line.split("//")[0] for line in read_text(path).splitlines())
+
+
+def block_after(text: str, start: str) -> str:
+    """Text from `start` to the matching closing brace of the first '{' after it."""
+    i = text.index(start)
+    j = text.index("{", i)
+    depth = 0
+    for k in range(j, len(text)):
+        depth += {"{": 1, "}": -1}.get(text[k], 0)
+        if depth == 0:
+            return text[i:k + 1]
+    raise AssertionError(f"unbalanced braces after {start}")
+
+
+GRINDER_CPP = GLINK / "GLinkGrinder.cpp"
+GRINDER_H = GLINK / "GLinkGrinder.h"
+PLUGIN_CPP = GLINK / "GLinkPlugin.cpp"
+PLUGIN_H = GLINK / "GLinkPlugin.h"
+
+
+@pytest.mark.parametrize("path", [GRINDER_CPP, GLINK / "GLinkGrinderCore.cpp", PLUGIN_CPP], ids=lambda p: p.name)
+def test_no_client_start_or_stop_call_in_the_driver_files(path):
+    for n, line in enumerate(code_of(path).splitlines(), 1):
+        assert not re.search(r"\b(start|stop)\s*\(", line), f"{path.name}:{n}: {line.strip()}"
+
+
+def test_driver_does_not_override_shutdown():
+    assert not re.search(r"\bshutdown\b", code_of(GRINDER_H))
+
+
+@pytest.mark.parametrize("path", [GRINDER_H, GRINDER_CPP, PLUGIN_H, PLUGIN_CPP], ids=lambda p: p.name)
+def test_device_files_start_with_the_sim_guard(path):
+    first = next(l for l in read_text(path).splitlines() if l.strip())
+    assert first.strip() == "#ifndef GAGGIMATE_SIM", f"{path.name}: {first}"
+
+
+def test_grinder_cpp_asserts_enough_nimble_connections():
+    assert re.search(r"static_assert\(\s*CONFIG_BT_NIMBLE_MAX_CONNECTIONS\s*>=\s*3\b", code_of(GRINDER_CPP))
+
+
+def test_plugin_header_includes_no_glink_header():
+    includes = re.findall(r"#\s*include\s*[<\"]([^>\"]+)[>\"]", code_of(PLUGIN_H))
+    assert includes, "GLinkPlugin.h has no includes"
+    for inc in includes:
+        assert not re.search(r"(?i)glink|bluetooth|RxRing", inc), f"GLinkPlugin.h includes {inc}"
+
+
+def test_profile_dose_is_written_once_in_apply_pending_dose_under_the_lock():
+    code = code_of(PLUGIN_CPP)
+    assert len(re.findall(r"\bprofile\.dose\s*=(?!=)", code)) == 1
+    assert len(re.findall(r"\.dose\s*=(?!=)", code)) == 1
+    body = block_after(code, "void GLinkPlugin::applyPendingDose")
+    assert re.search(r"\bprofile\.dose\s*=(?!=)", body)
+    lock = re.search(r"\{[^{}]*getProcessLock\(\)", body)
+    assert lock, "no lock scope with getProcessLock()"
+    assert body.index("getProcessLock()") < re.search(r"\bprofile\.dose\s*=(?!=)", body).start()
+    for needle in ("MODE_BREW", "isActive()", "isUpdating()", "isAutotuning()", "profile.utility"):
+        assert needle in body, f"busy check {needle} missing"
+    assert body.index("getProcessLock()") < body.index("MODE_BREW") < body.index("take(")
+    assert body.index("take(") < body.index("profile.dose")
+
+
+def test_event_handler_only_records():
+    handler = block_after(code_of(PLUGIN_CPP), "void onGrindFinished")
+    for bad in ("getProfileManager", "getSelectedProfile", "getProcessLock", "Settings", "Preferences"):
+        assert bad not in handler, bad
+    assert not re.search(r"\.dose\b", handler)
+    assert "on_finished(" in handler
+
+
+def test_connect_checks_the_busy_probe_before_the_first_radio_use():
+    body = block_after(code_of(GRINDER_CPP), "bool GLinkGrinder::connect()")
+    probe = body.index("busyProbe()")
+    assert probe < body.index("clientConnect(")
+    assert probe < body.index("ble_gap_event_listener_register")
+    assert probe < body.index("new (std::nothrow)")
+
+
+def test_allocation_is_nothrow_new_and_only_in_connect():
+    code = code_of(GRINDER_CPP)
+    connect = block_after(code, "bool GLinkGrinder::connect()")
+    outside = re.sub(r"#\s*include[^\n]*", "", code.replace(connect, ""))  # `#include <new>` is not an allocation
+    assert not re.search(r"\bnew\b|\b(malloc|calloc|realloc)\s*\(", outside), "allocation outside connect()"
+    news = re.findall(r"\bnew\b[^;]*", connect)
+    assert news, "connect() allocates nothing?"
+    for n in news:
+        assert n.startswith("new (std::nothrow)"), n
+    assert not re.search(r"\bnew\b", code_of(PLUGIN_CPP))
+    assert not re.search(r"\bnew\b", code_of(GRINDER_H))
+
+
+def test_notification_lambda_neither_allocates_nor_logs():
+    code = code_of(GRINDER_CPP)
+    lam = block_after(code, "auto callback = [this]")
+    assert "ring_.push(" in lam
+    assert not re.search(r"\bnew\b|\b(malloc|calloc|realloc)\s*\(|\blog\s*\(|ESP_LOG|Serial|printf|LOG_|std::string|String\b", lam), lam
+
+
+def test_grind_finished_is_reported_only_from_update():
+    code = code_of(GRINDER_CPP)
+    assert len(re.findall(r"\breportGrindFinished\s*\(", code)) == 1
+    assert "reportGrindFinished" in block_after(code, "void GLinkGrinder::publishToFramework")
+    assert "reportGrindFinished" not in block_after(code, "auto callback = [this]")
+    assert "reportGrindFinished" not in block_after(code, "int onGapEvent")
+    assert len(re.findall(r"\bpublishToFramework\s*\(", code)) == 2  # definition + the one call
+    assert "publishToFramework()" in block_after(code, "void GLinkGrinder::update()")
+
+
+def test_patch_0002_registers_the_plugin_and_touches_only_controller_cpp():
+    patch = next(p for p in PATCHES if p.name.startswith("0002-"))
+    assert [a for a, _ in patch_files(patch)] == ["src/display/core/Controller.cpp"]
+    added = "\n".join(l[1:] for l in patch.read_bytes().decode("utf-8").splitlines()
+                      if l.startswith("+") and not l.startswith("+++"))
+    assert "registerPlugin(new GLinkPlugin())" in added
+    assert "Settings" not in added and "settings" not in added
+
+
+def test_host_script_keeps_the_single_translation_unit_check():
+    script = read_text(PLUGIN / "scripts" / "run_host_tests.sh")
+    assert re.search(r"-fsyntax-only\s+test/test_grinderlink/glink_sources\.cpp", script)

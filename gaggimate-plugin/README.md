@@ -180,8 +180,9 @@ section 3.6; so far:
 | Patch | Files | What |
 |---|---|---|
 | `0001-grinder-finished-event.patch` | `lib/BluetoothDevices/src/BluetoothGrinder.h`, `src/display/plugins/BluetoothDevicesPlugin.{h,cpp}` | `reportGrindFinished` / `takeGrindFinished` on `BluetoothGrinder`; `pollGrinderEvents` fires `grinder:grind:finished` (`value` = grams). No effect without a grinder. |
+| `0002-controller-register-glink-plugin.patch` | `src/display/core/Controller.cpp` | `#ifndef GAGGIMATE_SIM`: includes `GLinkPlugin.h` and registers `new GLinkPlugin()` after `&BLEDevices`, unconditionally (no setting). |
 
-Still to come: controller registration, web model name.
+Still to come: web model name.
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion.
 
 ## Verified
