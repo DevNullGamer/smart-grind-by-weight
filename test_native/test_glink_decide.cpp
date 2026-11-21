@@ -298,6 +298,123 @@ static void test_update_refusals() {
     TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, cur, update_of(true, 180, false, false, 0, false, ""), false, plan, f));
 }
 
+// ---- rpm (GLink 1.2) ----
+static GlinkProfileState state_with_rpm(int32_t dose, bool size, bool has_rpm, int32_t rpm) {
+    GlinkProfileState s = size ? state_with(dose, true, 145, "um") : state_with(dose, false, 0, "");
+    s.has_rpm = has_rpm;
+    s.rpm = rpm;
+    return s;
+}
+
+// An update that carries only an rpm (or null) and nothing else.
+static GlinkRequest rpm_update(bool null, int32_t rpm) {
+    GlinkRequest r = update_of(false, 0, false, false, 0, false, "");
+    r.has_rpm = true;
+    r.rpm_null = null;
+    r.rpm = rpm;
+    return r;
+}
+
+static void test_update_rpm_changed_and_equal() {
+    GlinkUpdatePlan plan;
+    GlinkFailure f;
+    // Only the rpm differs: changed (and so stored) with every other value kept.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, false, 0), rpm_update(false, 600), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(600, plan.result.rpm);
+    TEST_ASSERT_EQUAL_INT32(180, plan.result.dose_tenths);
+    TEST_ASSERT_TRUE(plan.result.has_grind_size);
+    TEST_ASSERT_EQUAL_STRING("um", plan.result.grind_unit);
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, true, 600), rpm_update(false, 650), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_EQUAL_INT32(650, plan.result.rpm);
+    // The same rpm: not changed, no flash write, and the rate limit does not matter.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, true, 600), rpm_update(false, 600), false, plan, f));
+    TEST_ASSERT_FALSE(plan.changed);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(600, plan.result.rpm);
+    // 0 is a value: it differs from none, and none from 0.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, false, 0), rpm_update(false, 0), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, true, 0), rpm_update(true, 0), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_FALSE(plan.result.has_rpm);
+}
+
+static void test_update_rpm_null_clears_and_absent_keeps() {
+    GlinkUpdatePlan plan;
+    GlinkFailure f;
+    const GlinkProfileState cur = state_with_rpm(180, true, true, 600);
+    // null clears the rpm and nothing else.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, cur, rpm_update(true, 0), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_FALSE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(0, plan.result.rpm);
+    TEST_ASSERT_EQUAL_INT32(180, plan.result.dose_tenths);
+    TEST_ASSERT_TRUE(plan.result.has_grind_size);
+    TEST_ASSERT_EQUAL_INT32(145, plan.result.grind_size_tenths);
+    TEST_ASSERT_EQUAL_STRING("um", plan.result.grind_unit);
+    // null on a profile without an rpm changes nothing.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, true, false, 0), rpm_update(true, 0), false, plan, f));
+    TEST_ASSERT_FALSE(plan.changed);
+    // An absent rpm keeps it (dose only, size cleared, unit cleared).
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, cur, update_of(true, 185, false, false, 0, false, ""), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(600, plan.result.rpm);
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, cur, update_of(false, 0, true, true, 0, false, ""), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_FALSE(plan.result.has_grind_size);  // clearing the size keeps the rpm
+    TEST_ASSERT_EQUAL_STRING("", plan.result.grind_unit);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(600, plan.result.rpm);
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, cur, update_of(false, 0, false, false, 0, true, ""), true, plan, f));
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    // An rpm needs no size and no unit.
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, false, false, 0), rpm_update(false, 600), true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_FALSE(plan.result.has_grind_size);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+}
+
+static void test_update_rpm_state_rate_and_create_rules() {
+    GlinkUpdatePlan plan;
+    GlinkFailure f;
+    const GlinkProfileState cur = state_with_rpm(180, true, true, 600);
+    // The rate limit and the state rules apply to an rpm-only update.
+    TEST_ASSERT_FALSE(glink_decide_update(GlinkScreen::READY, cur, rpm_update(false, 650), false, plan, f));
+    TEST_ASSERT_EQUAL(GlinkError::RATE_LIMITED, f.code);
+    TEST_ASSERT_FALSE(glink_decide_update(GlinkScreen::GRINDING, cur, rpm_update(false, 650), true, plan, f));
+    TEST_ASSERT_EQUAL(GlinkError::NOT_READY, f.code);
+    TEST_ASSERT_FALSE(glink_decide_update(GlinkScreen::EDIT, cur, rpm_update(false, 650), true, plan, f));
+    TEST_ASSERT_EQUAL(GlinkError::EDIT_IN_PROGRESS, f.code);
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::MENU, cur, rpm_update(false, 650), true, plan, f));
+    // Profile 3 absent: an rpm alone is MISSING_FIELD dose; with a dose it creates the profile with that rpm.
+    const GlinkProfileState none;
+    TEST_ASSERT_FALSE(glink_decide_update(GlinkScreen::READY, none, rpm_update(false, 600), true, plan, f));
+    TEST_ASSERT_EQUAL(GlinkError::MISSING_FIELD, f.code);
+    TEST_ASSERT_EQUAL_STRING("dose", f.field);
+    GlinkRequest create = rpm_update(false, 600);
+    create.has_dose = true;
+    create.dose_tenths = 180;
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, none, create, true, plan, f));
+    TEST_ASSERT_TRUE(plan.changed);
+    TEST_ASSERT_TRUE(plan.result.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(600, plan.result.rpm);
+    // A leftover rpm of a missing profile is not kept.
+    GlinkProfileState ghost = state_with_rpm(0, false, true, 777);
+    ghost.exists = false;
+    TEST_ASSERT_TRUE(glink_decide_update(GlinkScreen::READY, ghost, update_of(true, 180, false, false, 0, false, ""), true, plan, f));
+    TEST_ASSERT_FALSE(plan.result.has_rpm);
+    // The unit-needs-size rule does not involve the rpm.
+    TEST_ASSERT_FALSE(glink_decide_update(GlinkScreen::READY, state_with_rpm(180, false, true, 600),
+                                          update_of(false, 0, false, false, 0, true, "um"), true, plan, f));
+    TEST_ASSERT_EQUAL(GlinkError::INVALID_PARAM, f.code);
+    TEST_ASSERT_EQUAL_STRING("grindUnit", f.field);
+}
+
 // ---- select ----
 static void test_select() {
     GlinkFailure f;
@@ -442,6 +559,9 @@ void run_glink_decide_tests() {
     RUN_TEST(test_start_failure_details);
     RUN_TEST(test_update_plan);
     RUN_TEST(test_update_refusals);
+    RUN_TEST(test_update_rpm_changed_and_equal);
+    RUN_TEST(test_update_rpm_null_clears_and_absent_keeps);
+    RUN_TEST(test_update_rpm_state_rate_and_create_rules);
     RUN_TEST(test_select);
     RUN_TEST(test_dev_state_and_blocked);
     RUN_TEST(test_start_block_error);

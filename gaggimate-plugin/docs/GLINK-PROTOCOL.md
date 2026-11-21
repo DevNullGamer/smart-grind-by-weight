@@ -1,8 +1,8 @@
-# GLink: Grinder Link protocol v1 (contract)
+# GLink: Grinder Link protocol v1, revision 1.2 (contract)
 
 GLink is the Bluetooth Low Energy protocol of the Smart Grind By Weight grinder for other devices, first of all a
 GaggiMate. It reads the grinder state and the live weight, selects a profile, sets the "Profile Dose" (grams) and an
-optional display-only grind size, starts and stops a grind, and delivers the final weight with a result code.
+optional display-only grind size and rpm, starts and stops a grind, and delivers the final weight with a result code.
 
 This document is the contract between the grinder firmware and any client. The same rules are executable:
 `tools/tests/glink_vectors.json` holds the conformance vectors (golden frame bytes, reader cases, request/response
@@ -12,6 +12,8 @@ keeps the document, the vectors and the constants in `src/config/bluetooth.h` eq
 | | |
 |---|---|
 | Protocol version (`proto` in `baseInfo`) | 1 |
+| Revision (`protoMinor` in `baseInfo`; absent = 1.1 or older) | 1.2 |
+| Revisions | 1.1: the first published text. 1.2 (additive, `proto` stays 1): the optional `rpm` of `grindProfile` and `baseInfo.protoMinor` |
 | Status | v1 frozen for review by the GaggiMate maintainer; `grindControl` is **provisional** (see 5.5) |
 | Conventions | the Bookoo Motto80 BLE protocol (transport, envelopes, handshake, broadcasts, error object) |
 | Document language | English; field names and codes are case-sensitive |
@@ -20,7 +22,7 @@ keeps the document, the vectors and the constants in `src/config/bluetooth.h` eq
 > The Motto80 protocol, whose transport GLink copies, withholds remote start for safety reasons ("under safety
 > evaluation"). GLink adds a start without any authentication, so its trust model is weaker than Motto80's. While the
 > "GaggiMate link" (or Bluetooth) is on, anyone in radio range (typically 10 to 30 m, more with an antenna) can read
-> the state and the live weight, change the Profile Dose and the displayed grind size, change the selected profile,
+> the state and the live weight, change the Profile Dose, the displayed grind size and the displayed rpm, change the selected profile,
 > stop a running grind, occupy the one BLE connection, and **start a weight-mode grind of a profile whose stored dose
 > is 5.0 to 60.0 g**. Nothing is encrypted. The only protections are listed in 1.1, and none of them is security. Do
 > not use this link where a stranger within radio range, or a service situation with the hopper open and the grinder
@@ -36,7 +38,7 @@ In range of the grinder, with the link enabled, any BLE central can:
 
 - see the state, the live weight, the serial code (`snCode`) and the profiles, and eavesdrop on everything (nothing is
   encrypted);
-- change the Profile Dose (5.0 to 60.0 g) and the displayed grind size, and change the selected profile. This is a
+- change the Profile Dose (5.0 to 60.0 g), the displayed grind size and the displayed rpm, and change the selected profile. This is a
   nuisance: the user reads the number on the screen before pressing START;
 - stop any running grind or motor test (`stop` is always accepted, also before the handshake);
 - occupy the single BLE connection, which blocks GaggiMate, `grinder.py`, the web flasher and WiFi updates;
@@ -160,6 +162,7 @@ All of these are defined in `src/config/bluetooth.h` with exactly these names an
 | Constant | Value | Meaning |
 |---|---|---|
 | `GLINK_PROTO_VERSION` | 1 | `proto` in `baseInfo` |
+| `GLINK_PROTO_MINOR` | 2 | `protoMinor` in `baseInfo` (revision 1.2) |
 | `GLINK_FRAME_MAGIC` | 165 | `0xA5` |
 | `GLINK_FRAME_VERSION` | 1 | `0x01` |
 | `GLINK_FRAME_HEADER_BYTES` | 8 | header size |
@@ -181,6 +184,7 @@ All of these are defined in `src/config/bluetooth.h` with exactly these names an
 | `GLINK_DOSE_MIN_G` | 5.0 | smallest dose for writes and BLE starts |
 | `GLINK_DOSE_MAX_G` | 60.0 | largest dose for writes and BLE starts |
 | `GLINK_GRIND_SIZE_MAX` | 999.9 | largest `grindSize` |
+| `GLINK_RPM_MAX` | 9999 | largest `rpm` |
 | `GLINK_GRIND_UNIT_MAX_LEN` | 6 | longest `grindUnit` after trimming |
 | `GLINK_START_LEAD_IN_MS` | 3000 | lead-in of every BLE start |
 | `GLINK_WRITE_MIN_INTERVAL_MS` | 1000 | minimum time between two stored changes |
@@ -298,7 +302,7 @@ times and indices are plain integers. A client must accept any JSON number.
 
 ### 4.4 Rounding of incoming decimals
 
-`dose`, `expectDose` and `grindSize` are rounded to 0.1 on the **decimal digits as written**, half away from zero (not on
+`dose`, `expectDose` and `grindSize` (not the whole-number `rpm`) are rounded to 0.1 on the **decimal digits as written**, half away from zero (not on
 a binary float), and the range is checked **after** rounding. `18.04` becomes `18.0`, `18.05` becomes `18.1`, `4.95`
 becomes `5.0` and is valid, `4.94` becomes `4.9` and is `OUT_OF_RANGE`, `-0.04` becomes `0.0` (valid for `grindSize`).
 Two values that round to the same number are the same value (no flash write, `changed` is false).
@@ -340,6 +344,7 @@ message. A repeated `appHello` is allowed and sends both broadcasts again. Unkno
 | `wifiName` | null | always `null` (privacy; present for Motto80 compatibility) |
 | `device` | string | `SGBW` |
 | `proto` | int | GLink protocol version, 1 |
+| `protoMinor` | int | revision within `proto`, 2 for this document; absent means revision 1.1 or older. A client sends `rpm` (5.4) only when it is 2 or more |
 | `fwVersion` | string | firmware version, for example `1.4.1` |
 | `board` | string | `V1`, `V2` or `UNKNOWN` |
 | `doseMin` | number | smallest dose for writes and starts, 5.0 (g) |
@@ -347,7 +352,7 @@ message. A repeated `appHello` is allowed and sends both broadcasts again. Unkno
 | `maxRequestBytes` | int | largest request, 512 |
 
 ```json
-{"broadcast":{"baseInfo":{"releaseVer":640,"snCode":"7c2a3f10b4d8","wifiName":null,"device":"SGBW","proto":1,"fwVersion":"1.4.1","board":"V2","doseMin":5.0,"doseMax":60.0,"maxRequestBytes":512}}}
+{"broadcast":{"baseInfo":{"releaseVer":640,"snCode":"7c2a3f10b4d8","wifiName":null,"device":"SGBW","proto":1,"protoMinor":2,"fwVersion":"1.4.1","board":"V2","doseMin":5.0,"doseMax":60.0,"maxRequestBytes":512}}}
 ```
 
 Clients must ignore unknown fields (additive changes keep `proto`).
@@ -372,7 +377,7 @@ Sent right after `baseInfo`, immediately on a change (section 8), and at least e
 Fields marked "while ..." are absent otherwise (not `null`). A client must tolerate unknown `devState` and `phase`
 strings (any non-empty string) without disconnecting or failing to parse the message.
 
-`profileRev` is a counter that increases by at least one whenever the stored dose, grind size or grind unit of any
+`profileRev` is a counter that increases by at least one whenever the stored dose, grind size, grind unit or rpm of any
 profile changes, or profile 3 comes into or goes out of existence, **from any origin** (BLE, touch, web panel, factory
 reset). It is 0 after boot, never decreases while the grinder runs, and every change is sent immediately, subject to the cap of section 8 while GRINDING. A client
 re-reads the profiles with `grindProfile` `get` when it differs from the value it last saw; this is how it learns about
@@ -402,6 +407,7 @@ Entry (`data` of `get` and `update`):
 | `dose` | number | stored weight in g. May be above 60.0 for profiles set by touch (the BLE range applies to writes and starts) |
 | `grindSize` | number or null | display-only grind size, 0.0 to 999.9, or `null` if none |
 | `grindUnit` | string or null | display label of the size, at most 6 characters, or `null` |
+| `rpm` | int | display-only rpm label, 0 to 9999 (1.2). Present **only when set**; absent means none (unlike `grindSize`, which is `null`). Sits between `grindUnit` and `writable` |
 | `writable` | bool | true only for index 3 |
 
 **`get`** returns all entries (`data` is an array, profile 3 only if it exists) when `selector` is absent or
@@ -429,9 +435,10 @@ screen moves to that profile page. Selecting the profile that is already selecte
 | `dose` | number | 5.0 to 60.0 g after rounding (4.4); `null` and other types are `INVALID_PARAM`. Required when profile 3 does not exist yet (`MISSING_FIELD`, field `dose`) |
 | `grindSize` | number or null | 0.0 to 999.9 after rounding; `null` clears the size **and** the unit |
 | `grindUnit` | string or null | trimmed (spaces); up to 6 characters of `A-Z a-z 0-9` space `.` `/` `%` `-` `_`; empty or `null` means no unit. Checked in this order after trimming: type and any other character (including non-ASCII) is `INVALID_PARAM`, then more than 6 characters is `OUT_OF_RANGE`. A unit needs a size: setting a unit while the resulting size is `null` is `INVALID_PARAM` (field `grindUnit`) |
+| `rpm` | int or null | (1.2) a whole number 0 to 9999 (`GLINK_RPM_MAX`); `null` clears it. The integer rule of 4.2 applies: `600` and `600.0` are fine, `600.5`, strings, booleans and objects are `INVALID_PARAM`, a negative whole number or one above 9999 is `OUT_OF_RANGE`. Independent of the size and the unit. A client sends it only when `baseInfo.protoMinor` is 2 or more; a 1.1 grinder refuses it as an unknown key |
 
 Order of checks for `update`: `index` (`MISSING_FIELD`, `INVALID_PARAM`, `OUT_OF_RANGE`), then `PROFILE_READ_ONLY` (field
-`index`) for 0 to 2, then the fields in the order `dose`, `grindSize`, `grindUnit`, then "nothing to update"
+`index`) for 0 to 2, then the fields in the order `dose`, `grindSize`, `grindUnit`, `rpm`, then "nothing to update"
 (`MISSING_FIELD`, no field), then the state rules (7.1), the create-needs-dose and unit-needs-size rules, `RATE_LIMITED`,
 and last the flash write (`STORE_FAILED`). A refused update changes nothing.
 
@@ -446,8 +453,26 @@ In v1 they are always equal; a request that changes nothing succeeds with both `
 {"response":{"grindProfile":{"result":"success","data":{"index":3,"name":"PROFILE","dose":18.0,"grindSize":14.5,"grindUnit":"um","writable":true,"changed":true,"stored":true}}}}
 ```
 
-**Grind size is display only.** The grinder shows it as text on the profile page and the edit screen. It has no effect on
-grinding and cannot be edited on the grinder.
+With an rpm (1.2) the request and the entry carry it, and a later `null` clears it:
+
+```json
+{"request":{"grindProfile":{"op":"update","index":3,"dose":18.0,"grindSize":14.5,"grindUnit":"um","rpm":600}}}
+```
+
+```json
+{"response":{"grindProfile":{"result":"success","data":{"index":3,"name":"PROFILE","dose":18.0,"grindSize":14.5,"grindUnit":"um","rpm":600,"writable":true,"changed":true,"stored":true}}}}
+```
+
+```json
+{"request":{"grindProfile":{"op":"update","index":3,"rpm":null}}}
+```
+
+```json
+{"response":{"grindProfile":{"result":"success","data":{"index":3,"name":"PROFILE","dose":18.0,"grindSize":14.5,"grindUnit":"um","writable":true,"changed":true,"stored":true}}}}
+```
+
+**Grind size and rpm are display only.** The grinder shows them as text on the profile page and the edit screen. They have
+no effect on grinding and cannot be edited on the grinder.
 
 ### 5.5 `grindControl` (PROVISIONAL)
 
@@ -724,7 +749,7 @@ The cadence of `periodInfo` is device-defined and a client must not depend on it
 - as a heartbeat every 2000 ms (`GLINK_PERIOD_HEARTBEAT_MS`) when nothing was sent (so "`periodInfo` within 5 s" always
   holds on a live link, and the live weight outside a grind is at most 2 s old).
 
-Throughput at the default MTU of 23 (20-byte packets, 12 payload bytes): `baseInfo` (about 190 bytes) is 16
+Throughput at the default MTU of 23 (20-byte packets, 12 payload bytes): `baseInfo` (about 210 bytes) is 18
 notifications, `periodInfo` (about 170 bytes) is 15, `grindProfile` `get` of four profiles (about 400 bytes) is 34. At an
 MTU of 185 or more each is one to three packets. The device uses the negotiated MTU if it learns it and assumes 23
 otherwise. It sends at most 2 fragments per 20 ms and never blocks; if a notification fails it drops the rest of that
@@ -734,7 +759,9 @@ message and sends a fresh one later. The device never interleaves two messages, 
 ## 9. Versioning
 
 `proto` in `baseInfo` is the protocol version. Additive changes (new optional fields, new `devState` or `phase` values,
-new error codes, new operations, new objects) keep `proto` at 1, so clients ignore what they do not know. A breaking
+new error codes, new operations, new objects) keep `proto` at 1, so clients ignore what they do not know. An additive
+change that a client must be able to detect before it uses it (a new optional request field, such as `rpm` in 1.2)
+raises `protoMinor`; the revisions are listed in the header table, and an absent `protoMinor` means 1.1 or older. A breaking
 change gets a new service UUID and a new `proto`. A future authentication layer would be an extra business object (for
 example an `auth` handshake) and would not change the frame or the existing objects. `grindControl` may change before
 it is declared final (5.5).
@@ -754,7 +781,7 @@ Extensions and differences:
 | Handshake timeout | not specified | no `appHello` within 10 s: disconnect; other requests before it get `INVALID_STATE` except `stop` |
 | Bad fragments | not specified | ten within 10 s disconnect the client |
 | `periodInfo` | 5 Hz | on change, at most 4 Hz while grinding (1 Hz at a small MTU), heartbeat every 2 s |
-| `baseInfo` | `releaseVer` (a version encoded as an integer, for example `102040416` = v1.2.4.0416), `snCode`, `wifiName` | the same three, but `releaseVer` is the firmware **build number** and `wifiName` is always `null`, plus `device`, `proto`, `fwVersion`, `board`, `doseMin`, `doseMax`, `maxRequestBytes` |
+| `baseInfo` | `releaseVer` (a version encoded as an integer, for example `102040416` = v1.2.4.0416), `snCode`, `wifiName` | the same three, but `releaseVer` is the firmware **build number** and `wifiName` is always `null`, plus `device`, `proto`, `protoMinor` (1.2), `fwVersion`, `board`, `doseMin`, `doseMax`, `maxRequestBytes` |
 | `devState` | adds `HIGHSPEEDCLEAN`, `BOOTGUIDE`, `ADJUSTMENTPURGE` | adds `STARTING` and `DONE`; the three Motto80 extras are not used |
 | Business objects | `geneSetting`, `grindSection`, `grindPreset` | `grindProfile`, `grindControl`, `grindResult` |
 | Ops and selectors | `get set add delete restore update reorder`, selectors `all keys uid tombstones activeStats deviceStats uidStats` | `get select update` / `start stop` / `get`; selectors `all` and `index` only |
@@ -762,6 +789,7 @@ Extensions and differences:
 | Unaddressable failures | not specified | answered under the pseudo-object `error` |
 | Start and stop | not available ("under safety evaluation") | `grindControl`, provisional |
 | Grind size | `bladeGap`: the stored burr-gap setting in integer um, range 0 to 999 (writing it does not move a physical gap) | `grindSize` (one decimal, optional `grindUnit`), display only. A new name, because `bladeGap` is already defined as a burr-gap value in um and a driver would apply that meaning to a free label with another unit |
+| Rpm | `grindRpm`: a real motor setting, clamped to 500 to 1500 | `rpm` (1.2): a free display label, whole number 0 to 9999, never applied to a motor; a new name for the same reason as `grindSize` |
 | Result | not available | `grindResult` with the final weight (the Motto80 has no scale) |
 | Change tracking | none | `periodInfo.profileRev` |
 
@@ -784,12 +812,12 @@ A client that follows this list works with any GLink v1 grinder:
 1. Find the device by name `GrindByWeight` (and check the MAC); discover the service `53474257-0001-4632-901b-4752494e4421`.
 2. Check RX is writable and TX has Notify; subscribe to TX; then send `appHello`.
 3. Reassemble TX fragments with one reassembler (section 3.3); parse each message as JSON.
-4. Wait for `baseInfo` (check `device` is `SGBW` and `proto` is 1) and `periodInfo` (within 5 s).
+4. Wait for `baseInfo` (check `device` is `SGBW` and `proto` is 1; `protoMinor`, absent = 1, says whether `rpm` may be sent) and `periodInfo` (within 5 s).
 5. Send one request at a time and match the response by object name; handle `result` `fail` by `error.code`; follow 7.5.
 6. Never rely on the `periodInfo` rate; ignore unknown fields and unknown `devState` / `phase` strings.
 7. Re-read the profiles when `profileRev` changes, and treat the first `periodInfo` of every connection as changed (a
    rebooted grinder resets `profileRev` to 0).
-8. For a dose: send `grindProfile` `update` (dose and optional grind size), check `changed`, then `grindControl` `start`
+8. For a dose: send `grindProfile` `update` (dose and optional grind size and rpm), check `changed`, then `grindControl` `start`
    with `expectDose`; expect `leadInMs` 3000 and decide as described in 5.5 whether the grind started; send `stop` at
    any time.
 9. Read the result from the `grindResult` broadcast, or with `get` (compare `resultSeq`).
@@ -797,6 +825,6 @@ A client that follows this list works with any GLink v1 grinder:
 
 Conformance data (every implementation, C++ and Python, must run all `reader_cases` and all other vector lists):
 `tools/tests/glink_vectors.json` has the golden frame bytes (including the 43-byte handshake of 3.5),
-single-packet and multi-packet receiver cases, the bad-fragment window cases, the reader cases, the dose, grind size and
+single-packet and multi-packet receiver cases, the bad-fragment window cases, the reader cases, the dose, grind size, rpm and
 unit cases (valid and invalid, with the expected error code and field), and one request/response pair for every object,
 operation and error code, plus `periodInfo` and `grindResult` broadcast examples.

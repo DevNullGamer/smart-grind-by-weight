@@ -249,6 +249,22 @@ def ref_unit(json_value: str) -> dict:
     return {"ok": True, "value": trimmed or None}
 
 
+def ref_rpm(json_value: str) -> dict:
+    """The integer rule of 4.2 for `rpm` (5.4): a whole number (`600` and `600.0`), then the range 0 to GLINK_RPM_MAX;
+    anything that is a number but not whole is INVALID_PARAM (so -0.5 is, -1 is OUT_OF_RANGE); null clears."""
+    try:
+        parsed = strict_parse('{"v":' + json_value + "}")["v"]
+    except Malformed:
+        return {"ok": False, "error": "MALFORMED_JSON"}
+    if parsed is None:
+        return {"ok": True, "value": None}
+    if not isinstance(parsed, Decimal) or parsed != parsed.to_integral_value():
+        return {"ok": False, "error": "INVALID_PARAM", "field": "rpm"}
+    if parsed < 0 or parsed > LIMITS["GLINK_RPM_MAX"]:
+        return {"ok": False, "error": "OUT_OF_RANGE", "field": "rpm"}
+    return {"ok": True, "value": str(int(parsed))}
+
+
 def frames(payload: bytes, seq: int, packet_len: int) -> list[str]:
     cap = packet_len - LIMITS["GLINK_FRAME_HEADER_BYTES"]
     return [(struct.pack("<BBHHH", LIMITS["GLINK_FRAME_MAGIC"], LIMITS["GLINK_FRAME_VERSION"], seq, len(payload), off)
@@ -586,6 +602,36 @@ def test_grind_unit_cases():
     assert any(inner(c) == 6 and c["expect"].get("ok") for c in V["grind_unit_cases"])
 
 
+def test_rpm_cases():
+    run_cases(V["rpm_cases"], ref_rpm)
+    got = {c["json"]: c["expect"] for c in V["rpm_cases"]}
+    assert (LIMITS["GLINK_RPM_MAX"], LIMITS["GLINK_PROTO_MINOR"]) == (9999, 2)
+    for needed in ("0", "600", "9999", "600.0", "-1", "10000", "-0.5", "600.5", '"600"', "true", "{}", "[600]", "1e3", "null"):
+        assert needed in got, needed
+    assert got["-0.5"]["error"] == "INVALID_PARAM" and got["-1"]["error"] == "OUT_OF_RANGE"
+    assert got["600.0"] == {"ok": True, "value": "600"} and got["[600]"]["error"] == "MALFORMED_JSON"
+    assert {c["expect"].get("error") for c in V["rpm_cases"]} == {None, "OUT_OF_RANGE", "MALFORMED_JSON", "INVALID_PARAM"}
+
+
+def test_rpm_is_optional_in_the_entry_and_the_update_table_and_sits_before_writable():
+    text = section("### 5.4 `grindProfile`")
+    entry_table = re.search(r"Entry \(`data` of `get` and `update`\):\n\n(.*?)\n\n", text, re.S).group(1)
+    names = first_column(entry_table)
+    assert names[names.index("grindUnit") + 1:names.index("writable")] == ["rpm"], "rpm sits between grindUnit and writable"
+    assert "only when set" in entry_table and "absent" in entry_table
+    update_table = re.search(r"\*\*`update`\*\*.*?\n\n(\|.*?)\n\n", text, re.S).group(1)
+    assert first_column(update_table) == ["dose", "grindSize", "grindUnit", "rpm"]
+    assert "`dose`, `grindSize`, `grindUnit`, `rpm`" in text, "order of the field checks"
+    # a pair proves the entry with and without rpm, in the documented position
+    with_rpm = parse_response(next(p for p in V["pairs"] if p["name"] == "profile_get_one_with_rpm")["response"])[1]["data"]
+    assert list(with_rpm) == names
+    without = parse_response(next(p for p in V["pairs"] if p["name"] == "profile_get_one")["response"])[1]["data"]
+    assert list(without) == [n for n in names if n != "rpm"]
+    all_rpm = parse_response(next(p for p in V["pairs"] if p["name"] == "profile_get_all_with_rpm")["response"])[1]["data"]
+    assert ["rpm" in e for e in all_rpm] == [False, False, False, True]
+    assert with_rpm["rpm"] == 600 and all_rpm[3]["rpm"] == 600
+
+
 # ---- pairs and broadcasts ----------------------------------------------------------------------------------------
 
 def parse_response(text: str):
@@ -695,6 +741,29 @@ def test_pairs_follow_the_documented_rules():
     # an unchanged update is not a stored change
     assert '"changed":false,"stored":false' in by_name["profile_update_unchanged"]["response"]
     assert '"changed":true,"stored":true' in by_name["profile_update_create"]["response"]
+    # rpm (1.2): a repeated value changes nothing, null clears, an rpm change counts as a change
+    assert '"changed":false,"stored":false' in by_name["profile_update_rpm_unchanged"]["response"]
+    assert '"changed":false,"stored":false' in by_name["profile_update_rpm_whole_float_unchanged"]["response"]
+    assert '"changed":true,"stored":true' in by_name["profile_update_rpm_only"]["response"]
+    assert '"rpm"' not in by_name["profile_update_clear_rpm"]["response"]
+    assert '"changed":true,"stored":true' in by_name["profile_update_clear_rpm"]["response"]
+    assert '"rpm":600' in by_name["profile_update_clear_size_keeps_rpm"]["response"]
+    assert '"grindSize":null,"grindUnit":null,"rpm":600' in by_name["profile_update_clear_size_keeps_rpm"]["response"]
+    # rpm errors name the field `rpm`; the whole-number rule (4.2): not whole is INVALID_PARAM, negative whole is OUT_OF_RANGE
+    for name, code in (("profile_update_rpm_not_integer", "INVALID_PARAM"), ("profile_update_rpm_wrong_type", "INVALID_PARAM"),
+                       ("profile_update_rpm_negative_not_whole", "INVALID_PARAM"), ("profile_update_rpm_negative", "OUT_OF_RANGE"),
+                       ("profile_update_rpm_above_max", "OUT_OF_RANGE")):
+        err = parse_response(by_name[name]["response"])[1]["error"]
+        assert (err["code"], err["field"]) == (code, "rpm"), name
+    for name in ("profile_update_rpm_exponent", "profile_update_rpm_array", "profile_update_rpm_duplicate_key"):
+        assert '"MALFORMED_JSON"' in by_name[name]["response"], name
+    # precedence dose > grindSize > grindUnit > rpm, and PROFILE_READ_ONLY before any field
+    for name, field in (("profile_update_dose_error_beats_rpm_error", "dose"), ("profile_update_size_error_beats_rpm_error", "grindSize"),
+                        ("profile_update_unit_error_beats_rpm_error", "grindUnit"), ("profile_update_rpm_read_only_beats_bad_rpm", "index"),
+                        ("profile_update_rpm_create_needs_dose", "dose")):
+        assert parse_response(by_name[name]["response"])[1]["error"]["field"] == field, name
+        assert '"rpm"' in by_name[name]["request"] or name.endswith("create_needs_dose")
+    assert '"rmp"' in by_name["profile_update_rpm_unknown_key_typo"]["request"]
 
 
 PERIOD_ORDER = ("devState", "weight", "selectProfile", "phase", "target", "mode", "leadInMs", "blocked", "resultSeq", "profileRev")
@@ -732,6 +801,9 @@ def test_base_info_period_info_and_result_fields_equal_the_doc_tables():
     base = strict_parse(base_pair["broadcasts"][0], request=False)["broadcast"]["baseInfo"]
     assert list(base) == first_column(section("### 5.2 `baseInfo`"))
     assert base["proto"] == LIMITS["GLINK_PROTO_VERSION"] and base["device"] == "SGBW" and base["wifiName"] is None
+    assert base["protoMinor"] == LIMITS["GLINK_PROTO_MINOR"] == 2, "baseInfo carries the revision (1.2)"
+    assert list(base).index("protoMinor") == list(base).index("proto") + 1, "protoMinor right after proto"
+    assert "protoMinor" in DOC.split("### 5.3")[0].split("### 5.2")[1]
     assert float(base["doseMin"]) == LIMITS["GLINK_DOSE_MIN_G"] and float(base["doseMax"]) == LIMITS["GLINK_DOSE_MAX_G"]
     assert int(base["maxRequestBytes"]) == LIMITS["GLINK_MAX_REQUEST_BYTES"] and re.fullmatch(r"[0-9a-f]{12}", base["snCode"])
 
@@ -752,7 +824,10 @@ def test_base_info_period_info_and_result_fields_equal_the_doc_tables():
     entries = parse_response(entry_pair["response"])[1]["data"]
     assert len(entries) == 4
     for i, entry in enumerate(entries):
-        assert list(entry) == first_column(entry_table) and entry["index"] == i and entry["name"] == V["profile_names"][i]
+        # rpm (1.2) is optional: present only when set, so an entry without it lists every other column
+        assert list(entry) == [n for n in first_column(entry_table) if n != "rpm" or "rpm" in entry]
+        assert entry["index"] == i and entry["name"] == V["profile_names"][i]
+        assert "rpm" not in entry, "the 1.1 vector has no rpm"
         assert entry["writable"] == (i == LIMITS["GLINK_PROFILE_WRITABLE_INDEX"])
 
 
@@ -804,6 +879,17 @@ def test_doc_has_the_required_sections_and_statements():
     assert "S-B" not in DOC and "REMOTE_START_OFF" not in DOC and "Allow remote start" not in DOC
     assert "always 3000" in section("### 5.5 `grindControl`")
     assert V["version"] == 1 and "proto" in DOC
+    # revision 1.2 (chg026): header, 1.1 list, versioning, Motto80 differences and checklist all name the rpm
+    assert DOC.startswith("# GLink: Grinder Link protocol v1, revision 1.2")
+    head = DOC.split("## 1.")[0]
+    assert "`protoMinor`" in head and "| Revision" in head and "1.2" in head and "rpm" in head
+    assert "displayed rpm" in section("## 1. Scope and trust model") or "displayed rpm" in head
+    assert "protoMinor" in section("## 9. Versioning") and "rpm" in section("## 9. Versioning")
+    assert "`rpm`" in section("## 10.") and "rpm" in section("## 11.") and "rpm" in section("## 4.")
+    # the throughput sentence of section 8 follows the real baseInfo vector (12 payload bytes per notification)
+    base = V["pairs"][0]["broadcasts"][0]
+    size = len(base.encode("utf-8"))
+    assert f"`baseInfo` (about {round(size, -1)} bytes) is {-(-size // 12)}" in section("## 8.")
 
 
 # ---- prose numbers ------------------------------------------------------------------------------------------------

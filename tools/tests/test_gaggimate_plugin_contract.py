@@ -79,6 +79,21 @@ def test_shared_file_is_identical_with_the_firmware(copy, original):
     assert read_text(copy) == read_text(original), f"{copy.relative_to(ROOT)} differs from {original.relative_to(ROOT)}"
 
 
+def test_glink_1_2_constants_and_vectors_reach_the_plugin_copies_unchanged():
+    # chg026 step 2: the shared-file list is unchanged (ten files), the plugin copies carry the 1.2 constants and the same data
+    assert len(SHARED) == 10
+    header = read_text(GLINK / "config" / "bluetooth.h")
+    assert re.search(r"#define GLINK_PROTO_MINOR 2\b", header) and re.search(r"#define GLINK_RPM_MAX 9999\b", header)
+    plugin = json.loads(read_text(PLUGIN / "tools" / "tests" / "glink_vectors.json"))
+    firmware = json.loads(read_text(ROOT / "tools" / "tests" / "glink_vectors.json"))
+    assert plugin == firmware
+    assert plugin["limits"]["GLINK_PROTO_MINOR"] == 2 and plugin["limits"]["GLINK_RPM_MAX"] == 9999
+    assert len(plugin["rpm_cases"]) >= 20 and any("rpm" in p["request"] for p in plugin["pairs"] if p["request"])
+    assert '\\"protoMinor\\":2' in read_text(PLUGIN / "tools" / "tests" / "glink_vectors.json")
+    doc = read_text(PLUGIN / "docs" / "GLINK-PROTOCOL.md")
+    assert doc.startswith("# GLink: Grinder Link protocol v1, revision 1.2")
+
+
 def test_no_shared_file_is_forgotten():
     # every file in the plugin's shared locations is either in SHARED or is the plugin's own
     own = {"GLinkMessages.h", "GLinkMessages.cpp", "GLinkClient.h", "GLinkClient.cpp", "GLinkDoseSave.h", "GLinkDoseSave.cpp", "RxRing.h",

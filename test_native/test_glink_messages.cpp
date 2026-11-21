@@ -73,6 +73,12 @@ static void test_derived_limits_match_constants() {
     const GJson& limits = glink_vectors().at("limits");
     TEST_ASSERT_EQUAL_INT(static_cast<int>(limits.at("GLINK_MAX_REQUEST_BYTES").n), GLINK_MAX_REQUEST_BYTES);
     TEST_ASSERT_EQUAL_INT(static_cast<int>(limits.at("GLINK_GRIND_UNIT_MAX_LEN").n), GLINK_GRIND_UNIT_MAX_LEN);
+    // GLink 1.2: the revision and the rpm range equal the vector limits.
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(limits.at("GLINK_PROTO_MINOR").n), GLINK_PROTO_MINOR);
+    TEST_ASSERT_EQUAL_INT(2, GLINK_PROTO_MINOR);
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(limits.at("GLINK_RPM_MAX").n), GLINK_RPM_MAX);
+    TEST_ASSERT_EQUAL_INT32(GLINK_RPM_MAX, GLINK_RPM_MAX_VALUE);
+    TEST_ASSERT_EQUAL_INT(9999, GLINK_RPM_MAX);
 }
 
 //------------------------------------------------------------------------------
@@ -113,6 +119,14 @@ static void run_value_cases(const char* list, const char* field) {
                 TEST_ASSERT_FALSE_MESSAGE(req.grind_size_null, name);
                 TEST_ASSERT_EQUAL_STRING_MESSAGE(value.s.c_str(), tenths_text(req.grind_size_tenths).c_str(), name);
             }
+        } else if (strcmp(field, "rpm") == 0) {
+            TEST_ASSERT_TRUE_MESSAGE(req.has_rpm, name);
+            if (value.is_null()) {
+                TEST_ASSERT_TRUE_MESSAGE(req.rpm_null, name);
+            } else {
+                TEST_ASSERT_FALSE_MESSAGE(req.rpm_null, name);
+                TEST_ASSERT_EQUAL_STRING_MESSAGE(value.s.c_str(), std::to_string(req.rpm).c_str(), name);
+            }
         } else {
             TEST_ASSERT_TRUE_MESSAGE(req.has_grind_unit, name);
             TEST_ASSERT_EQUAL_STRING_MESSAGE(value.is_null() ? "" : value.s.c_str(), req.grind_unit, name);
@@ -123,6 +137,21 @@ static void run_value_cases(const char* list, const char* field) {
 static void test_dose_cases() { run_value_cases("dose_cases", "dose"); }
 static void test_grind_size_cases() { run_value_cases("grind_size_cases", "grindSize"); }
 static void test_grind_unit_cases() { run_value_cases("grind_unit_cases", "grindUnit"); }
+static void test_rpm_cases() { run_value_cases("rpm_cases", "rpm"); }
+
+static void test_rpm_cases_cover_the_decided_rules() {
+    int seen = 0;
+    for (const GJson& c : glink_vectors().at("rpm_cases").a) {
+        const std::string json = c.at("json").s;
+        const GJson& e = c.at("expect");
+        if (json == "-0.5") TEST_ASSERT_EQUAL_STRING("INVALID_PARAM", e.at("error").s.c_str());
+        if (json == "-1" || json == "10000") TEST_ASSERT_EQUAL_STRING("OUT_OF_RANGE", e.at("error").s.c_str());
+        if (json == "[600]" || json == "1e3") TEST_ASSERT_EQUAL_STRING("MALFORMED_JSON", e.at("error").s.c_str());
+        if (json == "600.0") TEST_ASSERT_EQUAL_STRING("600", e.at("value").s.c_str());
+        if (json == "-0.5" || json == "-1" || json == "10000" || json == "[600]" || json == "1e3" || json == "600.0") seen++;
+    }
+    TEST_ASSERT_EQUAL_INT(6, seen);
+}
 
 static void test_expect_dose_uses_the_dose_rules() {
     for (const GJson& c : glink_vectors().at("dose_cases").a) {
@@ -254,6 +283,81 @@ static void test_envelope_order() {
     TEST_ASSERT_EQUAL_STRING("grindSize", f.field);
 }
 
+static std::string rpm_update_text(const std::string& body, int index = 3) {
+    return "{\"request\":{\"grindProfile\":{\"op\":\"update\",\"index\":" + std::to_string(index) + "," + body + "}}}";
+}
+
+static void test_rpm_alone_is_a_valid_update() {
+    GlinkRequest req;
+    GlinkFailure f;
+    TEST_ASSERT_TRUE(parse(rpm_update_text("\"rpm\":600"), req, f));
+    TEST_ASSERT_TRUE(req.has_rpm);
+    TEST_ASSERT_FALSE(req.rpm_null);
+    TEST_ASSERT_EQUAL_INT32(600, req.rpm);
+    TEST_ASSERT_FALSE(req.has_dose || req.has_grind_size || req.has_grind_unit);
+    GlinkRequest cleared;
+    TEST_ASSERT_TRUE(parse(rpm_update_text("\"rpm\":null"), cleared, f));
+    TEST_ASSERT_TRUE(cleared.has_rpm && cleared.rpm_null);
+    GlinkRequest dose_only;
+    TEST_ASSERT_TRUE(parse(rpm_update_text("\"dose\":18.0"), dose_only, f));
+    TEST_ASSERT_FALSE(dose_only.has_rpm);
+    GlinkRequest all;
+    TEST_ASSERT_TRUE(parse(rpm_update_text("\"dose\":18.0,\"grindSize\":14.5,\"grindUnit\":\"um\",\"rpm\":9999"), all, f));
+    TEST_ASSERT_TRUE(all.has_dose && all.has_grind_size && all.has_grind_unit && all.has_rpm);
+    TEST_ASSERT_EQUAL_INT32(9999, all.rpm);
+}
+
+static void test_rpm_refusals() {
+    GlinkRequest req;
+    GlinkFailure f;
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":600,\"rpm\":700"), req, f));
+    TEST_ASSERT_EQUAL(GlinkError::MALFORMED_JSON, f.code);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":[600]"), req, f));
+    TEST_ASSERT_EQUAL(GlinkError::MALFORMED_JSON, f.code);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":1e3"), req, f));
+    TEST_ASSERT_EQUAL(GlinkError::MALFORMED_JSON, f.code);
+    // Index 0 to 2 is PROFILE_READ_ONLY before any field check, whatever the rpm.
+    for (int index = 0; index <= 2; index++) {
+        TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":-1", index), req, f));
+        TEST_ASSERT_EQUAL(GlinkError::PROFILE_READ_ONLY, f.code);
+        TEST_ASSERT_EQUAL_STRING("index", f.field);
+    }
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":-0.5"), req, f));  // not whole wins over negative
+    TEST_ASSERT_EQUAL(GlinkError::INVALID_PARAM, f.code);
+    TEST_ASSERT_EQUAL_STRING("rpm", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rmp\":600"), req, f));  // a typo key keeps its own path
+    TEST_ASSERT_EQUAL(GlinkError::INVALID_PARAM, f.code);
+    TEST_ASSERT_EQUAL_STRING("rmp", f.field);
+    // rpm is an update key only.
+    TEST_ASSERT_FALSE(parse("{\"request\":{\"grindProfile\":{\"op\":\"select\",\"index\":1,\"rpm\":600}}}", req, f));
+    TEST_ASSERT_EQUAL_STRING("rpm", f.field);
+    TEST_ASSERT_FALSE(parse("{\"request\":{\"grindControl\":{\"op\":\"start\",\"profile\":1,\"rpm\":600}}}", req, f));
+    TEST_ASSERT_EQUAL_STRING("rpm", f.field);
+    TEST_ASSERT_FALSE(parse("{\"request\":{\"grindProfile\":{\"op\":\"get\",\"rpm\":600}}}", req, f));
+    TEST_ASSERT_EQUAL_STRING("rpm", f.field);
+}
+
+static void test_rpm_error_precedence_dose_size_unit_rpm() {
+    GlinkRequest req;
+    GlinkFailure f;
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":-1,\"dose\":61.0"), req, f));  // text order does not matter
+    TEST_ASSERT_EQUAL_STRING("dose", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"dose\":\"x\",\"grindSize\":-5,\"grindUnit\":\"a;\",\"rpm\":-1"), req, f));
+    TEST_ASSERT_EQUAL_STRING("dose", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"grindSize\":-5,\"grindUnit\":\"a;\",\"rpm\":-1"), req, f));
+    TEST_ASSERT_EQUAL_STRING("grindSize", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":600.5,\"grindUnit\":\"a;\""), req, f));
+    TEST_ASSERT_EQUAL_STRING("grindUnit", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":600.5,\"grindUnit\":\"abcdefg\""), req, f));
+    TEST_ASSERT_EQUAL_STRING("grindUnit", f.field);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"dose\":18.0,\"grindSize\":14.5,\"grindUnit\":\"um\",\"rpm\":10000"), req, f));
+    TEST_ASSERT_EQUAL(GlinkError::OUT_OF_RANGE, f.code);
+    TEST_ASSERT_EQUAL_STRING("rpm", f.field);
+    TEST_ASSERT_EQUAL_STRING("rpm out of range", f.message);
+    TEST_ASSERT_FALSE(parse(rpm_update_text("\"rpm\":600.5"), req, f));
+    TEST_ASSERT_EQUAL_STRING("rpm must be an integer or null", f.message);
+}
+
 static void test_field_path_is_bounded() {
     // A 32 character key behind "selector." fits the field buffer.
     const std::string key(32, 'k');
@@ -346,6 +450,12 @@ static Model model_from_state(const std::string& s) {
             }
         }
     }
+    // "..., rpm 600" gives profile 3 an rpm (1.2).
+    const size_t rpm = s.find(", rpm ");
+    if (rpm != std::string::npos && m.p3.exists) {
+        m.p3.has_rpm = true;
+        m.p3.rpm = atoi(s.c_str() + rpm + 6);
+    }
     // "handshaken, MENU" does not say, but its update pair changes a profile 3 that has a size and a unit.
     if (m.screen == GlinkScreen::MENU && !contains(s, "profile 3")) m.p3 = state_with_um();
     return m;
@@ -361,6 +471,8 @@ static GlinkProfileEntry entry_of(const Model& m, uint8_t index) {
         e.has_grind_size = m.p3.has_grind_size;
         e.grind_size_tenths = m.p3.grind_size_tenths;
         snprintf(e.grind_unit, sizeof(e.grind_unit), "%s", m.p3.grind_unit);
+        e.has_rpm = m.p3.has_rpm;
+        e.rpm = m.p3.rpm;
     }
     return e;
 }
@@ -640,10 +752,58 @@ static void test_profile_list_fits_the_reply_limit() {
         list[i].has_grind_size = true;
         list[i].grind_size_tenths = 9999;
         snprintf(list[i].grind_unit, sizeof(list[i].grind_unit), "%s", "clicks");
+        list[i].has_rpm = true;  // every field set (1.2)
+        list[i].rpm = 9999;
     }
     char out[GLINK_MAX_REPLY_BYTES + 1];
     const size_t n = glink_encode_profile_list(out, sizeof(out), list, 4);
-    TEST_ASSERT_TRUE(n > 0 && n <= GLINK_MAX_REPLY_BYTES);
+    TEST_ASSERT_TRUE(n > 0 && n < 1024 && n <= GLINK_MAX_REPLY_BYTES);
+    const std::string text(out, n);
+    size_t count = 0;
+    for (size_t at = text.find("\"rpm\":9999"); at != std::string::npos; at = text.find("\"rpm\":9999", at + 1)) count++;
+    TEST_ASSERT_EQUAL_UINT32(4, count);
+}
+
+static void test_entry_without_rpm_is_the_1_1_text_and_with_rpm_sits_before_writable() {
+    GlinkProfileEntry e;
+    e.index = 3;
+    e.dose_tenths = 180;
+    e.has_grind_size = true;
+    e.grind_size_tenths = 145;
+    snprintf(e.grind_unit, sizeof(e.grind_unit), "%s", "um");
+    char out[GLINK_MAX_REPLY_BYTES + 1];
+    size_t n = glink_encode_profile_entry(out, sizeof(out), e);
+    const std::string plain(out, n);
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":14.5,\"grindUnit\":\"um\",\"writable\":true}}}}",
+        plain.c_str());
+    TEST_ASSERT_FALSE(contains(plain, "rpm"));
+    e.has_rpm = true;
+    e.rpm = 600;
+    n = glink_encode_profile_entry(out, sizeof(out), e);
+    TEST_ASSERT_TRUE(contains(std::string(out, n), "\"grindUnit\":\"um\",\"rpm\":600,\"writable\":true}"));
+    e.rpm = 0;  // 0 is a value, written
+    n = glink_encode_profile_entry(out, sizeof(out), e);
+    TEST_ASSERT_TRUE(contains(std::string(out, n), "\"rpm\":0,\"writable\""));
+    e.has_grind_size = false;  // rpm needs no size
+    e.rpm = 9999;
+    n = glink_encode_profile_entry(out, sizeof(out), e);
+    TEST_ASSERT_TRUE(contains(std::string(out, n), "\"grindSize\":null,\"grindUnit\":null,\"rpm\":9999,\"writable\":true"));
+    e.has_grind_size = true;
+    n = glink_encode_profile_update(out, sizeof(out), e, true, true);
+    TEST_ASSERT_TRUE(contains(std::string(out, n), "\"rpm\":9999,\"writable\":true,\"changed\":true,\"stored\":true"));
+}
+
+static void test_base_info_has_proto_minor_right_after_proto() {
+    GlinkBaseInfo info;
+    info.release_ver = 640;
+    info.sn_code = "7c2a3f10b4d8";
+    info.fw_version = "1.4.1";
+    info.board = "V2";
+    char out[GLINK_MAX_REPLY_BYTES + 1];
+    const size_t n = glink_encode_base_info(out, sizeof(out), info);
+    TEST_ASSERT_TRUE(contains(std::string(out, n), "\"proto\":1,\"protoMinor\":2,\"fwVersion\":\"1.4.1\""));
 }
 
 static void test_unit_without_size_is_never_written() {
@@ -662,12 +822,17 @@ void run_glink_messages_tests() {
     RUN_TEST(test_dose_cases);
     RUN_TEST(test_grind_size_cases);
     RUN_TEST(test_grind_unit_cases);
+    RUN_TEST(test_rpm_cases);
+    RUN_TEST(test_rpm_cases_cover_the_decided_rules);
     RUN_TEST(test_expect_dose_uses_the_dose_rules);
     RUN_TEST(test_oversize_request_is_payload_too_large);
     RUN_TEST(test_parsed_fields);
     RUN_TEST(test_failures_carry_the_object);
     RUN_TEST(test_op_variants);
     RUN_TEST(test_envelope_order);
+    RUN_TEST(test_rpm_alone_is_a_valid_update);
+    RUN_TEST(test_rpm_refusals);
+    RUN_TEST(test_rpm_error_precedence_dose_size_unit_rpm);
     RUN_TEST(test_field_path_is_bounded);
     RUN_TEST(test_pairs);
     RUN_TEST(test_pair_payload_too_large);
@@ -678,5 +843,7 @@ void run_glink_messages_tests() {
     RUN_TEST(test_result_broadcasts_and_get);
     RUN_TEST(test_encoder_capacity);
     RUN_TEST(test_profile_list_fits_the_reply_limit);
+    RUN_TEST(test_entry_without_rpm_is_the_1_1_text_and_with_rpm_sits_before_writable);
+    RUN_TEST(test_base_info_has_proto_minor_right_after_proto);
     RUN_TEST(test_unit_without_size_is_never_written);
 }

@@ -37,6 +37,7 @@ def test_constants_equal_the_vector_limits():
         "GLINK_JSON_NUMBER_MAX_LEN": g.JSON_NUMBER_MAX_LEN, "GLINK_PROFILE_COUNT_MAX": g.PROFILE_COUNT_MAX,
         "GLINK_PROFILE_WRITABLE_INDEX": g.PROFILE_WRITABLE_INDEX, "GLINK_GRIND_UNIT_MAX_LEN": g.GRIND_UNIT_MAX_LEN,
         "GLINK_START_LEAD_IN_MS": g.START_LEAD_IN_MS, "GLINK_WRITE_MIN_INTERVAL_MS": g.WRITE_MIN_INTERVAL_MS,
+        "GLINK_PROTO_MINOR": g.PROTO_MINOR, "GLINK_RPM_MAX": g.RPM_MAX,
     }
     for name, value in pairs.items():
         assert V["limits"][name] == value, name
@@ -362,8 +363,32 @@ def check_value_case(field, case):
             assert req.grind_size_null
         else:
             assert not req.grind_size_null and g.fmt_tenths(req.grind_size_tenths) == value
+    elif field == "rpm":
+        assert req.has_rpm
+        if value is None:
+            assert req.rpm_null
+        else:
+            assert not req.rpm_null and str(req.rpm) == value
     else:
         assert req.has_grind_unit and req.grind_unit == (value or "")
+
+
+@pytest.mark.parametrize("case", V["rpm_cases"], ids=lambda c: c["name"])
+def test_rpm_cases(case):
+    check_value_case("rpm", case)
+
+
+def test_rpm_cases_cover_the_decided_rules():
+    got = {c["json"]: c["expect"] for c in V["rpm_cases"]}
+    for token in ("0", "600", "9999", "600.0"):
+        assert got[token]["ok"], token
+    for token in ("-1", "10000"):
+        assert got[token] == {"ok": False, "error": "OUT_OF_RANGE", "field": "rpm"}, token
+    for token in ("-0.5", "600.5", '"600"', "true", "{}"):
+        assert got[token] == {"ok": False, "error": "INVALID_PARAM", "field": "rpm"}, token
+    for token in ("[600]", "1e3"):
+        assert got[token] == {"ok": False, "error": "MALFORMED_JSON"}, token
+    assert got["null"] == {"ok": True, "value": None}
 
 
 @pytest.mark.parametrize("case", V["dose_cases"], ids=lambda c: c["name"])
@@ -456,6 +481,49 @@ def test_envelope_order():
     assert f.field == "grindSize"
 
 
+def rpm_update(body, index=3):
+    return '{"request":{"grindProfile":{"op":"update","index":%d,%s}}}' % (index, body)
+
+
+def test_rpm_alone_is_a_valid_update_and_sets_only_rpm():
+    req, f = g.parse_request(rpm_update('"rpm":600'))
+    assert f is None and (req.has_rpm, req.rpm_null, req.rpm) == (True, False, 600)
+    assert not (req.has_dose or req.has_grind_size or req.has_grind_unit)
+    req, f = g.parse_request(rpm_update('"rpm":null'))
+    assert f is None and (req.has_rpm, req.rpm_null) == (True, True)
+    req, f = g.parse_request(rpm_update('"dose":18.0'))
+    assert f is None and not req.has_rpm
+
+
+def test_rpm_refusals():
+    assert (fail_of(rpm_update('"rpm":600,"rpm":700')).code) == "MALFORMED_JSON"
+    assert (fail_of(rpm_update('"rpm":[600]')).code) == "MALFORMED_JSON"
+    assert (fail_of(rpm_update('"rpm":1e3')).code) == "MALFORMED_JSON"
+    f = fail_of(rpm_update('"rpm":600', 0))
+    assert (f.code, f.field) == ("PROFILE_READ_ONLY", "index")
+    for index in (0, 1, 2):
+        assert fail_of(rpm_update('"rpm":-1', index)).code == "PROFILE_READ_ONLY"  # before any field check
+    f = fail_of(rpm_update('"rpm":-0.5'))
+    assert (f.code, f.field) == ("INVALID_PARAM", "rpm")  # not whole beats negative
+    f = fail_of(rpm_update('"rmp":600'))  # a typo key keeps its own path
+    assert (f.code, f.field) == ("INVALID_PARAM", "rmp")
+    assert fail_of('{"request":{"grindProfile":{"op":"select","index":1,"rpm":600}}}').field == "rpm"  # not a select key
+    assert fail_of('{"request":{"grindControl":{"op":"start","profile":1,"rpm":600}}}').field == "rpm"
+    assert fail_of('{"request":{"grindProfile":{"op":"get","rpm":600}}}').field == "rpm"
+
+
+def test_rpm_error_precedence_dose_size_unit_rpm():
+    assert fail_of(rpm_update('"rpm":-1,"dose":61.0')).field == "dose"  # key order in the text does not matter
+    assert fail_of(rpm_update('"dose":"x","grindSize":-5,"grindUnit":"a;","rpm":-1')).field == "dose"
+    assert fail_of(rpm_update('"grindSize":-5,"grindUnit":"a;","rpm":-1')).field == "grindSize"
+    assert fail_of(rpm_update('"rpm":600.5,"grindUnit":"a;"')).field == "grindUnit"
+    assert fail_of(rpm_update('"rpm":600.5,"grindUnit":"abcdefg"')).field == "grindUnit"
+    assert fail_of(rpm_update('"rpm":600.5')).field == "rpm"
+    # a valid dose, size and unit do not hide an rpm error
+    f = fail_of(rpm_update('"dose":18.0,"grindSize":14.5,"grindUnit":"um","rpm":10000'))
+    assert (f.code, f.field) == ("OUT_OF_RANGE", "rpm")
+
+
 def test_field_path_with_a_long_key():
     key = "k" * 32
     f = fail_of('{"request":{"grindProfile":{"op":"get","selector":{"%s":1}}}}' % key)
@@ -506,6 +574,9 @@ class Model:
                     self.p3.has_grind_size = True
                     self.p3.grind_size_tenths = round(float(after[0]) * 10)
                     self.p3.grind_unit = after[1].split(",")[0] if len(after) > 1 else ""
+            if "rpm " in state.split("profile 3 = ")[-1]:
+                self.p3.has_rpm = True
+                self.p3.rpm = int(state.split("rpm ")[1].split(",")[0].split(" ")[0])
         elif self.screen == g.Screen.MENU and "profile 3" not in state:
             # "handshaken, MENU" does not say, but its update pair changes a profile 3 with a size and a unit.
             self.p3 = g.ProfileState(True, 180, True, 145, "um")
@@ -513,7 +584,8 @@ class Model:
     def entry(self, index):
         if index < 3:
             return g.ProfileEntry(index=index, dose_tenths=self.dose[index])
-        return g.ProfileEntry(3, self.p3.dose_tenths, self.p3.has_grind_size, self.p3.grind_size_tenths, self.p3.grind_unit)
+        return g.ProfileEntry(3, self.p3.dose_tenths, self.p3.has_grind_size, self.p3.grind_size_tenths, self.p3.grind_unit,
+                              self.p3.has_rpm, self.p3.rpm)
 
 
 def sample_result():
@@ -626,6 +698,37 @@ def test_encoders_respect_the_reply_limit():
     entries = [g.ProfileEntry(i, 9999, True, 9999, "clicks") for i in range(4)]
     assert 0 < len(g.encode_profile_list(entries)) <= g.MAX_REPLY_BYTES
     assert g.encode_profile_list(entries * 10) == ""  # too long: refused like the C++ encoder (0 bytes)
+
+
+def test_entry_without_rpm_is_the_1_1_text_and_with_rpm_sits_before_writable():
+    plain = g.encode_profile_entry(g.ProfileEntry(3, 180, True, 145, "um"))
+    assert plain == ('{"response":{"grindProfile":{"result":"success","data":{"index":3,"name":"PROFILE","dose":18.0,'
+                     '"grindSize":14.5,"grindUnit":"um","writable":true}}}}')
+    assert "rpm" not in plain
+    with_rpm = g.encode_profile_entry(g.ProfileEntry(3, 180, True, 145, "um", True, 600))
+    assert with_rpm == plain.replace('"grindUnit":"um","writable"', '"grindUnit":"um","rpm":600,"writable"')
+    assert '"rpm":0,' in g.encode_profile_entry(g.ProfileEntry(3, 180, True, 145, "um", True, 0))  # 0 is a value
+    no_size = g.encode_profile_entry(g.ProfileEntry(3, 180, False, 0, "", True, 9999))
+    assert '"grindSize":null,"grindUnit":null,"rpm":9999,"writable":true' in no_size
+    upd = g.encode_profile_update(g.ProfileEntry(3, 180, True, 145, "um", True, 600), True, True)
+    assert '"rpm":600,"writable":true,"changed":true,"stored":true' in upd
+    listing = g.encode_profile_list([g.ProfileEntry(0, 90), g.ProfileEntry(3, 180, True, 145, "um", True, 600)])
+    assert listing.count('"rpm"') == 1
+
+
+def test_four_entries_with_every_field_set_fit_the_reply_limit():
+    entries = [g.ProfileEntry(i, 9999, True, 9999, "clicks", True, 9999) for i in range(4)]
+    text = g.encode_profile_list(entries)
+    assert text and len(text.encode("utf-8")) < 1024 and len(text.encode("utf-8")) <= g.MAX_REPLY_BYTES
+    assert text.count('"rpm":9999') == 4
+
+
+def test_base_info_has_proto_minor_right_after_proto():
+    text = g.encode_base_info(g.BaseInfo(640, "7c2a3f10b4d8", "1.4.1", "V2"))
+    assert '"proto":1,"protoMinor":2,"fwVersion":"1.4.1"' in text
+    info = json.loads(text)["broadcast"]["baseInfo"]
+    assert (info["proto"], info["protoMinor"]) == (V["limits"]["GLINK_PROTO_VERSION"], V["limits"]["GLINK_PROTO_MINOR"])
+    assert g.PROTO_MINOR == 2 and g.RPM_MAX == 9999
 
 
 def test_unit_without_size_is_never_written():
@@ -773,6 +876,58 @@ def test_update_refusals():
     assert g.decide_update(g.Screen.MENU, cur, upd(has_dose=True, dose_tenths=190), True)[1] is None
     assert g.decide_update(g.Screen.READY, cur, upd(has_dose=True, dose_tenths=190), False)[1].code == "RATE_LIMITED"
     assert g.decide_update(g.Screen.READY, cur, upd(has_dose=True, dose_tenths=180), False)[1] is None
+
+
+def with_rpm(rpm, size=True):
+    return g.ProfileState(True, 180, size, 145 if size else 0, "um" if size else "", rpm is not None, rpm or 0)
+
+
+def test_rpm_decisions():
+    cur = with_rpm(600)
+    # only rpm differs: changed and stored (plan.changed drives both)
+    plan, f = g.decide_update(g.Screen.READY, with_rpm(None), upd(has_rpm=True, rpm=600), True)
+    assert f is None and plan.changed and plan.result.has_rpm and plan.result.rpm == 600
+    plan, f = g.decide_update(g.Screen.READY, cur, upd(has_rpm=True, rpm=650), True)
+    assert plan.changed and plan.result.rpm == 650
+    # equal rpm: nothing changes, so the rate limit does not apply either
+    plan, f = g.decide_update(g.Screen.READY, cur, upd(has_rpm=True, rpm=600), False)
+    assert f is None and not plan.changed and plan.result.rpm == 600
+    # null clears rpm and nothing else
+    plan, f = g.decide_update(g.Screen.READY, cur, upd(has_rpm=True, rpm_null=True), True)
+    assert plan.changed and not plan.result.has_rpm and plan.result.rpm == 0
+    assert (plan.result.dose_tenths, plan.result.has_grind_size, plan.result.grind_size_tenths, plan.result.grind_unit) == (
+        180, True, 145, "um")
+    plan, f = g.decide_update(g.Screen.READY, with_rpm(None), upd(has_rpm=True, rpm_null=True), False)
+    assert f is None and not plan.changed  # clearing nothing
+    # absent keeps rpm
+    plan, f = g.decide_update(g.Screen.READY, cur, upd(has_dose=True, dose_tenths=185), True)
+    assert plan.changed and plan.result.has_rpm and plan.result.rpm == 600
+    # clearing the size keeps rpm (and the unit goes with the size)
+    plan, f = g.decide_update(g.Screen.READY, cur, upd(has_grind_size=True, grind_size_null=True), True)
+    assert plan.changed and not plan.result.has_grind_size and plan.result.grind_unit == ""
+    assert plan.result.has_rpm and plan.result.rpm == 600
+    # rpm needs no size and no unit
+    plan, f = g.decide_update(g.Screen.READY, with_rpm(None, size=False), upd(has_rpm=True, rpm=0), True)
+    assert f is None and plan.changed and plan.result.has_rpm and plan.result.rpm == 0 and not plan.result.has_grind_size
+    # rpm 0 differs from none, and none from 0
+    assert g.decide_update(g.Screen.READY, with_rpm(0), upd(has_rpm=True, rpm_null=True), True)[0].changed
+    assert g.decide_update(g.Screen.READY, with_rpm(None), upd(has_rpm=True, rpm=0), True)[0].changed
+    # rate limit and state rules apply to an rpm-only update
+    assert g.decide_update(g.Screen.READY, with_rpm(None), upd(has_rpm=True, rpm=600), False)[1].code == "RATE_LIMITED"
+    assert g.decide_update(g.Screen.GRINDING, cur, upd(has_rpm=True, rpm=650), True)[1].code == "NOT_READY"
+    assert g.decide_update(g.Screen.EDIT, cur, upd(has_rpm=True, rpm=650), True)[1].code == "EDIT_IN_PROGRESS"
+    assert g.decide_update(g.Screen.MENU, cur, upd(has_rpm=True, rpm=650), True)[1] is None
+    # creating profile 3 needs a dose; a leftover rpm of a missing profile is not kept
+    f = g.decide_update(g.Screen.READY, g.ProfileState(), upd(has_rpm=True, rpm=600), True)[1]
+    assert (f.code, f.field) == ("MISSING_FIELD", "dose")
+    ghost = g.ProfileState(False, 0, False, 0, "", True, 777)
+    plan, f = g.decide_update(g.Screen.READY, ghost, upd(has_dose=True, dose_tenths=180), True)
+    assert plan.changed and not plan.result.has_rpm
+    plan, f = g.decide_update(g.Screen.READY, g.ProfileState(), upd(has_dose=True, dose_tenths=180, has_rpm=True, rpm=600), True)
+    assert plan.changed and plan.result.rpm == 600
+    # unit-needs-size still ignores rpm
+    f = g.decide_update(g.Screen.READY, with_rpm(600, size=False), upd(has_grind_unit=True, grind_unit="um"), True)[1]
+    assert (f.code, f.field) == ("INVALID_PARAM", "grindUnit")
 
 
 def test_select():

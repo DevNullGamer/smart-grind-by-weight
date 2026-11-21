@@ -155,6 +155,18 @@ bool read_index(const GlinkJsonDoc& doc, int node, int64_t lo, int64_t hi, const
     return true;
 }
 
+// A whole number in [lo, hi] as int32 (read_index yields uint8 only). Same errors as read_index.
+bool read_int32(const GlinkJsonDoc& doc, int node, int32_t lo, int32_t hi, const char* field, const char* not_int,
+                const char* range, int object_id, GlinkFailure& f, int32_t& out) {
+    int64_t v = 0;
+    if (doc.nodes[node].type != GlinkJsonType::NUMBER || !glink_json_number_integer(doc, node, &v)) {
+        return fail_with(f, GlinkError::INVALID_PARAM, not_int, field, object_id);
+    }
+    if (v < lo || v > hi) return fail_with(f, GlinkError::OUT_OF_RANGE, range, field, object_id);
+    out = static_cast<int32_t>(v);
+    return true;
+}
+
 // A number rounded to tenths and range checked after rounding.
 bool read_tenths(const GlinkJsonDoc& doc, int node, int32_t lo, int32_t hi, const char* field, const char* not_number,
                  const char* range, int object_id, GlinkFailure& f, int32_t& out) {
@@ -243,8 +255,8 @@ bool parse_select(const GlinkJsonDoc& doc, int obj, int oid, GlinkRequest& req, 
 }
 
 bool parse_update(const GlinkJsonDoc& doc, int obj, int oid, GlinkRequest& req, GlinkFailure& f) {
-    static const char* const keys[] = {"op", "index", "dose", "grindSize", "grindUnit"};
-    if (!check_keys(doc, obj, keys, 5, "", oid, f)) return false;
+    static const char* const keys[] = {"op", "index", "dose", "grindSize", "grindUnit", "rpm"};
+    if (!check_keys(doc, obj, keys, 6, "", oid, f)) return false;
     if (!read_required_index(doc, obj, "index", glink_msg::INDEX_MISSING, glink_msg::INDEX_NOT_INT,
                              glink_msg::INDEX_RANGE, oid, req, f)) {
         return false;
@@ -272,7 +284,17 @@ bool parse_update(const GlinkJsonDoc& doc, int obj, int oid, GlinkRequest& req, 
     }
     const int unit = glink_json_find(doc, obj, "grindUnit");
     if (unit >= 0 && !read_unit(doc, unit, oid, f, req)) return false;
-    if (!req.has_dose && !req.has_grind_size && !req.has_grind_unit) {
+    const int rpm = glink_json_find(doc, obj, "rpm");
+    if (rpm >= 0) {
+        req.has_rpm = true;
+        if (doc.nodes[rpm].type == GlinkJsonType::NULL_VALUE) {
+            req.rpm_null = true;
+        } else if (!read_int32(doc, rpm, 0, GLINK_RPM_MAX_VALUE, "rpm", glink_msg::RPM_NOT_INT, glink_msg::RPM_RANGE, oid,
+                               f, req.rpm)) {
+            return false;
+        }
+    }
+    if (!req.has_dose && !req.has_grind_size && !req.has_grind_unit && !req.has_rpm) {
         return fail_with(f, GlinkError::MISSING_FIELD, glink_msg::NOTHING_TO_UPDATE, "", oid);
     }
     return true;
@@ -403,6 +425,7 @@ void write_entry_fields(GlinkJsonWriter& w, const GlinkProfileEntry& e) {
     } else {
         w.null();
     }
+    if (e.has_rpm) w.key("rpm").integer(e.rpm);
     w.key("writable").boolean(e.index == GLINK_PROFILE_WRITABLE_INDEX);
 }
 
@@ -516,6 +539,7 @@ size_t glink_encode_base_info(char* out, size_t cap, const GlinkBaseInfo& info) 
     w.key("wifiName").null();
     w.key("device").string("SGBW");
     w.key("proto").integer(GLINK_PROTO_VERSION);
+    w.key("protoMinor").integer(GLINK_PROTO_MINOR);
     w.key("fwVersion").string(info.fw_version);
     w.key("board").string(info.board);
     w.key("doseMin").tenths(GLINK_DOSE_MIN_TENTHS);

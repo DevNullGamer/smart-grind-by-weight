@@ -63,7 +63,8 @@
 #define GLINK_TX_CHAR_UUID "53474257-0003-4632-901b-4752494e4421"              // TX (device -> client): Notify
 
 #define GLINK_PROTO_VERSION 1                                                  // "proto" in baseInfo
-#define GLINK_FRAME_MAGIC 0xA5                                                 // Fragment frame v1: first byte
+#define GLINK_PROTO_MINOR 2                                                    // "protoMinor" in baseInfo (revision 1.2; absent = 1.1 or older)
+#define GLINK_FRAME_MAGIC 0xA5                                                // Fragment frame v1: first byte
 #define GLINK_FRAME_VERSION 0x01                                               // Fragment frame v1: second byte
 #define GLINK_FRAME_HEADER_BYTES 8                                             // magic, version, sequence, totalLength, offset
 #define GLINK_DEFAULT_PACKET_BYTES 20                                          // Packet size when the ATT MTU is unknown (MTU 23)
@@ -84,7 +85,8 @@
 #define GLINK_DOSE_MIN_G 5.0f                                                  // Dose range for writes and BLE starts
 #define GLINK_DOSE_MAX_G 60.0f
 #define GLINK_GRIND_SIZE_MAX 999.9f                                            // grindSize range is 0.0 .. this (display only)
-#define GLINK_GRIND_UNIT_MAX_LEN 6                                             // grindUnit length after trimming
+#define GLINK_RPM_MAX 9999                                                     // rpm range is 0 .. this (display only, 1.2)
+#define GLINK_GRIND_UNIT_MAX_LEN 6                                            // grindUnit length after trimming
 #define GLINK_START_LEAD_IN_MS 3000                                            // Touch-to-cancel lead-in of every BLE start
 #define GLINK_WRITE_MIN_INTERVAL_MS 1000                                       // Minimum time between two stored changes (RATE_LIMITED)
 #define GLINK_UI_REPLY_TIMEOUT_MS 1000                                         // UI task must answer within this, else UI_BUSY

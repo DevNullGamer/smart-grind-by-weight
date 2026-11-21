@@ -355,6 +355,13 @@ UPDATE_REFUSALS = [
     ("unit_bad_char", None, {"dose": 18.0, "grind_size": 1.0, "grind_unit": "a;b"}, "INVALID_PARAM", "grindUnit"),
     ("unit_needs_size", None, {"dose": 18.0, "grind_unit": "um"}, "INVALID_PARAM", "grindUnit"),
     ("unknown_key", None, {"raw": {"op": "update", "index": 3, "dose": 18.0, "colour": "red"}}, "INVALID_PARAM", "colour"),
+    ("rpm_not_integer", None, {"raw": {"op": "update", "index": 3, "dose": 18.0, "rpm": 600.5}}, "INVALID_PARAM", "rpm"),
+    ("rpm_wrong_type", None, {"raw": {"op": "update", "index": 3, "dose": 18.0, "rpm": "600"}}, "INVALID_PARAM", "rpm"),
+    ("rpm_negative", None, {"raw": {"op": "update", "index": 3, "dose": 18.0, "rpm": -1}}, "OUT_OF_RANGE", "rpm"),
+    ("rpm_above_max", None, {"raw": {"op": "update", "index": 3, "dose": 18.0, "rpm": 10000}}, "OUT_OF_RANGE", "rpm"),
+    ("rpm_create_needs_dose", None, {"rpm": 600}, "MISSING_FIELD", "dose"),
+    ("rpm_read_only", None, {"raw": {"op": "update", "index": 2, "rpm": 600}}, "PROFILE_READ_ONLY", "index"),
+    ("rpm_grinding", lambda s: s.touch_start(1), {"rpm": 600}, "NOT_READY", ""),
     ("edit_in_progress", lambda s: s.set_screen(Screen.EDIT), {"dose": 18.0}, "EDIT_IN_PROGRESS", ""),
     ("grinding", lambda s: s.touch_start(1), {"dose": 18.0}, "NOT_READY", ""),
     ("done_screen", lambda s: s.set_screen(Screen.DONE), {"dose": 18.0}, "NOT_READY", ""),
@@ -377,6 +384,82 @@ def test_update_refusals_change_nothing(w, name, setup, kwargs, code, field):
         e = refused(w.client.profile_update(**kwargs))
     assert (e.code, e.field) == (code, field)
     assert not w.sim.profile3.exists and w.sim.profile_rev == rev
+
+
+def test_handshake_base_info_carries_proto_minor_and_enables_rpm(w):
+    assert w.client.base_info["protoMinor"] == codec.PROTO_MINOR == 2
+    assert w.client.rpm_supported()
+
+
+@pytest.mark.parametrize("minor", [None, 0, 1, True, "2"])
+def test_rpm_is_never_sent_to_a_grinder_without_proto_minor_2(w, minor):
+    if minor is None:
+        w.client.base_info.pop("protoMinor")  # a 1.1 grinder: the member is absent
+    else:
+        w.client.base_info["protoMinor"] = minor
+    assert not w.client.rpm_supported()
+    sent = len(w.transport.writes)
+    with pytest.raises(gc.GlinkUsageError):
+        w.do(w.client.profile_update(dose=18.0, rpm=600))
+    with pytest.raises(gc.GlinkUsageError):
+        w.do(w.client.profile_update(clear_rpm=True))
+    assert len(w.transport.writes) == sent and not w.sim.profile3.exists  # nothing went out
+    assert w.do(w.client.profile_update(dose=18.0, grind_size=14.5, grind_unit="um"))["changed"]  # dose and size work as today
+
+
+def test_rpm_update_get_clear_and_profile_rev(w):
+    data = w.do(w.client.profile_update(dose=18.0, grind_size=14.5, grind_unit="um", rpm=600))
+    assert data["rpm"] == 600 and data["changed"] and data["stored"] and w.sim.profile3.rpm == 600
+    assert list(data)[list(data).index("grindUnit") + 1] == "rpm"
+    assert w.do(w.client.profile_get(3))["rpm"] == 600
+    assert all("rpm" not in e for e in w.do(w.client.profile_get()) if e["index"] < 3)
+    assert w.do(w.client.profile_get())[3]["rpm"] == 600
+    w.wait(100)
+    assert w.client.period["profileRev"] == 1
+    w.wait(1000)
+    data = w.do(w.client.profile_update(rpm=650))  # rpm alone is a valid update
+    assert data["rpm"] == 650 and data["dose"] == 18.0 and data["grindSize"] == 14.5 and data["changed"]
+    w.wait(100)
+    assert w.client.period["profileRev"] == 2  # an rpm change moves profileRev
+    w.wait(1000)
+    data = w.do(w.client.profile_update(rpm=650.0))  # 650.0 is the same value: nothing stored
+    assert data["changed"] is False and data["stored"] is False
+    w.wait(1000)
+    data = w.do(w.client.profile_update(clear_grind_size=True))  # the size goes, the rpm stays
+    assert data["grindSize"] is None and data["rpm"] == 650
+    w.wait(1000)
+    data = w.do(w.client.profile_update(clear_rpm=True))
+    assert "rpm" not in data and data["changed"] and not w.sim.profile3.has_rpm
+    w.wait(100)
+    assert w.client.period["profileRev"] == 4
+    assert "rpm" not in w.do(w.client.profile_get(3))
+    w.wait(1000)
+    assert w.do(w.client.profile_update(clear_rpm=True))["changed"] is False  # nothing to clear
+
+
+def test_rpm_zero_is_a_value_not_none(w):
+    data = w.do(w.client.profile_update(dose=18.0, rpm=0))
+    assert data["rpm"] == 0 and w.sim.profile3.has_rpm and w.sim.profile3.rpm == 0
+
+
+def test_rpm_values_are_validated_before_sending(w):
+    sent = len(w.transport.writes)
+    for bad in (-1, 10000, 600.5, -0.5, float("nan"), float("inf"), True, "600", [600]):
+        with pytest.raises(gc.GlinkUsageError):
+            w.do(w.client.profile_update(dose=18.0, rpm=bad))
+    assert len(w.transport.writes) == sent
+    assert gc.rpm_value(0) == 0 and gc.rpm_value(9999) == 9999 and gc.rpm_value(600.0) == 600
+    assert isinstance(gc.rpm_value(600.0), int)
+    w.do(w.client.profile_update(dose=18.0, rpm=600.0))
+    assert w.sim.profile3.rpm == 600
+
+
+def test_rpm_entry_is_printed_in_the_profile_list():
+    line = gc._fmt_entry({"index": 3, "name": "PROFILE", "dose": 18.0, "grindSize": 14.5, "grindUnit": "um", "rpm": 600,
+                          "writable": True})
+    assert "rpm 600" in line and "14.5 um" in line and "(writable)" in line
+    assert "rpm" not in gc._fmt_entry({"index": 3, "name": "PROFILE", "dose": 18.0, "grindSize": None, "grindUnit": None,
+                                       "writable": True})
 
 
 def test_update_is_possible_in_the_menu_and_after_the_rate_limit(w):
@@ -643,10 +726,11 @@ class Probe:
 
 def apply_state(sim, state, request_result):
     """Maps the free-text `state` of a vector pair to simulator settings."""
+    rpm = int(state.split(", rpm ")[1].split(",")[0]) if ", rpm " in state else None  # "profile 3 = ..., rpm 600"
     if "profile 3 = 18.0 g, no grind size" in state:
-        sim.set_profile3(180)
+        sim.set_profile3(180, rpm=rpm)
     elif "profile 3 = 18.0 g 14.5 um" in state or "profile 3 set" in state:
-        sim.set_profile3(180, 145, "um")
+        sim.set_profile3(180, 145, "um", rpm=rpm)
     if state == "handshaken, MENU":
         sim.set_profile3(180, 145, "um")  # the update vector in the menu edits an existing profile 3
     if "profile 2 = 100.0 g" in state:
