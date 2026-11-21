@@ -7,8 +7,11 @@ and stop a grind, read the result. GaggiMate acts as the BLE central; the grinde
 This folder is a prototype kept in the grinder repository. It is to be contributed upstream by the user under
 GaggiMate's terms; it carries no licence or CLA text. The `grindControl` object of the protocol is provisional.
 
-**Status: parts 8a (core) and 8b (NimBLE glue, web card, patches, staging script) exist and build inside GaggiMate
-b564759 (full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`). Nothing has run on a display or against a grinder yet** (plan step 9). See "Verified" and "Not verified".
+**Status (chg025, step 1): the plugin is being re-based onto GaggiMate 2e64abd (full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`)
+as a driver for GaggiMate's BluetoothDevices grinder framework. Step 1 removed the old glue (`GLinkPlugin`, `GLinkReconnect`),
+the settings card and the five b564759 patches. The sections below that describe them (the plugin, the WebSocket API,
+the patches, the chg024 dose save) are stale until step 7 rewrites them. Nothing has run on a display or against a grinder
+yet** (plan step 9). See "Verified" and "Not verified".
 
 ## Layout
 
@@ -23,18 +26,15 @@ gaggimate-plugin/
     bluetooth/glink_disconnect.{h,cpp}   shared with the firmware: names the HCI disconnect reason for the log (chg023)
     GLinkMessages.{h,cpp}                request builders; parsers for responses and broadcasts
     GLinkClient.{h,cpp}                  session: handshake, one request at a time, timeouts, start decision, tracking
-    GLinkReconnect.{h,cpp}               pure auto-reconnect policy: eligibility, 3/10/30 s backoff, user-disconnect flag (chg023)
     GLinkDoseSave.{h,cpp}                pure policy: grind result to profile dose, once per result, range, hold and expiry (chg024)
-    GLinkPlugin.{h,cpp}                  GaggiMate Plugin: NimBLE central, WebSocket requests and events (device only)
-  web/src/pages/Settings/GrinderLinkCard.jsx   the settings card (toggle, scan/select/forget, dose, start/stop, status)
   test/test_grinderlink/                 host tests (Unity style) against the shared vectors
   test/test_grinderlink/glink_sources.cpp  compiles the pure sources into the test for `pio test -e native` only
   test/host/unity.h                      tiny Unity stand-in for the g++ run
   tools/tests/glink_vectors.json         copy of the shared conformance vectors
-  patches/                               unified diffs against GaggiMate b564759
-  scripts/run_host_tests.sh              builds and runs the host tests with g++
+  patches/                               unified diffs against GaggiMate 2e64abd (empty in step 1)
+  scripts/run_host_tests.sh              builds and runs the host tests with g++ (globs the test and pure sources)
   scripts/check_patches.sh               read-only `git apply --check` of the patches against a checkout
-  scripts/check_against_gaggimate.sh     clone b564759 into a NEW directory, apply, stage, `pio test`, `pio run`
+  scripts/check_against_gaggimate.sh     clone 2e64abd into a NEW directory, apply, stage, `pio test`, `pio run`
 ```
 
 Shared files (must stay byte-identical with the firmware; `tools/tests/test_gaggimate_plugin_contract.py` compares
@@ -172,23 +172,28 @@ The listener callbacks only record the result; the write happens in `GLinkPlugin
 `loop()` under GaggiMate's process lock. The policy is pure code in `GLinkDoseSave.{h,cpp}`. Nothing has been run on a
 grinder for this feature (see "Not verified").
 
-## Patches (against GaggiMate b564759, full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`)
+## Patches (against GaggiMate 2e64abd, full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`)
 
-| Patch | What |
-|---|---|
-| `0001-settings-grinderlink.patch` | `Settings`: `grinderLinkActive` (`gl_a`), `grinderLinkAddress` (`gl_ad`), `grinderLinkName` (`gl_n`), `grinderLinkSaveDose` (`gl_sd`, default on) |
-| `0002-controller-register-plugin.patch` | `Controller::setup`: register `GLinkPlugin` when active (inside the device-only block) |
-| `0003-webui-grinderlink-settings.patch` | `WebUIPlugin`: accept `grinderLinkActive` and `grinderLinkSaveDose` in the settings POST; return them in the settings JSON |
-| `0004-webui-grinderlink-card-hook.patch` | web settings page: render `GrinderLinkCard` in the plugins tab; `grinderLinkActive` and `grinderLinkSaveDose` are checkbox keys; address and name are read-only keys (not saved, exported or imported) |
-| `0005-locales-grinderlink.patch` | the card's strings in the eight catalogs (de en es fr it ja pt zh; appended; `lingui extract` will reorder them) |
-
-Address and name are set by the plugin (WebSocket requests), not by the settings POST.
+None in step 1: `patches/` is empty. The b564759 patches (settings, card, locales) are retired with the old glue. The
+chg025 set (grinder-finished event, controller registration, web model name) is in the chg025 plan, section 3.6.
 The patches are LF (the upstream blobs are LF); `.gitattributes` keeps them out of line-ending conversion.
-The card file itself is copied by the staging script, not patched in.
 
 ## Verified
 
-Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_DIR`):
+chg025 step 1, fresh clone of GaggiMate 2e64abd with no patches (`check_against_gaggimate.sh`, pio run from PowerShell):
+
+- A3, the connection limit: `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` is 3 in the display env. It is the NimBLE-Arduino default in
+  `.pio/libdeps/display/NimBLE-Arduino/src/nimconfig.h` (`#ifndef` block); 2e64abd's `platformio.ini`, board files and
+  sources do not override it. The `static_assert` in the driver stays.
+- N5, the address type: a scan hit's `NimBLEAddress` carries the type. `NimBLEScan` builds it from `disc.addr`
+  (`NimBLEAddress(ble_addr_t)` stores `addr.type`), `NimBLEAdvertisedDevice::setAddress` keeps it, `getAddress()` returns it,
+  and `NimBLEClient::connect` passes `address.getType()` to the peer address. Read from the NimBLE-Arduino source, not run on
+  hardware (bench B1 confirms it).
+- Host tests (`run_host_tests.sh`): the glob build compiles the test files and the pure sources. In step 1 it stops at the
+  stale `test_glink_reconnect.cpp` (and `test_main.cpp` calls its runner) until the Tester's change. In a scratch copy without
+  that file and its call: 71 tests pass, 0 failed (99 before, the 28 reconnect tests are gone).
+
+Checked on the developer PC (Windows, MSYS2 g++, PlatformIO 6.2.0 with a private `PLATFORMIO_CORE_DIR`), for the b564759 driver:
 
 - the shared files are byte-identical with the firmware (contract test);
 - `scripts/run_host_tests.sh`: 99 host tests pass, compiled with `-Wall -Wextra -Werror`: the request builders

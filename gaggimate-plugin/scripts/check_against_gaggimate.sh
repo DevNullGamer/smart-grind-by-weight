@@ -1,16 +1,17 @@
 #!/bin/sh
-# Stages the plugin into a CLEAN clone of GaggiMate b5647591 and builds it there:
+# Stages the plugin into a CLEAN clone of GaggiMate 2e64abd and builds it there:
 #   scripts/check_against_gaggimate.sh DEST [SOURCE]
 #     DEST    a directory that does not exist yet or is empty; the clone is made there. An existing checkout is never
 #             reused or modified (this script refuses a non-empty DEST).
 #     SOURCE  what to clone: a local checkout (preferred, no network) or a URL
 #             (default: GAGGIMATE_SOURCE, else https://github.com/jniebuhr/gaggimate.git).
 # Steps: clone (autocrlf off, so the patches apply byte-exact), check out the pinned commit, `git apply` the patches in
-# order, copy the plugin (src/display/plugins/grinderlink, the host tests, the web card), stage
+# order (patches/ may be empty), copy the plugin (src/display/plugins/grinderlink, the host tests), stage
 # tools/tests/glink_vectors.json, then
 #   pio test -e native -f test_grinderlink   (the gate), then pio test -e native for information
 #   pio run -e display
 #   pio run -e display-headless   only when GLINK_HEADLESS=1
+# Then it prints CONFIG_BT_NIMBLE_MAX_CONNECTIONS from the NimBLE library in the clone's libdeps (nimconfig.h), when present.
 # Nothing else in the clone runs except what PlatformIO runs for those commands. Logs go to DEST/.glink-check/.
 # Set PLATFORMIO_CORE_DIR to keep the toolchain downloads away from your global ~/.platformio.
 # STAGE_ONLY=1 (the default when MSYSTEM is set, i.e. under Git Bash; STAGE_ONLY=0 forces pio): stop after staging and
@@ -19,7 +20,7 @@
 # WEB_BUILD=1: also build and embed the web UI in the clone (npm ci, npm run build, gzip, scripts/embed_webui.py).
 # Exit codes: 0 everything passed (or staged), 1 a step failed, 2 BLOCKED (no git/pio, no clone possible, DEST not
 # empty, wrong commit). A BLOCKED or failed run says why; nothing here replaces it with a weaker check.
-PINNED=b5647591e36f4cb2bbaf5777cc8530ec265217c4
+PINNED=2e64abd78f77df01b8f623bf5ffc2542f34d3275
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$1"
 SOURCE="${2:-${GAGGIMATE_SOURCE:-https://github.com/jniebuhr/gaggimate.git}}"
@@ -37,23 +38,23 @@ if [ "$STAGE_ONLY" != "1" ]; then command -v pio >/dev/null 2>&1 || blocked "pio
 if [ "$WEB_BUILD" = "1" ]; then command -v npm >/dev/null 2>&1 || blocked "npm not found (needed for WEB_BUILD=1)"; fi
 
 git clone -q -c core.autocrlf=false --no-hardlinks "$SOURCE" "$DEST" || blocked "cannot clone $SOURCE (no network or not a repository)"
-git -C "$DEST" -c advice.detachedHead=false checkout -q "$PINNED" || blocked "commit $PINNED is not in $SOURCE"
+git -C "$DEST" -c advice.detachedHead=false checkout -q "$PINNED" || blocked "commit $PINNED not in SOURCE (force-pushed? use a local mirror)"
 HEAD_SHA="$(git -C "$DEST" rev-parse HEAD)"
 [ "$HEAD_SHA" = "$PINNED" ] || blocked "clone is at $HEAD_SHA, expected $PINNED"
 [ -z "$(git -C "$DEST" status --porcelain)" ] || blocked "the fresh clone is not clean"
 echo "clone: $DEST at $HEAD_SHA"
 
 for p in "$HERE"/patches/*.patch; do
+    [ -f "$p" ] || continue
     git -C "$DEST" apply "$p" || failed "patch $(basename "$p") does not apply"
     echo "applied $(basename "$p")"
 done
 
-mkdir -p "$DEST/src/display/plugins" "$DEST/test" "$DEST/tools/tests" "$DEST/web/src/pages/Settings"
+mkdir -p "$DEST/src/display/plugins" "$DEST/test" "$DEST/tools/tests"
 cp -R "$HERE/src/display/plugins/grinderlink" "$DEST/src/display/plugins/" || failed "copy of the plugin sources"
 cp -R "$HERE/test/test_grinderlink" "$DEST/test/" || failed "copy of the plugin tests"
 cp "$HERE/tools/tests/glink_vectors.json" "$DEST/tools/tests/" || failed "staging glink_vectors.json"
-cp "$HERE/web/src/pages/Settings/GrinderLinkCard.jsx" "$DEST/web/src/pages/Settings/" || failed "copy of the web card"
-echo "staged the plugin, the tests, the web card and glink_vectors.json"
+echo "staged the plugin, the tests and glink_vectors.json"
 
 LOGS="$DEST/.glink-check"
 mkdir -p "$LOGS"
@@ -100,5 +101,6 @@ grep -E "^native +test_|test cases:" "$LOGS/native-all.log"
 unset PLATFORMIO_BUILD_FLAGS
 run "pio run -e display" display.log pio run -e display
 if [ "$GLINK_HEADLESS" = "1" ]; then run "pio run -e display-headless" headless.log pio run -e display-headless; fi
-grep -E "CONFIG_BT_NIMBLE_MAX_CONNECTIONS" src/display/plugins/grinderlink/GLinkPlugin.cpp | head -1
+# A3: the connection limit the display env really builds with (NimBLE-Arduino's nimconfig.h in the libdeps of the build).
+grep -rh --include=nimconfig.h "^#define CONFIG_BT_NIMBLE_MAX_CONNECTIONS" .pio/libdeps 2>/dev/null | head -1
 echo "ALL PASSED"

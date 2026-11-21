@@ -1,11 +1,11 @@
 #!/bin/sh
 # Checks, read-only, that every patch in patches/ applies to a GaggiMate checkout (nothing is written to it).
 #   scripts/check_patches.sh /path/to/gaggimate     (or set GAGGIMATE_CHECKOUT)
-# The patches are made against GaggiMate commit b5647591e36f4cb2bbaf5777cc8530ec265217c4.
+# The patches are made against GaggiMate commit 2e64abd78f77df01b8f623bf5ffc2542f34d3275 (an empty patches/ passes).
 # Exit codes: 0 all apply, 1 a patch does not apply, 2 BLOCKED (no checkout, not a git checkout, git missing).
 # A checkout at another commit only gets a warning: the result then says whether the patches still apply,
 # not that they are right.
-PINNED=b5647591e36f4cb2bbaf5777cc8530ec265217c4
+PINNED=2e64abd78f77df01b8f623bf5ffc2542f34d3275
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CHECKOUT="${1:-$GAGGIMATE_CHECKOUT}"
 if [ -z "$CHECKOUT" ] || [ ! -d "$CHECKOUT/.git" ]; then
@@ -16,10 +16,11 @@ HEAD_SHA="$(git -C "$CHECKOUT" rev-parse HEAD 2>/dev/null)" || { echo "BLOCKED: 
 if [ "$HEAD_SHA" != "$PINNED" ]; then echo "WARNING: checkout is at $HEAD_SHA, the patches are made against $PINNED"; fi
 status=0
 for p in "$HERE"/patches/*.patch; do
+    [ -f "$p" ] || continue
     if git -C "$CHECKOUT" apply --check "$p" 2>/dev/null; then echo "ok      $(basename "$p")"; else echo "FAILED  $(basename "$p")"; status=1; fi
 done
 # all together, in order (a later patch must not clash with an earlier one)
-if [ $status -eq 0 ]; then
+if [ $status -eq 0 ] && ls "$HERE"/patches/*.patch >/dev/null 2>&1; then
     if git -C "$CHECKOUT" apply --check "$HERE"/patches/*.patch 2>/dev/null; then echo "ok      all patches together"; else echo "FAILED  patches together"; status=1; fi
 fi
 exit $status
