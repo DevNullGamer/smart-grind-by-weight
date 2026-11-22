@@ -1526,20 +1526,39 @@ The chg025 rows are the old plugin, which never sends `rpm` and does not clear a
 - Standby (900 s timeout) closes the link with `reason 0x16`; wake through the API (`change-mode` 1) reconnects within 3 s.
 - Restore: GaggiMate's settings JSON is byte-identical before and after the run; the bench profile was deleted.
 
+**Bench round 4 (2026-11-22, unattended, no touch; grinder build 732 on READY, GaggiMate HEAD plugin with patches 0001 to 0004).**
+The grinder side was reached this time: the grinder accepted `update` and `select` and reported its settings. Results are read
+from GaggiMate's Bluetooth tab data (the request result, not the rendered tab) and from both serial logs. After a grinder
+reboot in the same run the grinder went back to CALIBRATION and was not tapped.
+
+**Verified (bench round 4):**
+
+- Dose 18, size 15, rpm 600: grinder `update ok` and `select ok`; reported rpm 600.
+- rpm 600 to 700 only: one `update ok` and one `select ok`; reported rpm 700.
+- rpm removed from the profile: `update ok` and `select ok`; reported rpm gone (the wire `rpm:null` is not in the logs, only the result).
+- rpm 10000 with no rpm on the grinder: not sent, `rpm above 9999, not sent`; no grinder update.
+- rpm 10000 while the grinder held 600: `update ok` and `select ok`; reported rpm gone (cleared).
+- Dose-only profile after one with size and rpm: `update ok` and `select ok`; reported size and rpm both gone (the mirror rule).
+- Dose 18, no size, rpm 600: `update ok` and `select ok`; reported rpm 600.
+- Dose 0 profile with no grinder settings: skipped, no push, link stayed up.
+- rpm and the cleared size survive a grinder reboot (hard reset): after the reconnect GaggiMate logged `Profile dose is in sync with the grinder` with no grinder `update ok`, and the reported rpm was 600. The dose is judged from the compare-first "in sync" line, not read raw.
+- Forget while linked: link closed (reason 0x16), the grinder's link slot free within 3 s, no auto reconnect; a manual connect links again.
+- Standby and wake through the API (`change-mode` 0 and 1; the screen timeout was not used): the link closes and comes back, about 5 s from wake to data channel.
+- Grinder reset (esptool hard reset): supervision timeout (reason 0x08); GaggiMate reconnected on its own, data channel back 6 to 7 s after the reset.
+
 **Not verified (bench):**
 
-- Every grinder-side write result: `update ok` and `select ok` for dose, size and rpm, and the grinder's stored values (the grinder was on CALIBRATION).
-- rpm stored, reported under the size and in the Bluetooth tab, kept across a reboot; an rpm-only change; `rpm:null` removing the size or rpm line; no stale rpm after the Profile Dose is removed; the size line disappearing after a dose-only profile; the PROFILE page on the grinder.
-- The two-line label on READY and EDIT: the layout, clipping and the buttons were not seen on a screen.
-- The old plugin with the new grinder image (needs a rebuilt old plugin; not run).
-- A reconnect after a grinder reset: not observed on its own; the link came back only after the standby wake.
-- The grinder's stored Profile Dose: not observed or changed. The board may still hold the round 2 value (about 21.0 g, grind size 15).
+- The two-line label on READY and EDIT: the layout, clipping and the buttons were not seen on a screen; the rpm line disappearing on screen when it is cleared.
+- No stale rpm after the Profile Dose is removed in the grinder's menu and sent again (touch).
+- The rendered Bluetooth tab (only the data was read); the PROFILE page on the grinder's screen.
+- Grinder-side "GaggiMate link" off and on; the BLE tool block and unblock of `grinder.py` (this PC has no BLE radio); real screen standby (touch).
 - A finished grind to dose: no grind was run.
-- Real screen standby (touch) and grinder-side "GaggiMate link" off and on: not run.
+- The old plugin with the new grinder image (needs a rebuilt old plugin; not run).
+- The grinder's stored Profile Dose is no longer the round 2 value: it holds the last bench profile (dose 18, no size, rpm 600). The start values of `lever` (size 20, rpm 120) were not restored.
 
 **Not verified (host-side):**
 
-- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled on the host only. On the bench the rpm send path showed only as the GaggiMate-side log lines (sent or not sent).
-- The compatibility table is from the spec and host tests; the bench confirmed no grinder-side row.
+- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled on the host only. On the bench the rpm send path showed as GaggiMate log lines and, on the 1.2 grinder (round 4), as the grinder's `update ok` and the reported rpm.
+- The compatibility table is from the spec and host tests. Bench round 4 confirmed the 1.2 grinder row (dose, size, rpm and a dose-only profile); the 1.1 row was checked on the bench only for the log line (round 3).
 - The staged PlatformIO build of the plugin with rpm is recorded under Verification above (host and build numbers only).
 

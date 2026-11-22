@@ -22,9 +22,11 @@ pinned at b564759) is retired; it lives only in the grinder repository's history
 `keep/own-glink-plugin-chg024`.
 
 **Status: built and host-tested; bench round 2 (2026-11-21) ran the real build with no bench variant. The link, the handshake,
-the dose push and the select work on the bench; grind-dependent checks and the grinder-side link tests are still open.
-chg026 (rpm, dose-only push, clearing) is host-tested, and bench round 3 (2026-11-21) ran its GaggiMate side and the link. The
-grinder stayed on its CALIBRATION screen and accepted no data, so its grinder-side items are open.** See "Verified" and "Not verified".
+the dose push and the select work on the bench; grind-dependent checks and the grinder-side link tests (off and on, BLE tool
+block) are still open. chg026 (rpm, dose-only push, clearing) is host-tested. Bench round 3 (2026-11-21) ran its GaggiMate side
+and the link, with the grinder on CALIBRATION. Bench round 4 (2026-11-22, grinder build 732, no touch) ran its grinder side:
+dose, size and rpm are written, cleared and reported, and the rpm survives a grinder reboot. The rpm layout on the grinder's
+screen and the touch items are still open.** See "Verified" and "Not verified".
 
 ## Layout
 
@@ -144,8 +146,8 @@ the tab shows the raw name `GrindByWeight`.
 3. From then on GaggiMate's plugin connects whenever it sees the saved grinder, drops the link at standby and reconnects at
    wake-up on sight. Forget in the tab closes the link and stops it. There is no button of ours and no sticky disconnect.
 4. After the connect GaggiMate pushes the selected profile (it also does so on every profile select and save). The grinder's
-   PROFILE page appears the first time and shows the dose, the size and the rpm (the select is seen on the wire; the page
-   itself was not yet seen on the bench, and the rpm line is not yet seen on a screen).
+   PROFILE page appears the first time and shows the dose, the size and the rpm (the select is confirmed in the grinder's
+   log; the page itself and the rpm line were not yet seen on a screen; the reported rpm is read in GaggiMate's Bluetooth tab data).
 5. A finished grind on the grinder sets the selected profile's dose in memory (see the consumer plugin).
 
 While linked the driver holds the grinder's single Bluetooth client slot: `grinder.py` upload and WiFi tools, the web flasher
@@ -155,7 +157,8 @@ Known limitations and things that do not map exactly:
 
 - **G1 (a profile with a dose but no grind size was not pushed): fixed by patch 0004 (chg026).** The driver reports
   `supportsDose()`, so such a profile is pushed; a profile with nothing the grinder can take is skipped with one log line.
-  Bench round 3: the dose-only profile is pushed (queued); the grinder never confirmed it (it sat on CALIBRATION).
+  Bench round 3: the dose-only profile was pushed (queued); the grinder was on CALIBRATION and did not confirm it. Bench round 4:
+  the grinder applied it and cleared the size and rpm the profile no longer has.
 - **rpm needs a grinder with `protoMinor` 2.** With an older grinder (chg025 image) the rpm is not sent and the dose and
   size still arrive; one note says so. A chg025 build of this plugin never sends an rpm and never clears one, so an rpm
   stored by a chg026 build stays on the grinder until the profile is removed there (Menu → Bluetooth → Remove GaggiMate
@@ -257,10 +260,35 @@ whole run, which is `OTHER` in spec 7.1: `update` and `select` were NOT_READY, s
 - Standby (900 s timeout) closes the link with `reason 0x16`; wake through the API reconnects within 3 s.
 - GaggiMate settings JSON byte-identical before and after; bench profile deleted.
 
+Bench round 4 (chg026, 2026-11-22, unattended, no touch). Grinder COM15 on build 732 (READY at the start); GaggiMate COM16 on the
+staged clone with the HEAD plugin (not reflashed). Results are read from GaggiMate's Bluetooth tab data (the request result, not
+the rendered tab) and from both serial logs.
+
+- Dose 18, size 15, rpm 600: grinder `update ok` and `select ok`; reported rpm 600.
+- rpm 600 to 700 only: one `update ok` and one `select ok`; reported rpm 700.
+- rpm removed: `update ok` and `select ok`; reported rpm gone (the wire `rpm:null` is not in the logs, only the result).
+- rpm 10000 with no rpm on the grinder: not sent, `rpm above 9999, not sent`; no grinder update.
+- rpm 10000 while the grinder held 600: `update ok` and `select ok`; reported rpm gone (cleared). The log line is seen in the
+  no-rpm case above, not in this one.
+- Dose-only profile after one with size and rpm: `update ok` and `select ok`; reported size and rpm both gone.
+- Dose 18, no size, rpm 600: `update ok` and `select ok`; reported rpm 600.
+- Dose 0 profile with no grinder settings: skipped with `has nothing the connected grinder can take, not sent`; link stayed up.
+- rpm and the cleared size survive a grinder hard reset: after the reconnect `Profile dose is in sync with the grinder`, no
+  grinder `update ok`, reported rpm 600. The dose is judged from the compare-first "in sync" line, not read raw.
+- Forget while linked: link closed (reason 0x16), the grinder's link slot free within 3 s, no auto reconnect; a manual connect
+  links again.
+- Standby and wake through the API (`change-mode` 0 and 1, not the screen timeout): the link closes and comes back, about 5 s
+  from wake to data channel.
+- Grinder hard reset: supervision timeout (reason 0x08); GaggiMate reconnected on its own, data channel back 6 to 7 s after the reset.
+
+State left behind: the grinder went back to CALIBRATION after the reboot and was not tapped. Its Profile Dose is the last bench
+profile (dose 18, no size, rpm 600); the start values of `lever` (size 20, rpm 120) were not restored. GaggiMate's settings
+JSON is byte-identical to the start; the bench profile was deleted.
+
 ## Not verified
 
 - B2 remainder: the rate-limited retry path (`RATE_LIMITED`, 1.1 s) was not seen, because the two quick saves coalesced;
-  the PROFILE page on the grinder's display was not seen (select seen on the wire only).
+  the PROFILE page on the grinder's display was not seen (the select is confirmed in the grinder log only).
 - B3 finished grind to dose and B10 Smart Dose race: need a real grind (no load cell or motor on the bench).
 - B4 connect refusal during a shot: needs a GaggiMate shot with a machine; not attempted.
 - B5 real standby and wake with the screen, and `grinder.py scan` / `info`: not run. The PC sees no BLE devices, so the
@@ -273,12 +301,12 @@ whole run, which is `OTHER` in spec 7.1: `update` and `select` were NOT_READY, s
 - A refused connect during a shot (log lines, banner noise) and the cost of a blocking connect to the scale heartbeat.
 - That the revert of the dose after a profile reselect works as inferred from Smart Dose.
 - That a grinder in its menu (SETTING) holds a push until READY.
-- chg026 on the grinder (bench round 3 was blocked by CALIBRATION): the rpm line on READY and EDIT (layout, no clipping,
-  nothing over the buttons); rpm reaching the grinder and surviving a reboot; `update ok` / `select ok` for the new values;
-  a rpm-only change (one update, the PROFILE page follows); `rpm:null` removing the line; the grinder's value cleared for
-  rpm 10000; a removed Profile Dose leaving no stale rpm; the old plugin with the new grinder; a dose-only profile after a
-  profile with a size (the size line disappears). The new plugin with the chg025 grinder image was checked only for the log line.
-- The grinder's stored Profile Dose was not observed or changed in round 3; the board may still hold the round 2 value.
+- chg026 on the grinder, still open: the rpm line on READY and EDIT (layout, no clipping, nothing over the buttons); the rpm
+  and size lines disappearing on screen when they are cleared; a stale rpm after removing the Profile Dose in the grinder's
+  menu and sending again (touch); the PROFILE page on the grinder's screen; the old plugin with the new grinder. The new
+  plugin with the chg025 grinder image was checked only for the log line.
+- The grinder's stored Profile Dose is no longer the round 2 value: after round 4 it holds the last bench profile (dose 18, no
+  size, rpm 600). The start values of `lever` (size 20, rpm 120) were not restored.
 - That the coalesced save stores the later value: the stored value was not read back.
 - The Motto 80 path is untouched by the patches; it was not run on a device.
 - No Linux or macOS run of the staging script; the `sim` env (`display-sim`) was not built (the driver and plugin are empty
