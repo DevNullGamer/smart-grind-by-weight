@@ -1320,3 +1320,245 @@ CLAUDE.md was cut from 16.5 KB to about 12.8 KB (chg022 A3). The binding rules s
 - The READY tabview has its PROFILE page only once index 3 is stored (`ReadyUIController::sync_pages()` rebuilds READY). Grind size is display-only (`controllers/grind_size.*`).
 - GLink: the Bluetooth task reads the snapshot the UI task publishes; the mailbox is one slot. LINK_ONLY: no timers, only the GLink characteristics work.
 - Load cell: other `CircularBufferMath` passes are bounded in-place walks of the 1024-entry ring.
+
+## Auto-reconnect and link diagnostics (chg023)
+
+Superseded by chg025 (GaggiMate grinder driver); the card, Disconnect button and req:grinderlink described here are retired.
+
+### Auto-reconnect (GaggiMate plugin)
+
+- Policy is pure (`gaggimate-plugin/.../grinderlink/GLinkReconnect.{h,cpp}`, no Arduino/NimBLE/heap, injected clock, wrap-safe); `GLinkPlugin` calls it from `loop()` and does the connect.
+- Attempts only while GaggiMate is idle (same predicate as manual Connect: not brewing, grinding or busy) and NOT in standby. First attempt right after wake-up and at boot once idle. Backoff 3 s, 10 s, then every 30 s forever.
+- Automatic connect timeout 3 s (manual Connect 5 s). Each attempt blocks the plugin's `loop()` for up to that long, only when idle.
+- A link that stayed up under 30 s does not reset the backoff (flapping link).
+- Disconnect (button or `req:grinderlink:disconnect`) keeps auto-reconnect off until GaggiMate has been in standby or restarted (RAM only, not saved). Select, forget and a manual Connect re-arm it.
+- The old 60 s idle drop is gone. The card's keep-alive is still accepted and does nothing.
+- A start is never replayed after a reconnect. `startOutcome`, `startTimedOut` and `stopUnconfirmed` are cleared only by a manual connect.
+- Consequence (user decision): while the link is up it holds the grinder's single BLE client slot, so `grinder.py` upload/WiFi tools, the web flasher and WiFi updates of the grinder are blocked until Disconnect on the GaggiMate card or the grinder's "GaggiMate link" off.
+- Residual: a shot that starts during an automatic connect (up to 3 s plus discovery) stalls the plugin loop for the rest of it, as with manual Connect.
+
+### Link diagnostics
+
+- Grinder log: `BLE: disconnect reason 0x08 (supervision timeout), conn handle N` (names from `glink_disconnect.*`, shared byte-identical with the plugin), `BLE: TX power +9 dBm` once per connection, `BLE: RSSI -NN dBm, conn handle N` every 5 s.
+- Screen log: `Grinder link lost, reason 0x..`, `Grinder connect failed, last disconnect ...`, `Grinder link RSSI -NN dBm` every 5 s, TX power at link-up ("TX unknown" instead of -128).
+- Plugin status object (`req:grinderlink:status`, `evt:grinderlink:state`) has `rssi` and `txPower` (dBm) while linked. The card shows `Signal: -62 dBm · TX power: +9 dBm`; new msgids `Signal` and `TX power` in the seven catalogs of patch 0005. RSSI is read about every 1 s while a browser is connected, else every 5 s.
+
+### Bench finding (2026-11-13, dev boards on USB)
+
+The link broke with reason 0x08 (supervision timeout) on both sides, once about 25 s after connect when the screen was moved from 10-15 cm to 50-60 cm. The grinder stack's default TX power is already +9 dBm (sdkconfig P9). Cause not found; suspects: weak link margin at 50-60 cm, WiFi/scale scan sharing the radio on the screen. No fix is claimed; the diagnostics above are meant to show it.
+
+### Build notes (GaggiMate display image)
+
+- The GaggiMate web UI is embedded in the display firmware image (not LittleFS). A card change needs, in the staged clone: `npm ci`, `npm run build`, gzip of `dist/assets/*.js`, `*.css` and `dist/*.html`, `python scripts/embed_webui.py --src web/dist --out src/display/webassets`, then `pio run -e display` and a flash of the firmware. `scripts/check_against_gaggimate.sh` does not do the web build.
+- Run `pio` only from PowerShell: Git Bash corrupts `~/.platformio/packages/tool-esptoolpy` ("MSys/Mingw is not supported").
+- Never run native tests during a firmware build in the same `.pio`. `pio run -t nobuild -t upload` does not work in this project.
+
+### Not verified on hardware
+
+1. Auto-reconnect after a power cycle of either side; no attempt in standby; first attempt after wake-up; the 3/10/30 s backoff; Disconnect staying off until standby/restart.
+2. No connect in the middle of a shot; a mid-shot drop reconnecting afterwards.
+3. Cost of the RSSI read (about 1 s with a browser connected) and the loop task's stack headroom.
+4. Interplay with the scale plugin (scan sharing).
+5. The cause of the 0x08 drop at 50-60 cm.
+6. The card text and the new locale strings (hand-written, web UI not rendered).
+
+## GaggiMate re-pin and dose save (chg024)
+
+Superseded by chg025 (GaggiMate grinder driver); the card, Disconnect button and req:grinderlink described here are retired.
+
+### Re-pin (plugin base b78beee to b564759)
+
+- The plugin now targets GaggiMate `b564759` (full SHA `b5647591e36f4cb2bbaf5777cc8530ec265217c4`, 55 commits past `b78beee`). Old `b78beee` is no longer named anywhere except history.
+- All five patches failed by context drift only and were regenerated. The `0004` anchors moved to `web/src/pages/Settings/settingsForm.js` (`CHECKBOX_KEYS`) and `PluginCard.jsx`. The locales are now eight (`pt` added); `0005` appends to each.
+- Host test count is 99 (`run_host_tests.sh`). The README and the DEVELOPMENT.md counts were stale (44 and 49).
+- `glink_sources.cpp` now includes `glink_disconnect.cpp` as well (it was missing).
+- Patch 0005 `Not connected` duplicated an identical upstream msgid (`SystemTab.jsx`); it was dropped from all eight catalogs. The card's `t`Not connected`` resolves via upstream's entry (`lingui compile` clean at b564759).
+
+### Save grind weight as dose: decisions
+
+- Source of the dose: the grinder's own `finalWeight` of a settled result (spec 5.6: OK, OVERSHOOT, MAX_PULSES), not a GaggiMate hook. The Smart Dosing mechanism of GaggiMate is reused as the destination only (profile dose field), and there is no code coupling: the plugin does not include Smart Dose. Last writer wins if both are on.
+- Once per result. The per-link baseline is the grinder's `resultSeq` at link-up; a result with a sequence number at or below the highest seen is never written. A result during a link gap is therefore skipped. A rebooted grinder is re-baselined at the next link.
+- Range 5.0 to 40.0 g, the same bounds as GaggiMate's `smartdose::validDose` (5 and 40). Out-of-range is skipped, not clamped: a clamped dose would be a wrong dose the user did not choose.
+- Held (latest result wins) up to 5 min while the machine is not idle: shot running, mode not BREW, updating, auto-tuning, or a utility profile. After 5 min it is dropped, so a stale result is not applied later.
+- Memory only, like Smart Dose. `gl_sd` is default on (chg024 plan).
+- Wizard does not save the GrinderLink toggles (`grinderLinkActive`, `grinderLinkSaveDose` are not in its key list).
+- Naming: the skip reason enum uses `FEATURE_OFF`, not `DISABLED`, because `Arduino.h` defines `DISABLED` as a macro (a clash found while writing `GLinkDoseSave.h`).
+
+### Dose save: layers and the process lock
+
+- `GLinkDoseSave.{h,cpp}` is pure (no Arduino, NimBLE or heap; in the `PURE` list of the contract test).
+- The listener callbacks (`on_result`, `on_ready`) run on the loop task and only record: they never touch the profile or the controller.
+- `GLinkPlugin::applyPendingDose(now)` is the only place that writes the profile dose. It is called from `loop()` on every pass (so expiry also runs while the machine is busy) and is cheap when nothing is pending (no lock, no settings read).
+- The write happens under `controller->getProcessLock()` (`std::recursive_mutex`), taken there and never while holding `cmdMutex`, `rxMutex` or `foundMutex`. The write is compare-first (an equal dose is not written again) and logged once.
+- The contract test guards this: one `profile.dose =` in the plugin, inside `applyPendingDose` under the lock; the callbacks do not reference the profile, the lock or `applyPendingDose`.
+
+### Procedure (staged build)
+
+1. Work in a fresh clone (or the staging script's clone), never in your own GaggiMate checkout: it can hold uncommitted work.
+2. `sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]` with a new or empty `DEST`. Under Git Bash it stages and prints the commands (`STAGE_ONLY=1` by default there).
+3. Run `pio` from PowerShell only (Git Bash corrupts `tool-esptoolpy`): `pio test -e native -f test_grinderlink`, then `pio run -e display`, optionally `display-headless`.
+4. `WEB_BUILD=1` builds and embeds the web UI (needs `npm`). Run it before the `display` build when the card changed.
+5. `tools/tests/test_gaggimate_plugin_contract.py` (pytest, `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`) guards the shared files, the patch list, the pin and the dose-save text rules. The host tests (`run_host_tests.sh`) are not in CI.
+
+### Not verified on hardware
+
+- Nothing has run on a GaggiMate display or with a grinder for the dose save: the first result after link-up, the hold during a shot, the expiry and the range rule are covered by host tests of the policy and by text guards only. The revert after a profile reselect is inferred from how Smart Dose behaves in GaggiMate; no test covers it.
+- The translations of the new msgids (hand-written, not reviewed) are unreviewed.
+- Staged integration (B4, fresh clone at `b5647591`, `WEB_BUILD=1`): five patches apply, web build and embed OK, plugin native tests 99/99, `pio run -e display` (flash 62.3 %, RAM 29.6 %) and `-e display-headless` (flash 48.6 %) build, no warnings from the plugin files; full tools pytest 1796 passed / 2 skipped, host tests 99/0, ruff and compileall clean. Not flashed, not run on a device.
+
+## GaggiMate grinder driver (chg025)
+
+The own GaggiMate plugin of chg024 (own scan, select, connect, reconnect policy, card, `gl_*` settings, eleven WebSocket requests) is replaced by a driver for the BluetoothDevices grinder framework of GaggiMate's branch `feature/bluetooth-devices-grinder` (head `2e64abd`, full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`) and a small consumer plugin. The grinder firmware, `src/` and `docs/GLINK-PROTOCOL.md` do not change. Files, flow and verification state: `gaggimate-plugin/README.md`.
+
+### Decisions
+
+- GaggiMate's `BluetoothDevicesPlugin` owns scan, the saved device, connect on sight, standby disconnect, Forget and the tab. `GLinkGrinder` (device glue) wraps the pure `GLinkGrinderCore`, which uses the unchanged `GLinkClient` and the new pure policies `GLinkDevState`, `GLinkSettingsSync`, `GLinkResultGate` and the trimmed `GLinkDoseSave`.
+- Drain the notification ring before the tick in every `update()` (called about once a second): a stalled loop, for example another device's 5 s connect, must not fire the 5 s timeouts while the answer already sits in the ring. The 8 KB ring, the core and the scratch packet are allocated with `new (std::nothrow)` only in `connect()`.
+- `connect()` refuses before any radio use when GaggiMate is busy, when NimBLE has no free connection, or within 10 s of a drop the driver caused. The framework retries on sight.
+- `shutdown()` is not overridden: standby never powers the grinder off. No `start()`/`stop()`: the framework has no interface; `Client::start/stop` stay unused (contract-test guard).
+- Dose push: compare-first, 5.0 to 60.0 g, size 0.0 to 999.9 or none, never a `grindUnit`. After a stored change `grindProfile select 3` follows once (at least 1.1 s later, same state rule and retry rules as the update) so the grinder shows its PROFILE page; never after an equal re-push.
+- Finished grind: `GLinkResultGate` baselines `resultSeq` per link and reports only settled results (OK, OVERSHOOT, MAX_PULSES) once; `GLinkDoseSave` keeps 5.0 to 40.0 g and holds up to 5 min. The event handler only records; `GLinkPlugin::applyPendingDose()` is the only writer of `profile.dose`, on the loop task, under `getProcessLock()`, memory only. Always on, no setting.
+- `getReportedSettings()` returns the dose and size of the profile selected on the grinder.
+- Registration is unconditional (patch 0002). `GLinkPlugin.h` includes no GLink header because `config/bluetooth.h` defines `BLE_*` macros.
+
+### Flag outcomes (change plan F1 to F12)
+
+- F1 dose save: the maintainer asked for a grind-finished event whose weight temporarily changes the loaded profile's dose; implemented as patch 0001 plus our consumer. F2 no toggle (always on).
+- F3 start/stop: left to the maintainer, nothing built. F4 live data: parsed and held, not surfaced.
+- F5 diagnostics: serial log only (reason by GAP listener, TX power, RSSI every 5 s). F6 no sticky Disconnect: Forget replaces it.
+- F7 blocking connect and a 1 Hz drain accepted; refusal while a shot runs. F8 own card and endpoints retired. F9 push like GaggiMate does, with the 5.0 to 60.0 g guard and compare-first.
+- F10/F11 one grinder slot (a Motto 80 and this grinder exclude each other), connection budget 3. F12 contract tests, vectors, shared files and staging scripts stay, pin moved to `2e64abd`.
+
+### Patches and upstream proposals
+
+- Carried: `0001-grinder-finished-event.patch` (U1, proposed upstream), `0002-controller-register-glink-plugin.patch` (ours), `0003-web-glink-model-name.patch` (U3, only if the driver goes upstream).
+- Not built: U4 a quiet "busy" reason instead of `connect_failed`; U5 start/stop on `BluetoothGrinder` (the maintainer's side). The write-up for the maintainer, including `supportsDose()`, is kept outside the repository; submitting anything is the user's decision.
+- The driver may later move into `lib/BluetoothDevices`; that needs a trimmed shared `config/bluetooth.h`.
+
+### Known limitation G1 and other gaps
+
+- G1 (**SUPERSEDED by chg026**, see "GLink 1.2 rpm and dose-only push (chg026)": patch 0004 adds `supportsDose()`, so a dose-only profile is pushed; not yet re-checked on the bench): GaggiMate does not push a profile whose grinder settings are empty, and `isEmpty()` looks only at grind size, rpm and feed rpm (dose and label do not count; the Motto driver follows the same rule). A profile with a dose but no grind size is therefore not pushed. Workaround: set a grind size in the profile. Bench round 2 confirmed it on the real build: not pushed, no crash, and no log line is written. The `supportsDose()` patch was dropped by decision in chg025; that decision is superseded in chg026 (user, 2026-11-21).
+- N1 RSSI and TX power are in the serial log only. N2 no "last saved dose" line: one log line per applied or skipped result. N3 a refused connect during a shot raises the generic "connection failed" banner. N4 the tab shows the raw name unless patch 0003 is applied. N5 the saved grinder is one string; the scan hit's `NimBLEAddress` carries the address type (read from source, bench B1 confirms). N6 the old keys `gl_a`, `gl_ad`, `gl_n`, `gl_sd` stay in flash on development units, unused; the user pairs again. N7 dose drift: saving a profile after a grind pushes the measured weight as the new target. N8 one grinder slot. N9 `WARNING` and `STARTING` have no framework state: IDLE to IDLE, GRINDING to GRINDING, every other known devState to BUSY, an unknown text to UNKNOWN.
+
+### Build and test facts
+
+- Host tests: 145. Baseline staged build at `2e64abd` with no patches: `-e display` RAM 29.7 %, flash 49.1 % (3217989 B); with patch 0001 only, flash 3218661 B. No unpatched `display-headless` baseline was recorded. Step 5 build with the driver and patches 0001+0002: `-e display` RAM 29.7 % (97360 B), flash 49.5 % (3241649 B, +22988 B vs the 0001 build); `-e display-headless` RAM 25.5 % (83436 B), flash 35.7 % (2340461 B). `CONFIG_BT_NIMBLE_MAX_CONNECTIONS` is 3 (NimBLE default, not overridden).
+
+### Bench results
+
+Round 1 (chg025 step 8, unattended, no touch): the controller ran protocol 8 against the display's 16, so GaggiMate was `mismatch` and the real build refused connects. B1 then ran with a bench-only variant of the clone (`gaggimateBusy()` also accepted the mismatch state, not in the repo). Most rows stayed NOT RUN.
+
+Round 2 (2026-11-21, unattended, no touch): real chg025 build, no bench variant. Controller reflashed to `v1.10.0-7-g2e64abd7-dir` (protocol 16), display at protocol 16, no mismatch. Details: `gaggimate-plugin/README.md`.
+
+| Item | Result | Round 2 evidence |
+|---|---|---|
+| B1 scan, connect, handshake, data channel | PASS (real build) | Scan lists `GrindByWeight` (raw name). Link up, TX +9 dBm, packet size 244, hello sent, data channel ready 2-3 s after connect, loop stack at least 4520 B free. Five links, no downward heap trend. Random address connect (N5) worked. |
+| B2 profile push, select, rate limit, clamps | PARTIAL PASS | Dose 18 + size 15 pushed (update ok, select ok, GaggiMate reports in sync). Unchanged re-select sends nothing. 19.0: one update and one select. 4.0 and 70.0 skipped with the log line. Two saves 220 ms apart COALESCED into one update (not a second update 1 s later); the later value wins, the stored value was not read back. Select-3 `select ok` seen on the wire; the PROFILE page itself not seen. |
+| B2 G1 (dose without grind size) | Limitation confirmed | Not pushed, no crash. No log line is written (there is no skip line for this case). |
+| B3 finished grind to dose, B10 Smart Dose race | NOT RUN | Needs a real grind; no load cell or motor on the bench. |
+| B4 connect refusal during a shot | NOT RUN | Needs a GaggiMate shot with a machine; not attempted. |
+| B5 standby and wake | PASS (API standby/wake) | `change-mode` 0: `Link lost, reason 0x16`, grinder back to `link_listening` within 6 s. Mode 1: resumes scanning, links 3-4 s after wake. Grinder never powered off. Real screen standby and `grinder.py scan`/`info` not run (the PC sees no BLE devices). |
+| B6 Forget | PASS (GaggiMate side) | Link lost 0x16, saved grinder cleared, listed again as discovered, no auto connect. Grinder-side "GaggiMate link" off/on needs touch: not run. |
+| B7 link loss | PASS for a grinder reset | COM15 reset: supervision timeout (0x08), one reconnect on sight 1 s after the grinder was seen again, no storm. Carrying the screen away not run. |
+| B8 three connections, 30 min | PASS with caveats (two connections) | 31.6 min link, no `Link lost`, 372 RSSI lines, grinder polls `link_linked` 325 of 328. Only controller and grinder connected, no scale: NOT the three-connection case. Screen standby at the default 900 s closed the link; the rerun used 3600 s. |
+| B9 coexistence | PARTIAL | Grinder diagnostics follow `link_listening` -> `link_connected` -> `link_linked`. `grinder.py` blocked/unblocked NOT proven (no BLE on the PC). Motto 80 not run. |
+
+Round 1 note: it said the grinder "needs a tap" after a reset. Round 2 showed the grinder progressed CALIBRATION -> MENU -> READY by itself on this unit.
+
+Deviations (round 2):
+
+- The grinder dev board (COM15) now holds a stored Profile Dose (index 3, about 21.0 g, grind size 15) and has profile 3 selected from the bench. It could not be reverted with the available tooling.
+- GaggiMate `standbyTimeout` was set to 3600 for the B8 rerun and restored to 900; the settings JSON is identical to the start of the bench. The bench profile was deleted and `Default` is selected.
+- The grinder was reset by RTS for B7 and reconnected on sight. The display had one unexplained silent boot (weak lab WiFi, recovered by an RTS reset).
+
+## GLink 1.2 rpm and dose-only push (chg026)
+
+Adds an optional, display-only rpm per GaggiMate profile (GLink revision 1.2), clears a stale grind size or rpm on the grinder when the GaggiMate profile has none, and pushes dose-only profiles (plugin patch 0004, which supersedes the chg025 G1 limitation). Spec: `docs/GLINK-PROTOCOL.md`, revision 1.2 (header table, 4.2, 5.4). Commits on `chg025/gaggimate-grinder-driver`: `813183d` (spec, protocol layer, Python tools, vectors), `c4dd9db` (grinder store and display), `a65d9c9` (plugin driver), `2b44efc` (patch 0004).
+
+### Decisions (answers of the user, 2026-11-21)
+
+- **Q1 clear stale values.** When the GaggiMate profile has no grind size, the grinder clears the size it holds for that profile (`grindSize:null`). When it has no rpm, the grinder clears the rpm (`rpm:null`, sent only to a grinder that supports rpm). The READY and EDIT screens show no line for an unset value. The plugin side is the mirror rule in `GLinkSettingsSync`.
+- **Q2 range.** rpm is a whole number 0 to 9999 (`GLINK_RPM_MAX`). It is a label, never applied to a motor; `grindRpm` (a real motor setting, 500 to 1500) is unchanged.
+- **Q3 capability.** `baseInfo.protoMinor` 2 means the grinder takes `rpm`. A client sends rpm only to such a grinder. A refused update is not retried without rpm: the capability gate is the protection, not a fallback.
+- **Q4 revision label.** "1.2" is a revision label in the spec, with a revision table (1.1 is the first published text; 1.2 adds `rpm` and `protoMinor`). The wire `proto` stays 1.
+- **Q5 layout.** rpm is a second line under the grind size ("Grind: 14.5 um", then "600 rpm"). The two-line layout is to be checked on the device (step 6).
+- **Q6 CLI.** No rpm flag in `tools/ble/grinder-ble.py`; deferred.
+- **Q7 CLAUDE.md.** Two wording edits: the spec is "frozen at 1.1, extended only additively by 1.2", and the plugin is pinned "with four patches". The spec 1.1 security list already names the displayed rpm, so the CLAUDE.md list of what an unauthenticated peer can do is unchanged.
+
+### Finding: an old grinder refuses the whole update
+
+A 1.1 grinder treats `rpm` in a `grindProfile` `update` as an unknown key and answers `INVALID_PARAM` for the whole request. The dose and the grind size in the same request are then not stored either. So a client must not send `rpm` to a grinder that did not advertise `protoMinor` 2. The plugin checks that before it sends.
+
+### Compatibility
+
+| GaggiMate plugin | Grinder firmware | Dose and grind size | rpm | Dose-only profile |
+|---|---|---|---|---|
+| chg026 (patches 0001 to 0004) | 1.2 (`protoMinor` 2) | pushed; a missing size is cleared | pushed; a missing rpm is cleared | pushed |
+| chg026 | 1.1 (chg025 image, no `protoMinor`) | pushed as before | not sent: no `rpm` member in any update, one `RPM_NOT_SUPPORTED` note per wanted rpm, nothing cleared | pushed |
+| chg025 (patches 0001 to 0003) | 1.2 | pushed as before; a missing size is not cleared | never sent; an rpm (or size) already stored stays | not pushed (G1) |
+| chg025 | 1.1 | as before | never sent | not pushed (G1) |
+
+The chg025 rows are the old plugin, which never sends `rpm` and does not clear anything it does not send (absent keeps the stored value on the grinder). Removing the profile on the grinder (Menu → Bluetooth → Remove GaggiMate profile) clears both values.
+
+### Out-of-range and non-integer rpm
+
+- A non-integer rpm (`-0.5`, `600.5`) is `INVALID_PARAM` ("rpm must be an integer or null"), like any non-integer. The integer rule (4.2) is checked before the range, so a fraction is a type error. A negative whole number (`-1`) or one above 9999 (`10000`) is `OUT_OF_RANGE`. Test: `test_native/test_glink_messages.cpp`.
+- On the plugin side an rpm outside 0 to 9999 is treated as absent: it is not sent (note `RPM_OUT_OF_RANGE`, log "rpm above 9999, not sent"), and a value the grinder holds for that profile is cleared, as for an absent rpm.
+
+### Verification
+
+- Host, this step: `tools/tests` pytest 1956 passed, 2 skipped; `pio test -c platformio-native.ini -e native-test` 921 passed; plugin host tests (`sh gaggimate-plugin/scripts/run_host_tests.sh`) 176 passed, 0 failed.
+- Grinder firmware build #730 compiles (RAM 23.5 %, flash 81.1 %). It was not flashed in this step; the bench flashed later builds (731, 732; see Bench below).
+- Staged clone of 2e64abd with plugin patches 0001 to 0004 and `WEB_BUILD=1` (`gaggimate-plugin/README.md`, "Verified"): `pio test -e native -f test_grinderlink` 176 of 176; `pio run -e display` RAM 29.7 %, flash 61.6 % (web UI embedded); `pio run -e display-headless` RAM 25.5 %, flash 47.8 %. Without the web UI: display flash 49.5 %, headless flash 35.7 %.
+
+**Verified (host only):** the spec vectors and the Python client and codec (1.1 and 1.2 cases); the protocol parser and builder (`glink_messages`, `glink_decide`); the grind rpm store (load, store, clear, compare-first, the 9999 bound) and the label format; the plugin's sync (compare-first, the mirror rule, the two notes, rate limit and retry), the core and the protocol gate; the shared files stay byte-identical.
+
+**Bench (2026-11-21, round 3, unattended, no touch).** Full log in the workspace (`chgreq/smart-grind-by-weight/chg026/bench-results.md`, not in the repo). The grinder (COM15) was flashed three times: build 731 (rpm store and GLink 1.2), the unmodified chg025 image (commit `85d1ff4`, built from a git worktree; it reports build 1) for the compatibility check, then the final HEAD image, build 732. GaggiMate (COM16) runs the staged clone (2e64abd, patches 0001 to 0004, HEAD plugin), protocol 16. The grinder stayed on the CALIBRATION screen for the whole run (no tap, no load cell). CALIBRATION is `OTHER` in spec 7.1, so the grinder answered `update` and `select` with NOT_READY and never applied or reported profile data. The results below are GaggiMate-side results and the link.
+
+**Verified (bench, GaggiMate side and link):**
+
+- A dose-0 profile with no grinder settings is skipped with `has nothing the connected grinder can take, not sent`; no crash, the link stays up.
+- A dose-only profile (dose 18, no size, no rpm) is pushed: `Profile dose push queued` (patch 0004; chg025 sent nothing). The push was only queued; the grinder never confirmed it.
+- Dose 18, size 15, rpm 600 is sent with no `rpm not supported` note on the build 731 grinder (GaggiMate side only).
+- rpm 10000 is not sent: `rpm above 9999, not sent`; the size and the dose are still handled.
+- With the chg025 grinder image the new plugin logs `rpm not supported by this grinder firmware, not sent`. Whether the dose reached that grinder was not observable.
+- Connect to builds 731 and 732: `Linked, packet size 244, hello sent`, `Data channel ready` within a few seconds; the grinder reports `link_linked`.
+- Standby (900 s timeout) closes the link with `reason 0x16`; wake through the API (`change-mode` 1) reconnects within 3 s.
+- Restore: GaggiMate's settings JSON is byte-identical before and after the run; the bench profile was deleted.
+
+**Bench round 4 (2026-11-22, unattended, no touch; grinder build 732 on READY, GaggiMate HEAD plugin with patches 0001 to 0004).**
+The grinder side was reached this time: the grinder accepted `update` and `select` and reported its settings. Results are read
+from GaggiMate's Bluetooth tab data (the request result, not the rendered tab) and from both serial logs. After a grinder
+reboot in the same run the grinder went back to CALIBRATION and was not tapped.
+
+**Verified (bench round 4):**
+
+- Dose 18, size 15, rpm 600: grinder `update ok` and `select ok`; reported rpm 600.
+- rpm 600 to 700 only: one `update ok` and one `select ok`; reported rpm 700.
+- rpm removed from the profile: `update ok` and `select ok`; reported rpm gone (the wire `rpm:null` is not in the logs, only the result).
+- rpm 10000 with no rpm on the grinder: not sent, `rpm above 9999, not sent`; no grinder update.
+- rpm 10000 while the grinder held 600: `update ok` and `select ok`; reported rpm gone (cleared).
+- Dose-only profile after one with size and rpm: `update ok` and `select ok`; reported size and rpm both gone (the mirror rule).
+- Dose 18, no size, rpm 600: `update ok` and `select ok`; reported rpm 600.
+- Dose 0 profile with no grinder settings: skipped, no push, link stayed up.
+- rpm and the cleared size survive a grinder reboot (hard reset): after the reconnect GaggiMate logged `Profile dose is in sync with the grinder` with no grinder `update ok`, and the reported rpm was 600. The dose is judged from the compare-first "in sync" line, not read raw.
+- Forget while linked: link closed (reason 0x16), the grinder's link slot free within 3 s, no auto reconnect; a manual connect links again.
+- Standby and wake through the API (`change-mode` 0 and 1; the screen timeout was not used): the link closes and comes back, about 5 s from wake to data channel.
+- Grinder reset (esptool hard reset): supervision timeout (reason 0x08); GaggiMate reconnected on its own, data channel back 6 to 7 s after the reset.
+
+**Not verified (bench):**
+
+- The two-line label on READY and EDIT: the layout, clipping and the buttons were not seen on a screen; the rpm line disappearing on screen when it is cleared.
+- No stale rpm after the Profile Dose is removed in the grinder's menu and sent again (touch).
+- The rendered Bluetooth tab (only the data was read); the PROFILE page on the grinder's screen.
+- Grinder-side "GaggiMate link" off and on; the BLE tool block and unblock of `grinder.py` (this PC has no BLE radio); real screen standby (touch).
+- A finished grind to dose: no grind was run.
+- The old plugin with the new grinder image (needs a rebuilt old plugin; not run).
+- The grinder's stored Profile Dose is no longer the round 2 value: it holds the last bench profile (dose 18, no size, rpm 600). The start values of `lever` (size 20, rpm 120) were not restored.
+
+**Not verified (host-side):**
+
+- `GLinkGrinder.cpp` (`applySettings()`, `supportsRpm()`): compiled on the host only. On the bench the rpm send path showed as GaggiMate log lines and, on the 1.2 grinder (round 4), as the grinder's `update ok` and the reported rpm.
+- The compatibility table is from the spec and host tests. Bench round 4 confirmed the 1.2 grinder row (dose, size, rpm and a dose-only profile); the 1.1 row was checked on the bench only for the log line (round 3).
+- The staged PlatformIO build of the plugin with rpm is recorded under Verification above (host and build numbers only).
+

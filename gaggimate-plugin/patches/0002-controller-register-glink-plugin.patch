@@ -1,0 +1,22 @@
+diff --git a/src/display/core/Controller.cpp b/src/display/core/Controller.cpp
+index 2122fa0..f690ab0 100644
+--- a/src/display/core/Controller.cpp
++++ b/src/display/core/Controller.cpp
+@@ -34,6 +34,7 @@
+ #include <display/plugins/NetworkWatchdogPlugin.h>
+ #include <display/plugins/WifiStaWatchdogPlugin.h>
+ #include <display/plugins/mDNSPlugin.h>
++#include <display/plugins/grinderlink/GLinkPlugin.h>
+ #endif
+ #include <display/util/PsramAllocator.h>
+ #if defined(GAGGIMATE_HEADLESS)
+@@ -115,6 +116,9 @@ void Controller::setup() {
+ #endif
+     pluginManager->registerPlugin(&ShotHistory);
+     pluginManager->registerPlugin(&BLEDevices); // the simulator links a fake (sim/web/bluetooth_devices_stub.cpp)
++#ifndef GAGGIMATE_SIM // the GLink grinder driver is device-only
++    pluginManager->registerPlugin(new GLinkPlugin());
++#endif
+     if (settings.isSmartDoseActive()) {
+         pluginManager->registerPlugin(&SmartDose);
+     }

@@ -68,6 +68,8 @@ struct GlinkProfileState {
     bool has_grind_size = false;
     int32_t grind_size_tenths = 0;
     char grind_unit[GLINK_UNIT_BUF] = {};
+    bool has_rpm = false;
+    int32_t rpm = 0;
 };
 
 struct GlinkUpdatePlan {

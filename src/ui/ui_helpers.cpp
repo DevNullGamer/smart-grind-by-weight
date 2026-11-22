@@ -84,7 +84,7 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
         lv_obj_set_style_text_color(*grind_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
         lv_obj_set_style_text_align(*grind_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_set_width(*grind_label, LV_PCT(100));
-        lv_label_set_long_mode(*grind_label, LV_LABEL_LONG_MODE_CLIP);  // worst case "Grind: 999.9 123456" must not wrap
+        lv_label_set_long_mode(*grind_label, LV_LABEL_LONG_MODE_CLIP);  // no wrap; a newline gives the rpm line (two lines max)
         lv_obj_set_hidden(*grind_label, true);
     }
 

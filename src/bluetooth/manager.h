@@ -168,6 +168,10 @@ private:
     GlinkSnapshot glink_snapshot_;  // scratch copy of the UI task's snapshot (about 250 bytes)
     bool glink_sent_weight_valid_ = false;
     int32_t glink_sent_weight_tenths_ = 0;
+    // Radio diagnostics (chg023 1b): the RSSI timer and the connection (link_epoch) it was started for
+    uint32_t rssi_due_ms_ = 0;
+    uint32_t rssi_epoch_seen_ = 0;
+    bool rssi_failure_logged_ = false;
 
     // Private methods
     void create_stack();
@@ -206,7 +210,8 @@ private:
     void process_sessions_info_updates();
     void mark_sessions_info_dirty();
     void generate_diagnostic_report();
-    
+    void radio_diag_tick(uint32_t now_ms);  // chg023 1b: TX power once per connection, RSSI every 5 s
+
 public:
     BluetoothManager();
     ~BluetoothManager();

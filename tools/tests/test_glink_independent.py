@@ -481,6 +481,55 @@ def test_grind_size_vectors_with_own_rounding():
     assert {"-0.1", "0", "999.9", "1000", "-0.04"} <= tokens
 
 
+def own_rpm(token: str):
+    """The rpm rule of 5.4 from the text alone: read with the own reader; a number is whole when its fraction digits are
+    all zeros (or absent); not whole is INVALID_PARAM whatever its sign; then 0 to 9999."""
+    try:
+        v = read_request(('{"v":' + token + "}").encode("utf-8"))["v"]
+    except Bad:
+        return {"ok": False, "error": "MALFORMED_JSON"}
+    if v is None:
+        return {"ok": True, "value": None}
+    if not (isinstance(v, tuple) and v[0] == "num"):
+        return {"ok": False, "error": "INVALID_PARAM", "field": "rpm"}
+    whole, _, frac = v[1].partition(".")
+    if frac.strip("0"):
+        return {"ok": False, "error": "INVALID_PARAM", "field": "rpm"}
+    n = int(whole)
+    if n < 0 or n > 9999:
+        return {"ok": False, "error": "OUT_OF_RANGE", "field": "rpm"}
+    return {"ok": True, "value": str(n)}
+
+
+def test_rpm_vectors_with_own_integer_rule():
+    for c in V["rpm_cases"]:
+        assert own_rpm(c["json"]) == c["expect"], c["name"]
+    tokens = {c["json"] for c in V["rpm_cases"]}
+    assert {"0", "600", "9999", "600.0", "-1", "10000", "-0.5", "600.5", '"600"', "true", "{}", "[600]", "1e3", "null"} <= tokens
+    assert V["limits"]["GLINK_RPM_MAX"] == 9999 and V["limits"]["GLINK_PROTO_MINOR"] == 2
+    assert "| `GLINK_RPM_MAX` | 9999 |" in DOC and "#define GLINK_RPM_MAX 9999" in HEADER
+    assert re.search(r"#define GLINK_PROTO_MINOR 2\b", HEADER)
+
+
+def test_rpm_pairs_with_own_json_reading():
+    """Every rpm pair is judged from its text: the request names `rpm`, a success echoes it in an entry between
+    grindUnit and writable, and an entry never carries rpm: null (absent means none)."""
+    pairs = [p for p in V["pairs"] if "rpm" in (p["request"] or "")]
+    assert len(pairs) >= 20
+    for p in pairs:
+        assert '"rpm":null' not in (p["response"] or ""), p["name"]
+        if p["response"] and '"result":"success"' in p["response"] and '"rpm":' in p["response"]:
+            body = p["response"]
+            assert body.index('"grindUnit"') < body.index('"rpm":') < body.index('"writable"'), p["name"]
+    msgs = [m for m in all_messages() if '"rpm":' in m and m.startswith('{"response"')]
+    for m in msgs:
+        for entry in re.findall(r'\{"index":\d,[^{}]*\}', m):
+            if '"rpm":' in entry:
+                assert re.search(r'"rpm":(0|[1-9]\d{0,3}),"writable":true', entry), entry  # whole, 0 to 9999, entry 3 only
+    first = V["pairs"][0]["broadcasts"][0]
+    assert re.search(r'"proto":1,"protoMinor":2,"fwVersion"', first)
+
+
 def test_unit_vectors_with_own_validator():
     ok_chars = re.compile(r"[A-Za-z0-9 ./%\-_]*")
     for c in V["grind_unit_cases"]:
@@ -550,6 +599,18 @@ def _mutations():
         "golden_frame_byte": vec(lambda d: d["frame_cases"][0]["packets"].__setitem__(1, d["frame_cases"][0]["packets"][1].replace("000c00", "000d00", 1))),
         "dose_vector": case("dose_cases", "rounds_half_away_18_05", {"expect": {"ok": True, "value": "18.0"}}),
         "reader_vector": case("reader_cases", "depth_5_refused", {"accepted": True}),
+        "rpm_vector": case("rpm_cases", "above_max", {"expect": {"ok": True, "value": "10000"}}),
+        "rpm_vector_not_whole": case("rpm_cases", "negative_not_whole", {"expect": {"ok": False, "error": "OUT_OF_RANGE", "field": "rpm"}}),
+        "rpm_limit_in_header": text("src/config/bluetooth.h", "#define GLINK_RPM_MAX 9999", "#define GLINK_RPM_MAX 10000"),
+        "rpm_limit_in_doc_table": text("docs/GLINK-PROTOCOL.md", "| `GLINK_RPM_MAX` | 9999 |", "| `GLINK_RPM_MAX` | 5000 |"),
+        "proto_minor_in_vectors": vec(lambda d: d["limits"].update(GLINK_PROTO_MINOR=3)),
+        "proto_minor_in_header": text("src/config/bluetooth.h", "#define GLINK_PROTO_MINOR 2", "#define GLINK_PROTO_MINOR 3"),
+        "base_info_without_proto_minor": vec(lambda d: d["pairs"][0].update(
+            broadcasts=[d["pairs"][0]["broadcasts"][0].replace('"protoMinor":2,', ""), d["pairs"][0]["broadcasts"][1]])),
+        "rpm_entry_position": vec(lambda d: next(p for p in d["pairs"] if p["name"] == "profile_get_one_with_rpm").update(
+            response=next(p for p in d["pairs"] if p["name"] == "profile_get_one_with_rpm")["response"].replace(
+                '"rpm":600,"writable":true', '"writable":true,"rpm":600'))),
+        "rpm_doc_example": text("docs/GLINK-PROTOCOL.md", '"rpm":600,"writable":true,"changed":true', '"rpm":601,"writable":true,"changed":true'),
         "reassembly_vector": vec(lambda d: d["reassembly_cases"][0]["steps"][-1].update(outcome="partial")),
         "doc_example_json": text("docs/GLINK-PROTOCOL.md", '"selectProfile":2}}}}', '"selectProfile":2,"x":1}}}}'),
         "doc_lead_in_prose": text("docs/GLINK-PROTOCOL.md", "fixed lead-in of 3 s (`GLINK_START_LEAD_IN_MS`)", "fixed lead-in of 4 s (`GLINK_START_LEAD_IN_MS`)"),

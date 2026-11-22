@@ -1,4 +1,4 @@
-"""GLink v1 reference codec in Python (docs/GLINK-PROTOCOL.md): fragment frame, strict JSON reader, request parser,
+"""GLink v1 (revision 1.2) reference codec in Python (docs/GLINK-PROTOCOL.md): fragment frame, strict JSON reader, request parser,
 response / broadcast encoders and the write / start decisions.
 
 A line-by-line mirror of src/bluetooth/glink_*.{h,cpp}; both run the same conformance vectors
@@ -13,6 +13,7 @@ from enum import IntEnum
 # ---- constants (src/config/bluetooth.h) -------------------------------------------------------------------------
 
 PROTO_VERSION = 1
+PROTO_MINOR = 2
 FRAME_MAGIC = 0xA5
 FRAME_VERSION = 0x01
 FRAME_HEADER_BYTES = 8
@@ -34,6 +35,7 @@ DOSE_MIN_TENTHS = 50
 DOSE_MAX_TENTHS = 600
 GRIND_SIZE_MAX_TENTHS = 9999
 GRIND_UNIT_MAX_LEN = 6
+RPM_MAX = 9999
 START_LEAD_IN_MS = 3000
 WRITE_MIN_INTERVAL_MS = 1000
 MAX_NODES = 96  # mirrors GLINK_JSON_MAX_NODES; the C++ reader runs out of nodes beyond it
@@ -405,7 +407,8 @@ MSG = {
     "EXPECT_RANGE": "expectDose out of range", "SIZE_NOT_NUMBER": "grindSize must be a number or null",
     "SIZE_RANGE": "grindSize out of range", "UNIT_NOT_STRING": "grindUnit must be a string or null",
     "UNIT_BAD_CHAR": "grindUnit has an invalid character", "UNIT_TOO_LONG": "grindUnit too long",
-    "UNIT_NEEDS_SIZE": "grindUnit needs a grindSize", "NOTHING_TO_UPDATE": "nothing to update",
+    "UNIT_NEEDS_SIZE": "grindUnit needs a grindSize", "RPM_NOT_INT": "rpm must be an integer or null",
+    "RPM_RANGE": "rpm out of range", "NOTHING_TO_UPDATE": "nothing to update",
     "DOSE_REQUIRED": "dose required to create the profile", "READ_ONLY": "profile is read-only over BLE",
     "PROFILE_NOT_SET": "profile not set", "NO_RESULT": "no result since boot",
     "HANDSHAKE_REQUIRED": "handshake required", "BUSY": "previous request still pending",
@@ -445,6 +448,9 @@ class Request:
     grind_size_tenths: int = 0
     has_grind_unit: bool = False  # grind_unit is "" for null / empty / spaces only (clears the unit)
     grind_unit: str = ""
+    has_rpm: bool = False  # protocol 1.2; rpm_null clears
+    rpm_null: bool = False
+    rpm: int = 0
     has_expect_dose: bool = False
     expect_dose_tenths: int = 0
 
@@ -543,7 +549,7 @@ def _required_index(obj, key, missing, not_int, rng, oid):
 
 
 def _parse_update(obj, oid, req):
-    _check_keys(obj, ("op", "index", "dose", "grindSize", "grindUnit"), "", oid)
+    _check_keys(obj, ("op", "index", "dose", "grindSize", "grindUnit", "rpm"), "", oid)
     req.index = _required_index(obj, "index", "INDEX_MISSING", "INDEX_NOT_INT", "INDEX_RANGE", oid)
     if req.index != PROFILE_WRITABLE_INDEX:
         _refuse("PROFILE_READ_ONLY", "READ_ONLY", "index", oid)
@@ -562,7 +568,13 @@ def _parse_update(obj, oid, req):
     if obj.has("grindUnit"):
         req.has_grind_unit = True
         req.grind_unit = _read_unit(obj.get("grindUnit"), oid)
-    if not (req.has_dose or req.has_grind_size or req.has_grind_unit):
+    if obj.has("rpm"):
+        req.has_rpm = True
+        if obj.get("rpm") is None:
+            req.rpm_null = True
+        else:
+            req.rpm = _read_index(obj.get("rpm"), 0, RPM_MAX, "rpm", "RPM_NOT_INT", "RPM_RANGE", oid)
+    if not (req.has_dose or req.has_grind_size or req.has_grind_unit or req.has_rpm):
         _refuse("MISSING_FIELD", "NOTHING_TO_UPDATE", "", oid)
 
 
@@ -676,13 +688,16 @@ class ProfileEntry:
     has_grind_size: bool = False
     grind_size_tenths: int = 0
     grind_unit: str = ""  # "" = none (only written with a size)
+    has_rpm: bool = False  # written only when set (1.2)
+    rpm: int = 0
 
 
 def _entry_fields(e: ProfileEntry) -> str:
     size = fmt_tenths(e.grind_size_tenths) if e.has_grind_size else "null"
     unit = _q(e.grind_unit) if e.has_grind_size and e.grind_unit else "null"
-    return '"index":%d,"name":%s,"dose":%s,"grindSize":%s,"grindUnit":%s,"writable":%s' % (
-        e.index, _q(PROFILE_NAMES[e.index]), fmt_tenths(e.dose_tenths), size, unit,
+    rpm = ',"rpm":%d' % e.rpm if e.has_rpm else ""
+    return '"index":%d,"name":%s,"dose":%s,"grindSize":%s,"grindUnit":%s%s,"writable":%s' % (
+        e.index, _q(PROFILE_NAMES[e.index]), fmt_tenths(e.dose_tenths), size, unit, rpm,
         "true" if e.index == PROFILE_WRITABLE_INDEX else "false")
 
 
@@ -752,8 +767,8 @@ class BaseInfo:
 def encode_base_info(info: BaseInfo) -> str:
     return _limit(
         '{"broadcast":{"baseInfo":{"releaseVer":%d,"snCode":%s,"wifiName":null,"device":"SGBW","proto":%d,'
-        '"fwVersion":%s,"board":%s,"doseMin":%s,"doseMax":%s,"maxRequestBytes":%d}}}' % (
-            info.release_ver, _q(info.sn_code), PROTO_VERSION, _q(info.fw_version), _q(info.board),
+        '"protoMinor":%d,"fwVersion":%s,"board":%s,"doseMin":%s,"doseMax":%s,"maxRequestBytes":%d}}}' % (
+            info.release_ver, _q(info.sn_code), PROTO_VERSION, PROTO_MINOR, _q(info.fw_version), _q(info.board),
             fmt_tenths(DOSE_MIN_TENTHS), fmt_tenths(DOSE_MAX_TENTHS), MAX_REQUEST_BYTES))
 
 
@@ -867,6 +882,8 @@ class ProfileState:
     has_grind_size: bool = False
     grind_size_tenths: int = 0
     grind_unit: str = ""
+    has_rpm: bool = False
+    rpm: int = 0
 
 
 @dataclass
@@ -896,11 +913,18 @@ def decide_update(screen: Screen, current: ProfileState, request: Request, inter
             r.grind_unit = ""
     if request.has_grind_unit:
         r.grind_unit = request.grind_unit[:GRIND_UNIT_MAX_LEN]
+    # rpm is independent of size and unit: absent keeps it, null clears it
+    r.has_rpm = current.exists and current.has_rpm
+    r.rpm = current.rpm if r.has_rpm else 0
+    if request.has_rpm:
+        r.has_rpm = not request.rpm_null
+        r.rpm = 0 if request.rpm_null else request.rpm
     if r.grind_unit and not r.has_grind_size:
         return None, Failure("INVALID_PARAM", MSG["UNIT_NEEDS_SIZE"], "grindUnit", obj)
     changed = (not current.exists or r.dose_tenths != current.dose_tenths or r.has_grind_size != current.has_grind_size
                or (r.has_grind_size and r.grind_size_tenths != current.grind_size_tenths)
-               or r.grind_unit != current.grind_unit)
+               or r.grind_unit != current.grind_unit or r.has_rpm != current.has_rpm
+               or (r.has_rpm and r.rpm != current.rpm))
     if changed and not interval_ok:
         return None, Failure("RATE_LIMITED", MSG["RATE_LIMITED"], "", obj)
     return UpdatePlan(r, changed), None

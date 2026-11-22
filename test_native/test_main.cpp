@@ -46,6 +46,8 @@ void run_glink_session_tests();
 void run_glink_gate_tests();
 void run_glink_start_tests();
 void run_grind_size_tests();
+void run_grind_rpm_tests();
+void run_glink_disconnect_tests();
 
 void setUp() {}
 void tearDown() {}
@@ -96,5 +98,7 @@ int main() {
     run_glink_gate_tests();
     run_glink_start_tests();
     run_grind_size_tests();
+    run_grind_rpm_tests();
+    run_glink_disconnect_tests();
     return UNITY_END();
 }

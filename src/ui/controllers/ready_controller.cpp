@@ -3,7 +3,7 @@
 #include <lvgl.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
-#include "../../controllers/grind_size.h"
+#include "../../controllers/grind_rpm.h"
 #include "../../system/nvs_settings_store.h"
 #include "../event_bridge_lvgl.h"
 #include "../ui_manager.h"
@@ -24,10 +24,11 @@ void ReadyUIController::refresh_profiles() {
     }
     ui_manager_->ready_screen.update_profile_values(values, ui_manager_->current_mode);
 
-    // Grind size line per profile page (hidden until a size exists). Event-driven like the values, not per frame.
+    // Grind size and rpm lines per profile page (hidden until one exists). Event-driven like the values, not per frame.
     for (int i = 0; i < USER_PROFILE_COUNT; ++i) {
         char text[GRIND_SIZE_TEXT_BUF];
-        grind_size_format(text, sizeof(text), ui_manager_->profile_controller->get_grind_size(i));
+        grind_info_format(text, sizeof(text), ui_manager_->profile_controller->get_grind_size(i),
+                          ui_manager_->profile_controller->get_grind_rpm(i));
         ui_manager_->ready_screen.update_grind_size_text(i, text);
     }
 }

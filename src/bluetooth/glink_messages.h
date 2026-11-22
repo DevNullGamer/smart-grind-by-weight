@@ -14,6 +14,7 @@
 constexpr int32_t GLINK_DOSE_MIN_TENTHS = 50;       // GLINK_DOSE_MIN_G * 10
 constexpr int32_t GLINK_DOSE_MAX_TENTHS = 600;      // GLINK_DOSE_MAX_G * 10
 constexpr int32_t GLINK_GRIND_SIZE_MAX_TENTHS = 9999;  // GLINK_GRIND_SIZE_MAX * 10
+constexpr int32_t GLINK_RPM_MAX_VALUE = GLINK_RPM_MAX;  // whole number, not tenths
 constexpr size_t GLINK_UNIT_BUF = GLINK_GRIND_UNIT_MAX_LEN + 1;
 constexpr size_t GLINK_FIELD_BUF = 48;              // "selector." plus a 32 character key, with room
 
@@ -88,6 +89,8 @@ constexpr const char* UNIT_NOT_STRING = "grindUnit must be a string or null";
 constexpr const char* UNIT_BAD_CHAR = "grindUnit has an invalid character";
 constexpr const char* UNIT_TOO_LONG = "grindUnit too long";
 constexpr const char* UNIT_NEEDS_SIZE = "grindUnit needs a grindSize";
+constexpr const char* RPM_NOT_INT = "rpm must be an integer or null";
+constexpr const char* RPM_RANGE = "rpm out of range";
 constexpr const char* NOTHING_TO_UPDATE = "nothing to update";
 constexpr const char* DOSE_REQUIRED = "dose required to create the profile";
 constexpr const char* READ_ONLY = "profile is read-only over BLE";
@@ -149,6 +152,9 @@ struct GlinkRequest {
     int32_t grind_size_tenths = 0;
     bool has_grind_unit = false;  // grind_unit is "" for null / empty / spaces only (clears the unit)
     char grind_unit[GLINK_UNIT_BUF] = {};
+    bool has_rpm = false;  // protocol 1.2: rpm_null clears
+    bool rpm_null = false;
+    int32_t rpm = 0;
     // grindControl start
     bool has_expect_dose = false;
     int32_t expect_dose_tenths = 0;
@@ -216,6 +222,8 @@ struct GlinkProfileEntry {
     bool has_grind_size = false;
     int32_t grind_size_tenths = 0;
     char grind_unit[GLINK_UNIT_BUF] = {};  // "" = none (only with a size)
+    bool has_rpm = false;                  // written only when set (1.2)
+    int32_t rpm = 0;
 };
 
 struct GlinkBaseInfo {

@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include "../config/constants.h"
 #include "grind_mode.h"
+#include "grind_rpm.h"
 #include "grind_size.h"
 
 struct Profile {
@@ -20,6 +21,7 @@ private:
     // NVS key weight3 holds a valid weight"; every other profile always exists.
     bool dose_present_ = false;
     GrindSizeStore grind_sizes_;
+    GrindRpmStore grind_rpms_;
 
     // Writes only when the stored value differs (or is missing); true when the value is stored afterwards
     bool put_float_if_changed(const char* key, float value);
@@ -64,6 +66,10 @@ public:
     const GrindSize& get_grind_size(int index) const { return grind_sizes_.get(index); }
     // Compare-first; an absent size clears it. False when it was refused or could not be persisted.
     bool store_grind_size(int index, const GrindSize& size);
+
+    // rpm per profile (chg026), display only; same rules as the grind size
+    const GrindRpm& get_grind_rpm(int index) const { return grind_rpms_.get(index); }
+    bool store_grind_rpm(int index, const GrindRpm& rpm);
     
     void update_current_weight(float weight);
     void update_current_time(float seconds);

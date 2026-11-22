@@ -1,0 +1,31 @@
+diff --git a/web/src/utils/bluetoothDevices.js b/web/src/utils/bluetoothDevices.js
+index 69d6585..9de89fb 100644
+--- a/web/src/utils/bluetoothDevices.js
++++ b/web/src/utils/bluetoothDevices.js
+@@ -1,7 +1,10 @@
+ import { scaleModelName } from './scaleModels.js';
+ 
+ // Advertised BLE name prefix → friendly grinder model name; mirrors the BluetoothDevices library matchers.
+-const GRINDER_MODELS = [[/^BOOKOO MT80/i, 'Bookoo Motto 80']];
++const GRINDER_MODELS = [
++  [/^BOOKOO MT80/i, 'Bookoo Motto 80'],
++  [/^GrindByWeight/i, 'Smart Grind By Weight'],
++];
+ 
+ export function deviceModelName(bleName, type) {
+   if (!bleName) return null;
+diff --git a/web/test/bluetooth-devices.test.js b/web/test/bluetooth-devices.test.js
+index d13c0a1..e5f2da3 100644
+--- a/web/test/bluetooth-devices.test.js
++++ b/web/test/bluetooth-devices.test.js
+@@ -94,3 +94,10 @@ test('model names resolve per device type', () => {
+   assert.equal(deviceModelName('BOOKOO_SC_U 000001', 'scale'), 'Bookoo Themis Ultra');
+   assert.equal(deviceModelName('Something else', 'grinder'), null);
+ });
++
++test('the Smart Grind By Weight grinder gets its model name, only as a grinder', () => {
++  assert.equal(deviceModelName('GrindByWeight', 'grinder'), 'Smart Grind By Weight');
++  assert.equal(deviceModelName('GrindByWeight 1A2B', 'grinder'), 'Smart Grind By Weight');
++  assert.equal(deviceModelName('GrindByWeight', 'scale'), null);
++  assert.equal(deviceModelName('BOOKOO MT80 0A1B2C3D', 'grinder'), 'Bookoo Motto 80');
++});

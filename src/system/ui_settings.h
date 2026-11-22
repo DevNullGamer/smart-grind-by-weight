@@ -48,6 +48,8 @@ constexpr const char* kProfileCurrent = "profile";
 constexpr const char* kProfileWeight[4] = {"weight0", "weight1", "weight2", "weight3"};
 constexpr const char* kProfileTime[4] = {"time0", "time1", "time2", "time3"};
 constexpr const char* kGrindSize[4] = {"gsz0", "gsz1", "gsz2", "gsz3"};
+// rpm0..rpm3 are NVS ints (GrindRpmStore, chg026); absent = no rpm
+constexpr const char* kGrindRpm[4] = {"rpm0", "rpm1", "rpm2", "rpm3"};
 
 }  // namespace ui_settings_keys
 

@@ -63,14 +63,18 @@ Key components, grind phases, purge/prime, time-mode pulses, Grind Settings pref
 - `UIManager::init` needs an initialised display; if the display fails the UI stays off (update() no-op).
 - Menu NVS keys only in `system/ui_settings.*` (UI never opens `Preferences`); rows are in `menu_setting_table`.
 
-**GLink / GaggiMate link (chg020; spec `docs/GLINK-PROTOCOL.md` is frozen; "GaggiMate link (chg020)"):**
+**GLink / GaggiMate link (chg020; spec `docs/GLINK-PROTOCOL.md` is frozen at 1.1, extended only additively by 1.2 (chg026: optional `rpm`, `baseInfo.protoMinor`); "GaggiMate link (chg020)"):**
 - No authentication, by decision: anyone in radio range with the link or Bluetooth on can read, write the Profile Dose, stop and start. Never describe it as secure; keep the spec 1.1 list in step with any new capability.
 - The Bluetooth task never calls LVGL, the controllers, `ProfileController`, `UiSettings` or NVS. Reads use the UI task's snapshot; writes and starts go through the `glink_command_gate` mailbox to `GlinkUIController`.
 - Stop is never queued: `portal_stop_now()` on the Bluetooth task, always accepted.
 - A BLE start uses the same checks as the web panel's start plus the profile checks, always behind the 3 s touch-to-cancel lead-in; it grinds in WEIGHT mode and restores the user's mode on return to READY. The lead-in is exclusive with the web panel's.
 - Only profile 3 (Profile Dose) is writable over BLE. One BLE client; a connected client blocks WiFi updates.
 - "GaggiMate link" (Bluetooth page, touch-only, default off) = LINK_ONLY: no timers, only the GLink characteristics work; old OTA/data/sysinfo/diagnostics services stay closed.
+- GaggiMate's own Bluetooth tab reconnects the grinder (chg025), so the single BLE client slot stays taken: BLE tools and WiFi updates are blocked until Forget, standby or "GaggiMate link" off. No Disconnect button.
+- The grinder logs disconnect reason, TX power and RSSI (every 5 s); the GaggiMate driver logs the same on its serial output (no card). See "Auto-reconnect and link diagnostics (chg023)".
 - Files shared by `gaggimate-plugin/` and `src/bluetooth/` stay byte-identical (`test_gaggimate_plugin_contract.py`); `src/config/bluetooth.h` GLINK_ constants, the spec tables and `tools/tests/glink_vectors.json` move together (`test_glink_contract.py`).
+- The GaggiMate plugin is a driver for GaggiMate's BluetoothDevices grinder framework, pinned to 2e64abd with four patches (chg025, chg026; "GaggiMate grinder driver (chg025)"). Its staged checks run only in a fresh clone (never the user's checkout), and `pio` only from PowerShell (Git Bash corrupts tool-esptoolpy); see `docs/DEVELOPMENT.md`.
+- Save grind weight as dose (plugin, always on): the `grinder:grind:finished` handler only records; only `GLinkPlugin::applyPendingDose()` writes the profile dose, on the loop task, under `getProcessLock()`. Rules: `docs/DESIGN-NOTES.md` "GaggiMate grinder driver (chg025)".
 
 **Profiles (chg020):** `USER_PROFILE_COUNT` is 4; index 3 (GaggiMate Profile Dose) exists only once stored (`ProfileController::has_dose_profile()`); the READY PROFILE page exists only then (`ReadyUIController::sync_pages()`). Menu tab index: `UIManager::menu_tab_index()`, never a literal. Profile writes are compare-first. Web panel and history stay at three profiles. Grind size is display-only.
 

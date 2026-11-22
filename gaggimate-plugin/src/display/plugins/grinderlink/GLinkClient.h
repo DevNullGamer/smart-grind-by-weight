@@ -6,7 +6,7 @@
 
 // GLink client session (docs/GLINK-PROTOCOL.md sections 2, 3, 5.5 and 7.5): fragmenting, reassembling, the handshake,
 // one request at a time with the 5 s timeout, the "did the start happen" decision, profile and result tracking.
-// Pure: no Arduino/ESP/NimBLE dependencies. The NimBLE glue (GLinkPlugin) owns the connection and feeds this class:
+// Pure: no Arduino/ESP/NimBLE dependencies. The NimBLE glue (GLinkGrinder, through GLinkGrinderCore) owns the connection and feeds this class:
 //   on_connected()  after the TX subscription is in place (it sends appHello),
 //   on_notify()     for every TX notification,
 //   on_disconnected(), tick() (about every 100 ms; the clock is injected, milliseconds, wrap-safe).

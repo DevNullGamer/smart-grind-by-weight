@@ -1,4 +1,4 @@
-"""GLink v1 client (docs/GLINK-PROTOCOL.md): handshake, one request at a time, response matching, timeouts, start / stop
+"""GLink v1 (revision 1.2) client (docs/GLINK-PROTOCOL.md): handshake, one request at a time, response matching, timeouts, start / stop
 with the lead-in decision, result catch-up after a link drop.
 
 Built on glink_codec (frame, reassembler). Nothing here imports Bluetooth at module level: the client talks to a
@@ -73,6 +73,15 @@ def dose_num(value, name="dose"):
 
 def size_num(value):
     return Num(value, "0.0", "999.9", "grindSize")
+
+
+def rpm_value(value):
+    """A whole number 0 to RPM_MAX (1.2); a float is accepted only when it is whole."""
+    if isinstance(value, float) and math.isfinite(value) and value == int(value):
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= codec.RPM_MAX:
+        raise GlinkUsageError("rpm must be a whole number 0 to %d" % codec.RPM_MAX)
+    return value
 
 
 class GlinkRefused(GlinkError):
@@ -405,9 +414,15 @@ class GlinkClient:
     async def profile_select(self, index: int) -> int:
         return (await self.call("grindProfile", {"op": "select", "index": index}))["selectProfile"]
 
+    def rpm_supported(self) -> bool:
+        """1.2: `rpm` may be sent only when baseInfo.protoMinor is 2 or more (absent = 1.1 or older)."""
+        minor = (self.base_info or {}).get("protoMinor", 1)
+        return isinstance(minor, int) and not isinstance(minor, bool) and minor >= 2
+
     async def profile_update(self, dose=None, grind_size=None, grind_unit=None, index: int = 3,
-                             clear_grind_size: bool = False, clear_grind_unit: bool = False):
-        """Update profile 3. Absent fields stay unchanged; `clear_*` sends null."""
+                             clear_grind_size: bool = False, clear_grind_unit: bool = False,
+                             rpm=None, clear_rpm: bool = False):
+        """Update profile 3. Absent fields stay unchanged; `clear_*` sends null. rpm needs a 1.2 grinder."""
         body = {"op": "update", "index": index}
         if dose is not None:
             body["dose"] = dose_num(dose)
@@ -419,6 +434,10 @@ class GlinkClient:
             body["grindUnit"] = None
         elif grind_unit is not None:
             body["grindUnit"] = grind_unit
+        if clear_rpm or rpm is not None:
+            if not self.rpm_supported():
+                raise GlinkUsageError("this grinder does not take rpm (baseInfo.protoMinor is below 2)")
+            body["rpm"] = None if clear_rpm else rpm_value(rpm)
         return await self.call("grindProfile", body)
 
     # -- grindControl (provisional, keep replaceable: 5.5) --
@@ -506,7 +525,8 @@ def _refusal(obj, reply) -> GlinkRefused:
 
 def _fmt_entry(e) -> str:
     size = "-" if e.get("grindSize") is None else "%s %s" % (e["grindSize"], e.get("grindUnit") or "")
-    return "  %d %-8s dose %5.1f g  grind size %s%s" % (e["index"], e["name"], e["dose"], size,
+    rpm = "  rpm %d" % e["rpm"] if e.get("rpm") is not None else ""
+    return "  %d %-8s dose %5.1f g  grind size %s%s%s" % (e["index"], e["name"], e["dose"], size, rpm,
                                                          "  (writable)" if e.get("writable") else "")
 
 

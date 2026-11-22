@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <Arduino.h>
 #include <esp_system.h>
+#include <esp_bt.h>
 #include <LittleFS.h>
 #include <nvs_flash.h>
 #include <nvs.h>
@@ -24,7 +25,9 @@
 #include "../controllers/grind_controller.h"
 #include "../network/portal_stop.h"
 #include "glink_decide.h"
+#include "glink_disconnect.h"
 #include "glink_gate.h"
+#include <host/ble_hs.h>
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -129,12 +132,33 @@ bool BluetoothManager::dequeue_ui_status(char* out, size_t out_len) {
     return false;
 }
 
+// The Arduino BLE server calls onDisconnect() with the connection descriptor only: the reason is dropped in between.
+// Every GAP event still reaches the NimBLE listeners, so the reason and the handle of each disconnect are logged here
+// (chg023). Runs in the NimBLE host task, like onDisconnect(); the line is logged whether or not the client was accepted.
+static ble_gap_event_listener gap_event_listener;
+
+static int gap_event_listener_fn(ble_gap_event* event, void* arg) {
+    if (event->type != BLE_GAP_EVENT_DISCONNECT) return 0;
+    char reason[48];
+    glink_disconnect_describe(reason, sizeof(reason), event->disconnect.reason);
+    static_cast<BluetoothManager*>(arg)->log("BLE: disconnect %s, conn handle %u\n", reason,
+                                             static_cast<unsigned>(event->disconnect.conn.conn_handle));
+    return 0;
+}
+
 // Creates the BLE stack, server, services and advertising data (once per boot; disable() keeps them). Leaves the
 // mode flags to the caller.
 void BluetoothManager::create_stack() {
     // First start since boot: initialize BLE with delays for power stability
     BLEDevice::init(BLE_DEVICE_NAME);
-    
+
+    // ble_hs_init() re-initialises the listener list (DEBUG_BLE_HARD_DEINIT runs it again), so the register simply succeeds
+    // again; BLE_HS_EALREADY is tolerated in case the list was kept
+    const int listener_rc = ble_gap_event_listener_register(&gap_event_listener, gap_event_listener_fn, this);
+    if (listener_rc != 0 && listener_rc != BLE_HS_EALREADY) {
+        log("BLE: disconnect reasons not logged (listener error %d)\n", listener_rc);
+    }
+
     // Request a larger MTU to improve throughput when the client supports it.
     // Some platforms (e.g., macOS/iOS) may ignore this request and keep a lower MTU.
     // That's fine — we also keep chunk sizes small and paced below.
@@ -544,6 +568,7 @@ void BluetoothManager::handle() {
         }
     }
 
+    radio_diag_tick(millis());
     glink_service_tick(millis());
 }
 
@@ -1598,6 +1623,45 @@ void BluetoothManager::glink_service_tick(uint32_t now_ms) {
         }
     }
     glink_pump_tx(now_ms);
+}
+
+// chg023 step 1b: radio diagnostics for the accepted client. Bluetooth task only (called from handle(), never from a
+// NimBLE callback). The TX power is logged once per connection; the RSSI every RADIO_DIAG_INTERVAL_MS. The timer uses a
+// signed difference, so the millis() wrap does not matter. A failed read is logged once per connection.
+void BluetoothManager::radio_diag_tick(uint32_t now_ms) {
+    constexpr uint32_t RADIO_DIAG_INTERVAL_MS = 5000;
+    if (!device_connected) return;
+
+    const uint32_t epoch = link_epoch.load();
+    if (epoch != rssi_epoch_seen_) {
+        rssi_epoch_seen_ = epoch;
+        rssi_due_ms_ = now_ms + RADIO_DIAG_INTERVAL_MS;
+        rssi_failure_logged_ = false;
+        int tx_dbm = 0;
+        char tx_text[16];
+        if (glink_tx_power_level_dbm(static_cast<int>(esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT)), &tx_dbm)) {
+            glink_format_dbm(tx_text, sizeof(tx_text), tx_dbm);
+            log("BLE: TX power %s\n", tx_text);
+        } else {
+            log("BLE: TX power unknown\n");
+        }
+    }
+
+    if (static_cast<int32_t>(now_ms - rssi_due_ms_) < 0) return;
+    rssi_due_ms_ = now_ms + RADIO_DIAG_INTERVAL_MS;
+
+    int8_t rssi = 0;
+    const int rc = ble_gap_conn_rssi(connection_id, &rssi);
+    if (rc != 0) {
+        if (!rssi_failure_logged_) {
+            rssi_failure_logged_ = true;
+            log("BLE: RSSI read failed (rc %d)\n", rc);
+        }
+        return;
+    }
+    char rssi_text[16];
+    glink_format_dbm(rssi_text, sizeof(rssi_text), rssi);
+    log("BLE: RSSI %s, conn handle %u\n", rssi_text, static_cast<unsigned>(connection_id));
 }
 
 String BluetoothManager::check_ota_failure_after_boot() {

@@ -260,10 +260,19 @@ After editing anything in `web/portal/`, run `python3 tools/portal/build_page.py
 GLink (GaggiMate link, chg020): the pure `src/bluetooth/glink_*` modules are in the native suite (`test_native/`), and `tools/tests/test_glink_*.py` keep the spec `docs/GLINK-PROTOCOL.md`, the constants in `src/config/bluetooth.h`, `tools/tests/glink_vectors.json` and the Python client/simulator (`tools/ble/glink_*.py`) equal; `test_glink_ble_task_guard.py` and `test_glink_start_guard.py` are text guards (Bluetooth task never calls LVGL/NVS/controllers; the start path). The GaggiMate plugin has its own checks, not run by CI (they need g++ or a GaggiMate clone):
 
 ```bash
-sh gaggimate-plugin/scripts/run_host_tests.sh                          # 44 plugin host tests with g++ (C++17), no PlatformIO
-sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]   # clone GaggiMate b78beee into a NEW directory, apply the patches, pio test + pio run
+sh gaggimate-plugin/scripts/run_host_tests.sh                          # 176 plugin host tests with g++ (C++17), no PlatformIO
+sh gaggimate-plugin/scripts/check_against_gaggimate.sh DEST [SOURCE]   # clone GaggiMate 2e64abd into a NEW directory, apply the patches, stage (+ pio)
 python3 tools/ble/grinder-ble.py glink-info --sim                      # client against the simulated grinder, no hardware
 ```
+
+The plugin is a driver for the BluetoothDevices grinder framework of GaggiMate's branch `feature/bluetooth-devices-grinder`, pinned at `2e64abd` (full SHA `2e64abd78f77df01b8f623bf5ffc2542f34d3275`); the README, both scripts and the contract test name the same commit. Four patches are carried (grind-finished event, controller registration, web model name, dose-only profiles); the staged check applies them in order. Details: `gaggimate-plugin/README.md` and `docs/DESIGN-NOTES.md` "GaggiMate grinder driver (chg025)".
+
+**The staged check (`check_against_gaggimate.sh`).** It clones GaggiMate, checks out the pin, applies the four patches in order (`git apply`), copies the plugin and its tests in, and then runs the PlatformIO gate (`pio test -e native -f test_grinderlink`, then `pio run -e display`; `GLINK_HEADLESS=1` adds `display-headless`). Rules:
+
+- **Fresh clone only.** `DEST` must be a new or empty directory; the script refuses anything else and never reuses a checkout. `SOURCE` (or `GAGGIMATE_SOURCE`) is only read from: use a local checkout for speed, or the URL. Never use your own GaggiMate clone as the work directory: it can hold uncommitted work that a checkout or `git apply` would damage. The clone is made with `core.autocrlf=false`, so the patches apply byte-exact; keep that when cloning by hand.
+- **Git Bash stages, PowerShell builds.** Under Git Bash (`MSYSTEM` set) `STAGE_ONLY` defaults to 1: the script stages, optionally builds the web UI (`WEB_BUILD=1`, which needs `npm`), and prints the PowerShell commands. Git Bash corrupts the PlatformIO `tool-esptoolpy` package, so run `pio` from PowerShell only. Set `STAGE_ONLY=0` to let the script run `pio` itself (from a shell where it works, such as a POSIX machine).
+- **Short paths on Windows.** Keep `DEST` and `PLATFORMIO_CORE_DIR` short (a `subst` drive helps), see the note under "Running the checks" in `gaggimate-plugin/README.md`.
+- Logs go to `DEST/.glink-check/`. The script exits 0 (passed or staged), 1 (a step failed) or 2 (BLOCKED, with the reason); a BLOCKED run is not a pass.
 
 `tools/tests/test_gaggimate_plugin_contract.py` (part of pytest) checks that the files shared by the plugin and the firmware are byte-identical. Use `tools/ble/grinder-ble.py glink-*` directly if `tools/grinder.py` cannot create its venv (it prints a noisy `detools` pip build error before working).
 

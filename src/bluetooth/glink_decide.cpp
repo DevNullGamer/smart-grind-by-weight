@@ -94,6 +94,13 @@ bool glink_decide_update(GlinkScreen screen, const GlinkProfileState& current, c
         if (request.grind_size_null) r.grind_unit[0] = '\0';
     }
     if (request.has_grind_unit) copy_unit(r.grind_unit, request.grind_unit);
+    // rpm is independent of size and unit: absent keeps it, null clears it.
+    r.has_rpm = current.exists && current.has_rpm;
+    r.rpm = r.has_rpm ? current.rpm : 0;
+    if (request.has_rpm) {
+        r.has_rpm = !request.rpm_null;
+        r.rpm = request.rpm_null ? 0 : request.rpm;
+    }
 
     if (r.grind_unit[0] != '\0' && !r.has_grind_size) {
         return glink_set_failure(failure, GlinkError::INVALID_PARAM, glink_msg::UNIT_NEEDS_SIZE, "grindUnit", object);
@@ -103,7 +110,8 @@ bool glink_decide_update(GlinkScreen screen, const GlinkProfileState& current, c
     plan.changed = !current.exists || r.dose_tenths != current.dose_tenths ||
                    r.has_grind_size != current.has_grind_size ||
                    (r.has_grind_size && r.grind_size_tenths != current.grind_size_tenths) ||
-                   strcmp(r.grind_unit, current.grind_unit) != 0;
+                   strcmp(r.grind_unit, current.grind_unit) != 0 || r.has_rpm != current.has_rpm ||
+                   (r.has_rpm && r.rpm != current.rpm);
 
     if (plan.changed && !write_interval_ok) {
         return glink_set_failure(failure, GlinkError::RATE_LIMITED, glink_msg::RATE_LIMITED, "", object);

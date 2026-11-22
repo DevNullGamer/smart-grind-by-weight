@@ -178,6 +178,8 @@ void check_response_against_vector(const std::string& text, const std::string& l
             if (!e.at("grindSize").is_null()) TEST_ASSERT_EQUAL_INT_MESSAGE(tenths_of(e.at("grindSize")), got.grind_size_tenths, label.c_str());
             TEST_ASSERT_EQUAL_STRING_MESSAGE(e.at("grindUnit").is_null() ? "" : e.at("grindUnit").s.c_str(), got.grind_unit, label.c_str());
             TEST_ASSERT_EQUAL_INT_MESSAGE(e.at("writable").b ? 1 : 0, got.writable ? 1 : 0, label.c_str());
+            TEST_ASSERT_EQUAL_INT_MESSAGE(e.find("rpm") ? 1 : 0, got.has_rpm ? 1 : 0, label.c_str());
+            if (e.find("rpm")) TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<long long>(e.at("rpm").n), got.rpm, label.c_str());
         }
         return;
     }
@@ -200,6 +202,8 @@ void check_response_against_vector(const std::string& text, const std::string& l
         TEST_ASSERT_FALSE_MESSAGE(m.response.entries_are_list, label.c_str());
         TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<long long>(data->at("index").n), m.response.entries[0].index, label.c_str());
         TEST_ASSERT_EQUAL_INT_MESSAGE(tenths_of(data->at("dose")), m.response.entries[0].dose_tenths, label.c_str());
+        TEST_ASSERT_EQUAL_INT_MESSAGE(data->find("rpm") ? 1 : 0, m.response.entries[0].has_rpm ? 1 : 0, label.c_str());
+        if (data->find("rpm")) TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<long long>(data->at("rpm").n), m.response.entries[0].rpm, label.c_str());
         if (const GJson* changed = data->find("changed")) {
             TEST_ASSERT_TRUE_MESSAGE(m.response.has_update_flags, label.c_str());
             TEST_ASSERT_EQUAL_INT_MESSAGE(changed->b ? 1 : 0, m.response.changed ? 1 : 0, label.c_str());
@@ -262,6 +266,8 @@ void test_every_vector_broadcast_parses() {
                 TEST_ASSERT_EQUAL_STRING(bi.at("snCode").s.c_str(), m.base.sn_code);
                 TEST_ASSERT_EQUAL_STRING("SGBW", m.base.device);
                 TEST_ASSERT_EQUAL_INT(1, m.base.proto);
+                TEST_ASSERT_EQUAL_INT(bi.find("protoMinor") ? static_cast<long long>(bi.at("protoMinor").n) : 0, m.base.proto_minor);
+                TEST_ASSERT_EQUAL_INT(bi.find("protoMinor") && bi.at("protoMinor").n >= 2 ? 1 : 0, m.base.rpm_supported() ? 1 : 0);
                 TEST_ASSERT_EQUAL_STRING(bi.at("fwVersion").s.c_str(), m.base.fw_version);
                 TEST_ASSERT_EQUAL_STRING(bi.at("board").s.c_str(), m.base.board);
                 TEST_ASSERT_EQUAL_INT(50, m.base.dose_min_tenths);
@@ -364,6 +370,231 @@ void test_retryable_failures() {
     TEST_ASSERT_FALSE(failure_is_retryable(nullptr));
 }
 
+// ---- chg026 step 4: rpm (spec 1.2) -----------------------------------------------------------------------------------------
+
+void test_rpm_builders_reproduce_vector_requests() {
+    char out[GLINK_MAX_REQUEST_BYTES];
+
+    ProfileUpdate all;  // dose, grindSize, grindUnit, rpm in this member order
+    all.has_dose = true; all.dose_tenths = 180;
+    all.has_size = true; all.size_tenths = 145;
+    all.has_unit = true; strcpy(all.unit, "um");
+    all.has_rpm = true; all.rpm = 600;
+    expect_request("profile_update_with_rpm", build_profile_update(out, sizeof(out), 3, all), out);
+    expect_request("profile_update_create_with_rpm", build_profile_update(out, sizeof(out), 3, all), out);
+
+    ProfileUpdate only;  // rpm only
+    only.has_rpm = true; only.rpm = 600;
+    expect_request("profile_update_rpm_only", build_profile_update(out, sizeof(out), 3, only), out);
+    expect_request("profile_update_rpm_without_size", build_profile_update(out, sizeof(out), 3, only), out);
+    expect_request("profile_update_rpm_unchanged", build_profile_update(out, sizeof(out), 3, only), out);
+
+    ProfileUpdate zero;
+    zero.has_rpm = true; zero.rpm = 0;
+    expect_request("profile_update_rpm_zero", build_profile_update(out, sizeof(out), 3, zero), out);
+    ProfileUpdate max;
+    max.has_rpm = true; max.rpm = 9999;
+    expect_request("profile_update_rpm_max", build_profile_update(out, sizeof(out), 3, max), out);
+    ProfileUpdate changed;
+    changed.has_rpm = true; changed.rpm = 650;
+    expect_request("profile_update_rpm_changes_value", build_profile_update(out, sizeof(out), 3, changed), out);
+
+    ProfileUpdate clear;  // rpm:null
+    clear.has_rpm = true; clear.rpm_null = true;
+    expect_request("profile_update_clear_rpm", build_profile_update(out, sizeof(out), 3, clear), out);
+    expect_request("profile_update_clear_rpm_when_none", build_profile_update(out, sizeof(out), 3, clear), out);
+
+    ProfileUpdate clear_size;  // grindSize:null does not touch rpm
+    clear_size.has_size = true; clear_size.size_null = true;
+    expect_request("profile_update_clear_size_keeps_rpm", build_profile_update(out, sizeof(out), 3, clear_size), out);
+
+    ProfileUpdate dose;
+    dose.has_dose = true; dose.dose_tenths = 185;
+    expect_request("profile_update_dose_keeps_rpm", build_profile_update(out, sizeof(out), 3, dose), out);
+
+    // The mirror update with both clears: member order grindSize before rpm, byte exact
+    ProfileUpdate both;
+    both.has_dose = true; both.dose_tenths = 190;
+    both.has_size = true; both.size_null = true;
+    both.has_rpm = true; both.rpm_null = true;
+    const size_t n = build_profile_update(out, sizeof(out), 3, both);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_STRING("{\"request\":{\"grindProfile\":{\"op\":\"update\",\"index\":3,\"dose\":19.0,\"grindSize\":null,\"rpm\":null}}}", out);
+}
+
+void test_every_vector_update_request_a_builder_can_produce_matches() {
+    // Every update vector whose request ProfileUpdate can express is rebuilt and compared byte for byte; the ones the builder
+    // refuses (an out-of-range value) are skipped, the ones that only differ in the number spelling (600.0) are not counted.
+    int rebuilt = 0;
+    for (const GJson& p : glink_vectors().at("pairs").a) {
+        if (p.at("request").is_null()) continue;
+        const std::string& req = p.at("request").s;
+        if (req.find("\"op\":\"update\"") == std::string::npos) continue;
+        const GJson doc = glink_json_parse_text(req);
+        const GJson& u = doc.at("request").at("grindProfile");
+        if (u.find("index") == nullptr) continue;
+        ProfileUpdate pu;
+        bool expressible = true;
+        for (const auto& kv : u.o) {
+            const std::string& k = kv.first;
+            const GJson& v = kv.second;
+            if (k == "op" || k == "index") continue;
+            if (k == "dose" && v.kind == GJson::NUM) { pu.has_dose = true; pu.dose_tenths = tenths_of(v); }
+            else if (k == "grindSize" && v.kind == GJson::NUM) { pu.has_size = true; pu.size_tenths = tenths_of(v); }
+            else if (k == "grindSize" && v.is_null()) { pu.has_size = true; pu.size_null = true; }
+            else if (k == "grindUnit" && v.kind == GJson::STR) { pu.has_unit = true; snprintf(pu.unit, sizeof(pu.unit), "%s", v.s.c_str()); }
+            else if (k == "grindUnit" && v.is_null()) { pu.has_unit = true; pu.unit_null = true; }
+            else if (k == "rpm" && v.kind == GJson::NUM && v.n == static_cast<double>(static_cast<int32_t>(v.n))) { pu.has_rpm = true; pu.rpm = static_cast<int32_t>(v.n); }
+            else if (k == "rpm" && v.is_null()) { pu.has_rpm = true; pu.rpm_null = true; }
+            else expressible = false;
+        }
+        if (!expressible) continue;
+        char out[GLINK_MAX_REQUEST_BYTES];
+        const size_t n = build_profile_update(out, sizeof(out), static_cast<int>(u.at("index").n), pu);
+        if (n == 0) continue;
+        if (req == out) rebuilt++;
+    }
+    TEST_ASSERT_TRUE(rebuilt >= 15);
+}
+
+void test_rpm_ok_and_the_builder_refuse_what_the_grinder_refuses() {
+    TEST_ASSERT_FALSE(rpm_ok(-1));
+    TEST_ASSERT_TRUE(rpm_ok(0));
+    TEST_ASSERT_TRUE(rpm_ok(600));
+    TEST_ASSERT_TRUE(rpm_ok(9999));
+    TEST_ASSERT_FALSE(rpm_ok(10000));
+    TEST_ASSERT_EQUAL_INT(static_cast<long long>(glink_vectors().at("limits").at("GLINK_RPM_MAX").n), GLINK_RPM_MAX);
+
+    char out[GLINK_MAX_REQUEST_BYTES];
+    ProfileUpdate u;
+    u.has_rpm = true;
+    u.rpm = -1;
+    TEST_ASSERT_FALSE(update_ok(u));
+    TEST_ASSERT_EQUAL_INT(0, build_profile_update(out, sizeof(out), 3, u));
+    u.rpm = 10000;
+    TEST_ASSERT_FALSE(update_ok(u));
+    TEST_ASSERT_EQUAL_INT(0, build_profile_update(out, sizeof(out), 3, u));
+    u.rpm = 0;
+    TEST_ASSERT_TRUE(update_ok(u));
+    u.rpm = 9999;
+    TEST_ASSERT_TRUE(update_ok(u));
+    // an invalid rpm next to a valid dose still refuses the whole request
+    u.has_dose = true; u.dose_tenths = 180; u.rpm = 10000;
+    TEST_ASSERT_EQUAL_INT(0, build_profile_update(out, sizeof(out), 3, u));
+    // rpm null is accepted whatever stale value the struct holds
+    ProfileUpdate clear;
+    clear.has_rpm = true; clear.rpm_null = true; clear.rpm = -5;
+    TEST_ASSERT_TRUE(update_ok(clear));
+    // a unit still needs a size next to an rpm
+    ProfileUpdate unit_rpm;
+    unit_rpm.has_unit = true; strcpy(unit_rpm.unit, "um");
+    unit_rpm.has_rpm = true; unit_rpm.rpm = 600;
+    TEST_ASSERT_EQUAL_INT(0, build_profile_update(out, sizeof(out), 3, unit_rpm));
+    // a request without rpm never carries the member
+    ProfileUpdate none;
+    none.has_dose = true; none.dose_tenths = 180;
+    TEST_ASSERT_TRUE(build_profile_update(out, sizeof(out), 3, none) > 0);
+    TEST_ASSERT_TRUE(strstr(out, "rpm") == nullptr);
+}
+
+void test_parser_entry_with_and_without_rpm() {
+    static Message m;
+    const char* with =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":14.5,\"grindUnit\":\"um\",\"rpm\":600,\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(with, strlen(with), m));
+    TEST_ASSERT_EQUAL_INT(1, m.response.entry_count);
+    TEST_ASSERT_TRUE(m.response.entries[0].has_rpm);
+    TEST_ASSERT_EQUAL_INT(600, m.response.entries[0].rpm);
+    TEST_ASSERT_TRUE(m.response.entries[0].has_grind_size);
+    TEST_ASSERT_TRUE(m.response.entries[0].writable);
+
+    const char* without =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":14.5,\"grindUnit\":\"um\",\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(without, strlen(without), m));
+    TEST_ASSERT_FALSE(m.response.entries[0].has_rpm);
+    TEST_ASSERT_EQUAL_INT(0, m.response.entries[0].rpm);
+
+    // rpm without a size (rpm 0 is a value, not "none"); rpm null is none
+    const char* rpm_only =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":null,\"grindUnit\":null,\"rpm\":0,\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(rpm_only, strlen(rpm_only), m));
+    TEST_ASSERT_FALSE(m.response.entries[0].has_grind_size);
+    TEST_ASSERT_TRUE(m.response.entries[0].has_rpm);
+    TEST_ASSERT_EQUAL_INT(0, m.response.entries[0].rpm);
+    const char* rpm_null =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":null,\"grindUnit\":null,\"rpm\":null,\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(rpm_null, strlen(rpm_null), m));
+    TEST_ASSERT_FALSE(m.response.entries[0].has_rpm);
+
+    // an out-of-range rpm in a reply is treated as absent (the entry itself still parses)
+    const char* big =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":null,\"grindUnit\":null,\"rpm\":10000,\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(big, strlen(big), m));
+    TEST_ASSERT_FALSE(m.response.entries[0].has_rpm);
+
+    // a single-entry response (update / get one) carries it too, and nothing is left over from a previous message
+    const char* one =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"grindSize\":14.5,\"grindUnit\":\"um\",\"rpm\":9999,\"writable\":true,\"changed\":true,\"stored\":true}}}}";
+    TEST_ASSERT_TRUE(parse_message(one, strlen(one), m));
+    TEST_ASSERT_TRUE(m.response.entries[0].has_rpm);
+    TEST_ASSERT_EQUAL_INT(9999, m.response.entries[0].rpm);
+    TEST_ASSERT_TRUE(parse_message(without, strlen(without), m));
+    TEST_ASSERT_FALSE(m.response.entries[0].has_rpm);
+}
+
+void test_parser_base_info_proto_minor() {
+    static Message m;
+    const char* head = "{\"broadcast\":{\"baseInfo\":{\"releaseVer\":640,\"snCode\":\"7c2a3f10b4d8\",\"wifiName\":null,\"device\":\"SGBW\",\"proto\":1";
+    const char* tail = ",\"fwVersion\":\"1.4.1\",\"board\":\"V2\",\"doseMin\":5.0,\"doseMax\":60.0,\"maxRequestBytes\":512}}}";
+    struct Case { const char* member; int minor; bool supported; };
+    const Case cases[] = {
+        {"", 0, false},                       // absent: a 1.1 grinder
+        {",\"protoMinor\":1", 1, false},
+        {",\"protoMinor\":2", 2, true},
+        {",\"protoMinor\":3", 3, true},       // larger: supported
+        {",\"protoMinor\":99", 99, true},
+        {",\"protoMinor\":0", 0, false},
+        {",\"protoMinor\":-1", 0, false},     // negative is ignored
+        {",\"protoMinor\":\"2\"", 0, false},  // wrong type is ignored
+        {",\"protoMinor\":null", 0, false},
+    };
+    for (const Case& c : cases) {
+        const std::string text = std::string(head) + c.member + tail;
+        TEST_ASSERT_TRUE_MESSAGE(parse_message(text.data(), text.size(), m), text.c_str());
+        TEST_ASSERT_EQUAL_INT_MESSAGE(c.minor, m.base.proto_minor, text.c_str());
+        TEST_ASSERT_EQUAL_INT_MESSAGE(c.supported ? 1 : 0, m.base.rpm_supported() ? 1 : 0, text.c_str());
+        TEST_ASSERT_EQUAL_INT_MESSAGE(1, m.base.proto, text.c_str());
+        TEST_ASSERT_EQUAL_STRING_MESSAGE("1.4.1", m.base.fw_version, text.c_str());
+        TEST_ASSERT_EQUAL_INT_MESSAGE(512, m.base.max_request_bytes, text.c_str());
+    }
+    // protoMinor after other members and unknown fields: still found
+    const char* mixed =
+        "{\"broadcast\":{\"baseInfo\":{\"extra\":\"x\",\"device\":\"SGBW\",\"proto\":1,\"future\":true,\"protoMinor\":2,\"more\":7}}}";
+    TEST_ASSERT_TRUE(parse_message(mixed, strlen(mixed), m));
+    TEST_ASSERT_TRUE(m.base.rpm_supported());
+    // nothing left over from a previous message
+    const std::string none = std::string(head) + tail;
+    TEST_ASSERT_TRUE(parse_message(none.data(), none.size(), m));
+    TEST_ASSERT_FALSE(m.base.rpm_supported());
+}
+
+void test_parser_unknown_fields_in_entries_are_still_ignored_next_to_rpm() {
+    static Message m;
+    const char* text =
+        "{\"response\":{\"grindProfile\":{\"result\":\"success\",\"data\":[{\"index\":3,\"name\":\"PROFILE\",\"dose\":18.0,"
+        "\"future\":\"x\",\"rpm\":600,\"another\":7,\"writable\":true}]}}}";
+    TEST_ASSERT_TRUE(parse_message(text, strlen(text), m));
+    TEST_ASSERT_TRUE(m.response.entries[0].has_rpm);
+    TEST_ASSERT_EQUAL_INT(600, m.response.entries[0].rpm);
+    TEST_ASSERT_TRUE(m.response.entries[0].writable);
+}
+
 void run_glink_plugin_messages_tests() {
     RUN_TEST(test_builders_reproduce_vector_requests);
     RUN_TEST(test_builders_refuse_what_the_grinder_refuses);
@@ -377,4 +608,10 @@ void run_glink_plugin_messages_tests() {
     RUN_TEST(test_garbage_is_refused);
     RUN_TEST(test_hostile_input_is_refused_without_overrun);
     RUN_TEST(test_retryable_failures);
+    RUN_TEST(test_rpm_builders_reproduce_vector_requests);
+    RUN_TEST(test_every_vector_update_request_a_builder_can_produce_matches);
+    RUN_TEST(test_rpm_ok_and_the_builder_refuse_what_the_grinder_refuses);
+    RUN_TEST(test_parser_entry_with_and_without_rpm);
+    RUN_TEST(test_parser_base_info_proto_minor);
+    RUN_TEST(test_parser_unknown_fields_in_entries_are_still_ignored_next_to_rpm);
 }

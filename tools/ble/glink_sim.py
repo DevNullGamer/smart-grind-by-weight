@@ -153,8 +153,9 @@ class GlinkSim:
         self.block = block
         self._publish()
 
-    def set_profile3(self, dose_tenths, size_tenths=None, unit=""):
-        self.profile3 = codec.ProfileState(True, dose_tenths, size_tenths is not None, size_tenths or 0, unit)
+    def set_profile3(self, dose_tenths, size_tenths=None, unit="", rpm=None):
+        self.profile3 = codec.ProfileState(True, dose_tenths, size_tenths is not None, size_tenths or 0, unit,
+                                           rpm is not None, rpm or 0)
         self.profile_rev += 1
         self._publish()
 
@@ -350,7 +351,7 @@ class GlinkSim:
 
     def _entry3(self):
         p = self.profile3
-        return codec.ProfileEntry(3, p.dose_tenths, p.has_grind_size, p.grind_size_tenths, p.grind_unit)
+        return codec.ProfileEntry(3, p.dose_tenths, p.has_grind_size, p.grind_size_tenths, p.grind_unit, p.has_rpm, p.rpm)
 
     def _profile_get(self, s, req):
         f = codec.state_check(self.screen, codec.OpClass.GET, "grindProfile")
@@ -394,7 +395,8 @@ class GlinkSim:
                 self._fail(s, "STORE_FAILED", "STORE_FAILED", obj="grindProfile")
                 return
             r = plan.result
-            self.profile3 = codec.ProfileState(True, r.dose_tenths, r.has_grind_size, r.grind_size_tenths, r.grind_unit)
+            self.profile3 = codec.ProfileState(True, r.dose_tenths, r.has_grind_size, r.grind_size_tenths, r.grind_unit,
+                                               r.has_rpm, r.rpm)
             self.profile_rev += 1
             self.last_store_ms = self.clock.now_ms()
         s.send(codec.encode_profile_update(plan.result, plan.changed, plan.changed))

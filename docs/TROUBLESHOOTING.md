@@ -377,7 +377,7 @@ The link is experimental: the GaggiMate side is a prototype and the remote start
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| GaggiMate cannot find the grinder | **Menu → Bluetooth → GaggiMate link** is off (default), or another device holds the single Bluetooth connection (a second one is disconnected) | Switch the link on; disconnect the other device. The GaggiMate card has its own scan |
+| GaggiMate cannot find the grinder | **Menu → Bluetooth → GaggiMate link** is off (default), or another device holds the single Bluetooth connection (a second one is disconnected) | Switch the link on; disconnect the other device. Scan and connect in GaggiMate's Bluetooth tab (the grinder card is retired) |
 | Update refused: "Disconnect Bluetooth first" | A GLink device is connected (the link keeps the connection open) | Disconnect it, or switch the link off |
 | Connection drops about 10 s after connecting | The device did not send the `appHello` handshake | Use a GLink client; the web flasher and `grinder.py` use the other Bluetooth services, which need **Bluetooth → Enabled**, not the link alone |
 | The OTA / data export / `grinder.py` commands find nothing with only the link on | The link mode opens only the GLink service | Turn **Bluetooth → Enabled** on |
