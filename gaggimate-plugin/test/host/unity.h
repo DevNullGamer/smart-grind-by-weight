@@ -32,7 +32,7 @@ void tearDown();
 #define TEST_ASSERT_EQUAL_INT32(e, a) TEST_ASSERT_EQUAL_INT((e), (a))
 #define TEST_ASSERT_EQUAL_UINT32(e, a) TEST_ASSERT_EQUAL_INT((e), (a))
 #define TEST_ASSERT_EQUAL_STRING_MESSAGE(e, a, m) do { const char* e_ = (e); const char* a_ = (a); \
-    if (strcmp(e_, a_) != 0) { char b_[600]; snprintf(b_, sizeof(b_), "%s (expected \"%s\", actual \"%s\")", (m), e_, a_); TEST_FAIL_MESSAGE(b_); } } while (0)
+    if (strcmp(e_, a_) != 0) { char b_[600]; snprintf(b_, sizeof(b_), "%.150s (expected \"%.150s\", actual \"%.150s\")", (m), e_, a_); TEST_FAIL_MESSAGE(b_); } } while (0)
 #define TEST_ASSERT_EQUAL_STRING(e, a) TEST_ASSERT_EQUAL_STRING_MESSAGE((e), (a), #a)
 
 #define UNITY_BEGIN() (unity_shim::failures() = 0, unity_shim::tests() = 0, 0)
